@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SunsetScore · 晚霞预测</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <header class="header">
+    <h1>🌇 SunsetScore</h1>
+    <p class="subtitle">你所在城市今天的晚霞怎么样？</p>
+  </header>
+
+  <main class="container">
+    <!-- 搜索区 -->
+    <section class="card search-card">
+      <form id="search-form" autocomplete="off">
+        <input id="city-input" type="text" placeholder="输入城市，例如 Taipei / 台北 / 25.03,121.56"
+               maxlength="60" aria-label="城市名或经纬度">
+        <button id="search-btn" type="submit">搜索</button>
+      </form>
+      <div class="chips" id="quick-chips">
+        <button type="button" data-city="Taipei">台北</button>
+        <button type="button" data-city="Tokyo">东京</button>
+        <button type="button" data-city="Shanghai">上海</button>
+        <button type="button" data-city="Beijing">北京</button>
+        <button type="button" data-city="Shenzhen">深圳</button>
+        <button type="button" data-city="San Francisco">旧金山</button>
+      </div>
+    </section>
+
+    <!-- 状态区 -->
+    <section id="status" class="status hidden">
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span id="loading-text">正在分析空间云场…</span>
+      </div>
+      <div id="error" class="error hidden"></div>
+    </section>
+
+    <!-- 结果区：单卡片内含 分数概览 / 评分构成 / 预测解读 / 详情 四个模块，横线分隔 -->
+    <section id="result" class="hidden">
+      <div class="card result-card">
+        <!-- 分数概览 -->
+        <div class="result-overview">
+          <div class="result-head">
+            <div>
+              <h2 id="r-city">—</h2>
+              <p id="r-meta" class="meta">—</p>
+            </div>
+            <div class="confidence" title="预测置信度">
+              <span class="confidence-label">置信度</span>
+              <span id="r-confidence">—</span>
+            </div>
+          </div>
+
+          <div class="score-row">
+            <div class="score-ring" id="score-ring">
+              <div class="score-inner">
+                <span id="r-score" class="score-value">—</span>
+                <span id="r-level" class="level-badge">—</span>
+              </div>
+            </div>
+            <div class="score-side">
+              <div class="info-line">
+                <span class="info-label">日落时间</span>
+                <span id="r-sunset" class="info-value">—</span>
+              </div>
+              <div class="info-line">
+                <span class="info-label">日落方位</span>
+                <span id="r-azimuth" class="info-value">—</span>
+              </div>
+              <div class="info-line">
+                <span class="info-label">最佳观赏</span>
+                <span id="r-viewing" class="info-value">—</span>
+              </div>
+              <div class="info-line">
+                <span class="info-label">天气型</span>
+                <span id="r-regime" class="info-value">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="result-divider">
+
+        <!-- 评分构成 -->
+        <div class="result-section">
+          <h3 class="card-title">评分构成</h3>
+          <div class="bars" id="r-bars"></div>
+        </div>
+
+        <hr class="result-divider">
+
+        <!-- 预测解读 -->
+        <div class="result-section">
+          <h3 class="card-title">预测解读</h3>
+          <ul class="reason-list" id="r-reasons"></ul>
+          <ul class="reason-list warn" id="r-warnings"></ul>
+        </div>
+
+        <hr class="result-divider">
+
+        <!-- 详情 -->
+        <div class="result-section">
+          <button id="details-toggle" class="details-toggle" type="button">为什么是这个分数？ ▾</button>
+          <div id="details" class="details hidden"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    数据来源：Open-Meteo（天气 / 空气质量 / 地理编码）· 模型版本 sunset-score-v1.7<br>
+    晚霞指数不是概率，而是"值不值得去看"的综合评分
+  </footer>
+
+  <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行 -->
+  <script src="js/config.js"></script>
+  <script src="js/vendor/suncalc.js"></script>
+  <script src="js/solar.js"></script>
+  <script src="js/cache.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
