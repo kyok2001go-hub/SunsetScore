@@ -1,0 +1,17 @@
+# SunsetScore - Cloudflare Pages 自定义响应头
+# 背景：V1.7 → V1.8 升级时，同名 JS 文件被浏览器/CDN 缓存，
+#       出现新 index.html 加载旧 data.js 的混用问题（fetchForecastWithRetry is not a function）。
+# 策略：HTML 每次访问都校验更新；JS/CSS 走 ?v=版本号 的 URL 版本化 + 长期不可变缓存。
+# 注意：每次发版必须同步递增 index.html 中的 ?v=x.x.x 参数。
+
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/js/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/css/*
+  Cache-Control: public, max-age=31536000, immutable
