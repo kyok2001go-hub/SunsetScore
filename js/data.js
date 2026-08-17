@@ -1,7 +1,8 @@
 /* ============================================================
- * SunsetScore V1.5 - 数据获取层（第 21/27 章）
+ * SunsetScore V1.8 - 数据获取层
  * 前端直接调用 Open-Meteo 三接口（支持 CORS，file:// 可用）
- * + 日落方向空间云场采样（第 8 章：13 个采样点）
+ * V1.8：Multi-Coordinate Batch（N 节点 → 1 次 Forecast 请求）
+ *       + 预报时间窗口裁剪；采样点选择交由 Sampling Controller
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -19,11 +20,23 @@
 
   function delay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
 
-  /* 带一次重试的预报请求：13 点并发可能触发 429 限流，错峰重试一次 */
+  /* 带一次重试的预报请求：保留供本地单点预报使用 */
   function fetchForecastWithRetry(lat, lon, retryDelayMs) {
     return SS.data.fetchForecast(lat, lon).catch(function () {
       return delay(retryDelayMs).then(function () { return SS.data.fetchForecast(lat, lon); });
     });
+  }
+
+  /* V1.8 指数退避重试（方案 14.1 节）：针对 429 / 网络错误 */
+  function fetchBatchForecastWithRetry(nodes) {
+    var rc = SS.config.samplingV18.batchRetry;
+    function attempt(n, delayMs) {
+      return SS.data.fetchBatchForecast(nodes).catch(function (err) {
+        if (n >= rc.maxAttempts) throw err;
+        return delay(delayMs).then(function () { return attempt(n + 1, delayMs * rc.backoffFactor); });
+      });
+    }
+    return attempt(0, rc.baseDelayMs);
   }
 
   /* 已知起点、方位角、距离，求目标点经纬度 */
@@ -48,6 +61,7 @@
 
   /**
    * 构建空间采样点：Local + 4 距离 × 3 方位 = 13 点（第 8 章）
+   * V1.8 起仅供回退/兼容使用，正常链路由 SS.sampling.selectNodes 选点
    */
   function buildSamplePoints(lat, lon, sunsetAzimuthDeg) {
     var cfg = SS.config;
@@ -67,6 +81,62 @@
   SS.data = {
     destinationPoint: destinationPoint,
     buildSamplePoints: buildSamplePoints,
+    fetchForecastWithRetry: fetchForecastWithRetry,
+    fetchBatchForecastWithRetry: fetchBatchForecastWithRetry,
+
+    /* V1.8 Multi-Coordinate Batch（方案 5 章）：N 个空间节点 → 1 次 Forecast 请求。
+       Open-Meteo 多坐标时返回与坐标对齐的数组，单坐标时返回单对象 */
+    fetchBatchForecast: function (nodes) {
+      if (!nodes.length) return Promise.resolve([]);
+      if (nodes.length === 1) {
+        return SS.data.fetchForecast(nodes[0].latitude, nodes[0].longitude)
+          .then(function (fc) { return [fc]; });
+      }
+      var lats = nodes.map(function (n) { return n.latitude.toFixed(4); }).join(',');
+      var lons = nodes.map(function (n) { return n.longitude.toFixed(4); }).join(',');
+      var url = SS.config.endpoints.forecast +
+        '?latitude=' + lats + '&longitude=' + lons +
+        '&hourly=' + SS.config.hourlyVariables +
+        '&forecast_days=2&timezone=auto';
+      return fetchJson(url).then(function (json) {
+        var arr = Array.isArray(json) ? json : [json];
+        if (arr.length !== nodes.length) {
+          throw new Error('批量预报返回 ' + arr.length + ' 个结果，与 ' + nodes.length + ' 个坐标不匹配');
+        }
+        return arr;
+      });
+    },
+
+    /* V1.8 时间窗口裁剪（方案 12 章）：只保留
+       [min(日落-lookback, 当前-nowLookback), max(日落+lookahead, 当前+nowLookahead)] 的小时。
+       hourly.time 为当地 ISO 字符串，需用各节点自身 utc_offset_seconds 换算成 UTC 比较 */
+    trimForecastWindow: function (forecast, nowUtcMs, sunsetUtcMs) {
+      var w = SS.config.forecastWindowV18;
+      if (!forecast || !forecast.hourly || !forecast.hourly.time) return forecast;
+      var offsetMs = (forecast.utc_offset_seconds || 0) * 1000;
+      var startUtc = Math.min(sunsetUtcMs - w.lookbackHours * 3600000, nowUtcMs - w.nowLookbackHours * 3600000);
+      var endUtc = Math.max(sunsetUtcMs + w.lookaheadHours * 3600000, nowUtcMs + w.nowLookaheadHours * 3600000);
+      var times = forecast.hourly.time;
+      var keep = [];
+      for (var i = 0; i < times.length; i++) {
+        var tUtc = Date.parse(times[i]) - offsetMs;
+        if (tUtc >= startUtc && tUtc <= endUtc) keep.push(i);
+      }
+      if (!keep.length || keep.length === times.length) return forecast;
+      var out = {}, k;
+      for (k in forecast) {
+        if (Object.prototype.hasOwnProperty.call(forecast, k) && k !== 'hourly') out[k] = forecast[k];
+      }
+      var hourly = {};
+      for (k in forecast.hourly) {
+        if (!Object.prototype.hasOwnProperty.call(forecast.hourly, k)) continue;
+        hourly[k] = Array.isArray(forecast.hourly[k])
+          ? keep.map(function (idx) { return forecast.hourly[k][idx]; })
+          : forecast.hourly[k];
+      }
+      out.hourly = hourly;
+      return out;
+    },
 
     /* 城市名 → 经纬度 + 时区（Open-Meteo Geocoding） */
     geocode: function (name) {
@@ -106,33 +176,25 @@
     },
 
     /**
-     * 并发获取全部数据：13 个采样点天气 + 本地空气质量。
-     * 单个采样点失败不影响整体（进入 confidence 的空间完整度扣分）。
-     * @returns {Promise<{samples: Array, air: Object|null}>}
+     * V1.8 空间采样数据获取：nodes 由 Sampling Controller 选定（1/7/13 点）。
+     * Local 节点复用已取的 localForecast，其余节点一次 Batch 请求（带指数退避）。
+     * 空气质量由 app.js 单独获取（独立缓存 TTL）。
+     * @returns {Promise<{samples: Array, expectedSampleCount: number}>}
      */
-    gather: function (lat, lon, sunsetAzimuthDeg, localForecast) {
-      var points = buildSamplePoints(lat, lon, sunsetAzimuthDeg);
-      var tasks = points.map(function (p, i) {
-        if (p.distanceKm === 0) {
-          /* 本地预报已取过，直接复用 */
-          return Promise.resolve({ point: p, forecast: localForecast });
-        }
-        /* 每个采样点错峰 120ms 发起，并为重试预留递增延迟 */
-        return delay(i * 120)
-          .then(function () { return fetchForecastWithRetry(p.latitude, p.longitude, 1500 + i * 120); })
-          .then(function (fc) { return { point: p, forecast: fc }; })
-          .catch(function () { return { point: p, forecast: null }; });
+    gather: function (nodes, localForecast) {
+      var samples = nodes.map(function (n) { return { point: n, forecast: null }; });
+      var remoteIdx = [];
+      nodes.forEach(function (n, i) {
+        if (n.distanceKm === 0) samples[i].forecast = localForecast;
+        else remoteIdx.push(i);
       });
-
-      return Promise.all([
-        Promise.all(tasks),
-        SS.data.fetchAirQuality(lat, lon).catch(function () { return null; })
-      ]).then(function (results) {
-        return {
-          samples: results[0],
-          air: results[1],
-          expectedSampleCount: points.length
-        };
+      if (!remoteIdx.length) {
+        return Promise.resolve({ samples: samples, expectedSampleCount: nodes.length });
+      }
+      var remoteNodes = remoteIdx.map(function (i) { return nodes[i]; });
+      return fetchBatchForecastWithRetry(remoteNodes).then(function (arr) {
+        remoteIdx.forEach(function (sampleIdx, j) { samples[sampleIdx].forecast = arr[j]; });
+        return { samples: samples, expectedSampleCount: nodes.length };
       });
     },
 

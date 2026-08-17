@@ -4,13 +4,14 @@
  * V1.6：新增 Spatial Cloud Field 空间语义参数（SPATIAL_FIELD_V16）
  * V1.61：新增空间演化能力参数（SPATIAL_FIELD_V161）
  * V1.7：新增 Weather Regime 动态权重参数（WEATHER_REGIME_V17）
+ * V1.8：新增自适应采样与缓存参数（SPATIAL_API_V18）
  * ============================================================ */
 (function (root) {
   'use strict';
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '1.7',
+    version: '1.8',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -194,7 +195,45 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v17_',
+    cachePrefix: 'sunsetscore_v18_',
+
+    /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
+    samplingV18: {
+      enabled: true,
+      /* [TUNE] STANDARD 模式 7 点选型：Local + 走廊全距离 + ±30° 云幕各 1 点。
+         选型理由：走廊分区权重 0.6 最高，且完整覆盖地平线距离权重表 4 档 */
+      standardCorridorDistancesKm: [50, 100, 200, 300],
+      standardBankDistancesKm: [100],
+      /* 节点重要性权重（供加权完整度，方案 17 章）：核心节点高、远场低 */
+      nodeWeights: { local: 1.0, corridor: 0.9, bank: 0.6 },
+      /* Smart Escalation（方案 8-9 章）：STANDARD 初算后满足任一条件即升级 13 点 */
+      escalation: {
+        maxEscalation: 1,
+        scoreConfidenceThreshold: 65,   /* [TUNE] 置信度低于该值升级（0-100） */
+        spatialVarianceThreshold: 25,   /* [TUNE] 低云 stdDev 超过该值升级 */
+        transitionScoreThreshold: 30    /* [TUNE] IMPROVING 过渡评分超过该值升级 */
+      },
+      /* LOCAL_ONLY 直判（方案 8.3 节）：浓厚阴天时空间采样价值低 */
+      localOnly: { cloudCoverMin: 90, visibilityMaxKm: 5, precipitationMinMm: 0.3 },
+      /* 批量请求失败：指数退避重试（方案 14.1 节） */
+      batchRetry: { maxAttempts: 2, baseDelayMs: 1500, backoffFactor: 2 }
+    },
+
+    /* ---------- V1.8 缓存策略（方案 10-11、15 章） ---------- */
+    cacheV18: {
+      ttlGeocodingDays: 7,
+      ttlSolarHours: 24,
+      ttlForecastMinutes: 60,           /* 临近日落时缩短 */
+      ttlForecastWithin6h: 30,
+      ttlForecastWithin3h: 15,
+      ttlAirQualityMinutes: 120,
+      staleMaxAgeHours: 24              /* 过期缓存（STALE）可回退使用的最长时限 */
+    },
+
+    /* ---------- V1.8 预报时间窗口（方案 12 章） ---------- */
+    /* 实际裁剪窗口 = [min(日落-6h, 当前-8h), max(日落+1h, 当前+2h)]，
+       向当前时刻额外延伸，保证 Regime/Clearing 等回看特征有足够历史小时 */
+    forecastWindowV18: { lookbackHours: 6, lookaheadHours: 1, nowLookbackHours: 8, nowLookaheadHours: 2 },
 
     /* ---------- API 端点 ---------- */
     endpoints: {

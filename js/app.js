@@ -1,7 +1,10 @@
 /* ============================================================
- * SunsetScore V1.7 - UI 逻辑与主流程编排
- * 链路：geocode → 本地预报（取时区）→ 太阳计算 → 空间采样 → 评分 → 渲染
- * V1.7：展示天气型强度、Regime Transition 与动态权重占比
+ * SunsetScore V1.8 - UI 逻辑与主流程编排
+ * 链路：geocode → 本地预报（取时区）→ 太阳几何 → Regime 预判
+ *       → Sampling Controller（LOCAL_ONLY/7点/13点）→ Batch 空间采样
+ *       → 评分 → Confidence Check（必要时 7→13 升级）→ 渲染
+ * V1.8：数据层优化（批量请求 / 分级缓存 / 降级链 / Debug 面板），
+ *       V1.7 评分引擎不变
  * ============================================================ */
 (function () {
   'use strict';
@@ -75,76 +78,343 @@
     return { name: lat.toFixed(2) + ', ' + lon.toFixed(2), country: '', admin1: '', latitude: lat, longitude: lon };
   }
 
+  /* ---------- V1.8 数据层编排（方案 8、13-15、21 章） ---------- */
+  var DEBUG_MODE = /[?&]debug=1/.test(location.search);
+  var cfg18 = cfg.samplingV18;
+  var cache18 = cfg.cacheV18;
+
+  function newDebugInfo() {
+    return { samplingMode: '—', requestedNodes: 0, apiRequests: 0, caches: [] };
+  }
+
+  /* 预报缓存 TTL：临近日落时缩短（方案 11 章） */
+  function forecastTtlMinutes(sunsetMs, nowMs) {
+    var h = (sunsetMs - nowMs) / 3600000;
+    if (h >= 0 && h < 3) return cache18.ttlForecastWithin3h;
+    if (h >= 0 && h < 6) return cache18.ttlForecastWithin6h;
+    return cache18.ttlForecastMinutes;
+  }
+
+  /* 通用取数包装：FRESH 缓存 → API → STALE 回退（方案 13、15 章）。
+     STALE 仅在网络请求失败时使用，并同步降低 confidence */
+  function fetchWithCache(key, ttlMinutes, staleMaxHours, fetcher, dbg, tag) {
+    var hit = SS.cache.getWithStatus(key, staleMaxHours);
+    if (hit.status === 'FRESH') {
+      if (dbg) dbg.caches.push(tag + ':FRESH');
+      return Promise.resolve({ value: hit.value, cacheStatus: 'FRESH', ageMinutes: hit.ageMinutes });
+    }
+    return fetcher().then(function (value) {
+      SS.cache.set(key, value, ttlMinutes);
+      if (dbg) dbg.caches.push(tag + ':MISS');
+      return { value: value, cacheStatus: 'MISS', ageMinutes: 0 };
+    }).catch(function (err) {
+      if (hit.status === 'STALE') {
+        if (dbg) dbg.caches.push(tag + ':STALE(' + hit.ageMinutes + 'min)');
+        return { value: hit.value, cacheStatus: 'STALE', ageMinutes: hit.ageMinutes };
+      }
+      throw err;
+    });
+  }
+
+  /* 太阳几何：计算与缓存序列化（Date ↔ ISO 字符串） */
+  function computeSolar(loc, nowUtc, offset) {
+    var localNow = SS.data.toLocalShifted(nowUtc, offset);
+    var noonUtcMs = Date.UTC(
+      localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12
+    ) - offset * 1000;
+    return SS.solar.getSunEvents(new Date(noonUtcMs), loc.latitude, loc.longitude);
+  }
+  function serializeSolar(s) {
+    return {
+      sunset: s.sunset.toISOString(), civilDusk: s.civilDusk.toISOString(),
+      sunsetAzimuthDeg: s.sunsetAzimuthDeg, twilightMinutes: s.twilightMinutes
+    };
+  }
+  function restoreSolar(v) {
+    return {
+      sunset: new Date(v.sunset), civilDusk: new Date(v.civilDusk),
+      sunsetAzimuthDeg: v.sunsetAzimuthDeg, twilightMinutes: v.twilightMinutes
+    };
+  }
+
+  /* 空间场取数：空间缓存 FRESH → Batch API → STALE 回退 */
+  function gatherSpatial(nodes, localForecast, spatialKey, ttlMinutes, dbg) {
+    var hit = SS.cache.getWithStatus(spatialKey, cache18.staleMaxAgeHours);
+    function assemble(forecasts) {
+      return nodes.map(function (n, i) {
+        /* Local 节点始终用最新本地预报，不复用空间缓存中的旧副本 */
+        return { point: n, forecast: n.distanceKm === 0 ? localForecast : ((forecasts && forecasts[i]) || null) };
+      });
+    }
+    if (hit.status === 'FRESH') {
+      dbg.caches.push('spatial:FRESH(' + hit.ageMinutes + 'min)');
+      return Promise.resolve({ samples: assemble(hit.value.forecasts), cacheStatus: 'FRESH', ageMinutes: hit.ageMinutes });
+    }
+    return SS.data.gather(nodes, localForecast).then(function (gathered) {
+      if (nodes.length > 1) dbg.apiRequests++; /* 一次 Batch（LOCAL_ONLY 无远程请求） */
+      SS.cache.set(spatialKey, {
+        forecasts: gathered.samples.map(function (s) { return s.forecast; })
+      }, ttlMinutes);
+      dbg.caches.push('spatial:MISS');
+      return { samples: gathered.samples, cacheStatus: 'MISS', ageMinutes: 0 };
+    }).catch(function (err) {
+      if (hit.status === 'STALE') {
+        dbg.caches.push('spatial:STALE(' + hit.ageMinutes + 'min)');
+        return { samples: assemble(hit.value.forecasts), cacheStatus: 'STALE', ageMinutes: hit.ageMinutes };
+      }
+      throw err;
+    });
+  }
+
+  /* 降级链（方案 14 章）：FULL 失败 → STANDARD → LOCAL_ONLY，绝不直接失败 */
+  function gatherWithFallback(mode, loc, solar, localForecast, dateStr, ttlMinutes, dbg) {
+    var nodes = SS.sampling.selectNodes(mode, loc.latitude, loc.longitude, solar.sunsetAzimuthDeg);
+    var key = SS.cacheKeys.spatial(dateStr, loc.latitude, loc.longitude, solar.sunsetAzimuthDeg, mode.toLowerCase());
+    return gatherSpatial(nodes, localForecast, key, ttlMinutes, dbg)
+      .then(function (res) {
+        res.finalMode = mode;
+        res.nodeCount = nodes.length;
+        return res;
+      })
+      .catch(function () {
+        if (mode === 'FULL') return gatherWithFallback('STANDARD', loc, solar, localForecast, dateStr, ttlMinutes, dbg);
+        if (mode === 'STANDARD') return gatherWithFallback('LOCAL_ONLY', loc, solar, localForecast, dateStr, ttlMinutes, dbg);
+        throw new Error('天气 API 暂不可用，请稍后重试');
+      });
+  }
+
+  /* 传入引擎前裁剪预报时间窗口（方案 12 章） */
+  function trimSamples(samples, nowUtc, sunset) {
+    return samples.map(function (s) {
+      return {
+        point: s.point,
+        forecast: s.forecast ? SS.data.trimForecastWindow(s.forecast, nowUtc.valueOf(), sunset.valueOf()) : null
+      };
+    });
+  }
+
+  /* 组装引擎输入并补全展示字段 */
+  function buildResult(ectx, samples, mode, cacheStatus, ageMinutes, escalated, escalationReason) {
+    var result = SS.engine.compute({
+      location: ectx.location,
+      utcOffsetSeconds: ectx.offset,
+      localNowUtc: ectx.nowUtc,
+      solar: ectx.solar,
+      sunsetLocal: ectx.sunsetLocal,
+      samples: samples,
+      air: ectx.air,
+      expectedSampleCount: samples.length,
+      spatialCompleteness: SS.sampling.weightedCompleteness(samples),
+      samplingMode: mode,
+      cacheStatus: cacheStatus,
+      dataAgeMinutes: ageMinutes,
+      escalated: escalated,
+      escalationReason: escalationReason
+    });
+    var viewing = SS.engine.bestViewing(ectx.solar, cfg);
+    result.best_viewing = {
+      start: fmtHM(SS.data.toLocalShifted(viewing.startUtc, ectx.offset)),
+      peak: fmtHM(SS.data.toLocalShifted(viewing.peakUtc, ectx.offset)),
+      end: fmtHM(SS.data.toLocalShifted(viewing.endUtc, ectx.offset))
+    };
+    result.sunset_local = fmtHM(ectx.sunsetLocal);
+    result.date = fmtDate(ectx.localNow);
+    return result;
+  }
+
+  /* Smart Escalation：7 → 13，只补取缺失节点（方案 9、20 章）。
+     升级失败时返回 null，保留 7 点结果 */
+  function escalateToFull(ectx, prelimSamples, prelim, esc, ttlMinutes, dbg) {
+    var fullNodes = SS.sampling.selectNodes('FULL', ectx.location.latitude, ectx.location.longitude, ectx.solar.sunsetAzimuthDeg);
+    function keyOf(p) { return p.distanceKm + ':' + p.azimuthOffset; }
+    var have = {};
+    prelimSamples.forEach(function (s) { have[keyOf(s.point)] = s; });
+    var missing = fullNodes.filter(function (n) { return !have[keyOf(n)]; });
+    if (!missing.length) return Promise.resolve(null);
+
+    setLoading('检测到复杂天空，升级为完整 13 点采样…');
+    return SS.data.fetchBatchForecastWithRetry(missing)
+      .then(function (forecasts) {
+        dbg.apiRequests++;
+        var byKey = {};
+        missing.forEach(function (n, j) { byKey[keyOf(n)] = forecasts[j]; });
+        var fullSamples = fullNodes.map(function (n) {
+          return have[keyOf(n)] || { point: n, forecast: byKey[keyOf(n)] || null };
+        });
+        /* 合并结果写入 full 模式缓存，后续同模式查询直接命中 */
+        var fullKey = SS.cacheKeys.spatial(ectx.dateStr, ectx.location.latitude, ectx.location.longitude,
+          ectx.solar.sunsetAzimuthDeg, 'full');
+        SS.cache.set(fullKey, {
+          forecasts: fullSamples.map(function (s) { return s.forecast; })
+        }, ttlMinutes);
+        var trimmed = trimSamples(fullSamples, ectx.nowUtc, ectx.solar.sunset);
+        return buildResult(ectx, trimmed, 'FULL', prelim.cache_status, prelim.data_age || 0, true, esc.reason);
+      })
+      .catch(function () { return null; });
+  }
+
+  /* ---------- V1.8 Debug 信息（方案 26 章） ---------- */
+  function renderDebugPanel(dbg, result) {
+    var summary = {
+      'Sampling Mode': dbg.samplingMode + (result.escalated ? ' → FULL' : ''),
+      'Requested Nodes': dbg.requestedNodes + (result.escalated ? ' → ' + result.data.samples_expected : ''),
+      'API Requests': dbg.apiRequests,
+      'Cache': dbg.caches.join(' · ') || '—',
+      'Spatial Completeness': result.spatial_completeness != null ? result.spatial_completeness : '—',
+      'Spatial Variance': result.spatial_variance != null ? result.spatial_variance : '—',
+      'Score Confidence': result.confidence,
+      'Escalated': result.escalated ? 'YES' : 'NO',
+      'Escalation Reason': result.escalation_reason || '—'
+    };
+    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V1.8]', summary);
+    if (!DEBUG_MODE) return;
+    var panel = $('debug-panel');
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = 'debug-panel';
+      panel.style.cssText = 'margin-top:16px;padding:14px 18px;border:1px dashed rgba(255,255,255,0.25);' +
+        'border-radius:12px;font:12px/1.9 ui-monospace,Consolas,monospace;color:#9fb3c8;';
+      resultEl.parentNode.insertBefore(panel, resultEl.nextSibling);
+    }
+    var html = '<strong style="color:#e8eef5">Debug 信息（?debug=1）</strong><br>';
+    Object.keys(summary).forEach(function (k) {
+      html += k + ': <span style="color:#e8eef5">' + summary[k] + '</span><br>';
+    });
+    panel.innerHTML = html;
+    show(panel);
+  }
+
   /* ---------- 主流程 ---------- */
+  function finish(result, fullKey, offset, dbg) {
+    SS.cache.set(fullKey, result);
+    renderResult(result, offset, false);
+    renderDebugPanel(dbg, result);
+    return null;
+  }
+
   function predict(query) {
     clearStatus();
     hide(resultEl);
     btn.disabled = true;
 
     var coords = parseCoordinates(query);
-    var cacheKey = query.trim().toLowerCase().replace(/\s+/g, '_');
+    var resultCacheKey = query.trim().toLowerCase().replace(/\s+/g, '_');
+    var dbg = newDebugInfo();
+    var oldPanel = $('debug-panel');
+    if (oldPanel) hide(oldPanel);
 
     Promise.resolve()
       .then(function () {
         setLoading('正在解析地理位置…');
-        return coords || SS.data.geocode(query.trim());
+        if (coords) return Promise.resolve({ value: coords });
+        return fetchWithCache(
+          SS.cacheKeys.geocode(query.trim()),
+          cache18.ttlGeocodingDays * 24 * 60,
+          cache18.ttlGeocodingDays * 24,
+          function () { dbg.apiRequests++; return SS.data.geocode(query.trim()); },
+          dbg, 'geocode'
+        );
       })
-      .then(function (location) {
-        /* 先取本地预报，拿到该地时区偏移 */
-        setLoading('正在获取天气数据…');
-        return SS.data.fetchForecast(location.latitude, location.longitude)
-          .then(function (localForecast) {
-            var offset = localForecast.utc_offset_seconds || 0;
-            var nowUtc = new Date();
-            var localNow = SS.data.toLocalShifted(nowUtc, offset);
+      .then(function (locRes) {
+        var location = locRes.value;
+        var nowUtc = new Date();
+        var dateStr = fmtDate(nowUtc); /* UTC 日期：跨日缓存自然隔离 */
+        setLoading('正在获取本地天气…');
 
-            /* 缓存 key 加上当地日期：跨日自动失效 */
-            var fullKey = cacheKey + '_' + fmtDate(localNow);
-            var cached = SS.cache.get(fullKey);
-            if (cached) {
-              renderResult(cached, offset, true);
-              return null;
-            }
+        return fetchWithCache(
+          SS.cacheKeys.forecast(dateStr, location.latitude, location.longitude),
+          cache18.ttlForecastMinutes,
+          cache18.staleMaxAgeHours,
+          function () {
+            dbg.apiRequests++;
+            return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500);
+          },
+          dbg, 'forecast'
+        ).then(function (fcRes) {
+          var localForecast = fcRes.value;
+          var offset = localForecast.utc_offset_seconds || 0;
+          var localNow = SS.data.toLocalShifted(nowUtc, offset);
 
-            /* 当地正午对应的 UTC 时刻，作为太阳计算的基准日 */
-            var noonUtcMs = Date.UTC(
-              localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12
-            ) - offset * 1000;
+          /* 结果级缓存：同城重复查询的快速路径 */
+          var fullKey = resultCacheKey + '_' + fmtDate(localNow);
+          var cached = SS.cache.get(fullKey);
+          if (cached) {
+            renderResult(cached, offset, true);
+            dbg.samplingMode = cached.sampling_mode || 'CACHE';
+            renderDebugPanel(dbg, cached);
+            return null;
+          }
 
-            var solar = SS.solar.getSunEvents(new Date(noonUtcMs), location.latitude, location.longitude);
-            if (!solar) {
-              throw new Error('该地区当前处于极昼或极夜，今天没有日落');
-            }
+          /* 太阳几何（24h 缓存，纯本地计算不消耗 API） */
+          var solarKey = SS.cacheKeys.solar(dateStr, location.latitude, location.longitude);
+          return fetchWithCache(solarKey, cache18.ttlSolarHours * 60, cache18.ttlSolarHours, function () {
+            var s = computeSolar(location, nowUtc, offset);
+            if (!s) throw new Error('该地区当前处于极昼或极夜，今天没有日落');
+            return Promise.resolve(serializeSolar(s));
+          }, dbg, 'solar').then(function (solarRes) {
+            var solar = restoreSolar(solarRes.value);
+            var sunsetLocal = SS.data.toLocalShifted(solar.sunset, offset);
 
-            setLoading('正在采样日落方向的空间云场（13 个观测点）…');
-            return SS.data.gather(location.latitude, location.longitude, solar.sunsetAzimuthDeg, localForecast)
-              .then(function (gathered) {
-                setLoading('正在计算晚霞指数…');
-                var result = SS.engine.compute({
-                  location: location,
-                  utcOffsetSeconds: offset,
-                  localNowUtc: nowUtc,
-                  solar: solar,
-                  sunsetLocal: SS.data.toLocalShifted(solar.sunset, offset),
-                  samples: gathered.samples,
-                  air: gathered.air,
-                  expectedSampleCount: gathered.expectedSampleCount
-                });
+            /* 临近日落缩短预报 TTL：用精细化 TTL 重写缓存 */
+            var ttl = forecastTtlMinutes(solar.sunset.valueOf(), nowUtc.valueOf());
+            SS.cache.set(SS.cacheKeys.forecast(dateStr, location.latitude, location.longitude), localForecast, ttl);
 
-                var viewing = SS.engine.bestViewing(solar, cfg);
-                result.best_viewing = {
-                  start: fmtHM(SS.data.toLocalShifted(viewing.startUtc, offset)),
-                  peak: fmtHM(SS.data.toLocalShifted(viewing.peakUtc, offset)),
-                  end: fmtHM(SS.data.toLocalShifted(viewing.endUtc, offset))
-                };
-                result.sunset_local = fmtHM(SS.data.toLocalShifted(solar.sunset, offset));
-                result.date = fmtDate(localNow);
+            setLoading('正在获取空气质量…');
+            var airKey = SS.cacheKeys.air(dateStr, location.latitude, location.longitude);
+            return fetchWithCache(airKey, cache18.ttlAirQualityMinutes, cache18.staleMaxAgeHours, function () {
+              dbg.apiRequests++;
+              return SS.data.fetchAirQuality(location.latitude, location.longitude);
+            }, dbg, 'air').catch(function () {
+              /* AQ 失败容忍（也不缓存 null）：视为无数据，不影响主流程 */
+              return { value: null, cacheStatus: 'MISS', ageMinutes: 0 };
+            }).then(function (airRes) {
 
-                SS.cache.set(fullKey, result);
-                renderResult(result, offset, false);
-                return null;
+              /* Sampling Controller：本地 Regime 预判 → 采样模式（方案 8 章） */
+              var reg = SS.sampling.estimateLocalRegime({
+                localForecast: localForecast, utcOffsetSeconds: offset,
+                nowUtc: nowUtc, sunsetLocal: sunsetLocal
               });
+              var mode = cfg18.enabled ? SS.sampling.decideSamplingMode(reg) : 'FULL';
+              var plannedCount = SS.sampling.selectNodes(
+                mode, location.latitude, location.longitude, solar.sunsetAzimuthDeg).length;
+              setLoading(mode === 'LOCAL_ONLY'
+                ? '阴天浓厚，仅基于本地天气评估…'
+                : '正在采样日落方向的空间云场（' + plannedCount + ' 个观测点 · 批量请求）…');
+
+              var ectx = {
+                location: location, offset: offset, nowUtc: nowUtc, localNow: localNow,
+                solar: solar, sunsetLocal: sunsetLocal, air: airRes.value, dateStr: dateStr
+              };
+
+              return gatherWithFallback(mode, location, solar, localForecast, dateStr, ttl, dbg)
+                .then(function (spatialRes) {
+                  dbg.samplingMode = spatialRes.finalMode;
+                  dbg.requestedNodes = spatialRes.nodeCount;
+                  setLoading('正在计算晚霞指数…');
+
+                  var samples = trimSamples(spatialRes.samples, nowUtc, solar.sunset);
+                  var result = buildResult(ectx, samples, spatialRes.finalMode,
+                    spatialRes.cacheStatus, spatialRes.ageMinutes, false, null);
+                  result.data_age = spatialRes.ageMinutes;
+                  /* 降级提示：因 API 失败退到更少采样点时明示用户 */
+                  if (spatialRes.finalMode !== mode ||
+                      (spatialRes.finalMode === 'LOCAL_ONLY' && mode !== 'LOCAL_ONLY')) {
+                    result.warnings.push('空间采样数据不完整，已基于可用数据评估，置信度有所降低');
+                  }
+
+                  /* Confidence Check：必要时 7 → 13 重算（方案 9 章，最多升级 1 次） */
+                  var esc = (cfg18.enabled && spatialRes.finalMode === 'STANDARD')
+                    ? SS.sampling.shouldEscalate(result)
+                    : { escalate: false, reason: null };
+                  if (!esc.escalate) return finish(result, fullKey, offset, dbg);
+
+                  return escalateToFull(ectx, samples, result, esc, ttl, dbg).then(function (fullResult) {
+                    return finish(fullResult || result, fullKey, offset, dbg);
+                  });
+                });
+            });
           });
+        });
       })
       .catch(function (err) {
         if (typeof console !== 'undefined' && console.error) console.error('[SunsetScore]', err);
@@ -168,13 +438,17 @@
     show(resultEl);
 
     $('r-city').textContent = r.city + (r.admin1 && r.admin1 !== r.city ? ' · ' + r.admin1 : '');
-    $('r-meta').textContent =
-      (r.country ? r.country + ' · ' : '') + r.date + (fromCache ? ' · 缓存结果' : '');
-
     $('r-score').textContent = r.score;
     var badge = $('r-level');
     badge.textContent = r.level;
     badge.className = 'level-badge ' + (LEVEL_CLASS[r.level] || 'lv-fair');
+
+    /* V1.8：meta 行展示采样模式与 STALE 回退状态 */
+    var metaExtra = '';
+    if (r.sampling_mode) metaExtra += ' · ' + r.sampling_mode + ' 采样';
+    if (r.cache_status === 'STALE') metaExtra += ' · 过期缓存回退';
+    $('r-meta').textContent =
+      (r.country ? r.country + ' · ' : '') + r.date + metaExtra + (fromCache ? ' · 缓存结果' : '');
 
     var ring = $('score-ring');
     var color = ringColor(r.score);
@@ -266,6 +540,13 @@
       '<span>相对湿度</span><span>' + (d.humidity != null ? d.humidity + ' %' : '—') + '</span>' +
       '<span>民用昏影时长</span><span>' + d.twilight_minutes + ' 分钟</span>' +
       '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + '</span>' +
+      '<span>采样模式（V1.8）</span><span>' + (r.sampling_mode || '—') +
+        (r.escalated ? ' → FULL（' + (r.escalation_reason || '') + '）' : '') + '</span>' +
+      '<span>空间完整度 / 方差</span><span>' +
+        (r.spatial_completeness != null ? r.spatial_completeness : '—') + ' / ' +
+        (r.spatial_variance != null ? r.spatial_variance : '—') + '</span>' +
+      '<span>数据新鲜度 / 缓存</span><span>' +
+        (r.data_freshness != null ? r.data_freshness : '—') + ' / ' + (r.cache_status || '—') + '</span>' +
       '</div>' +
       '<p class="detail-note">公式：' + (rs
         ? 'Score = (Σ 组件×动态权重) × Q × G<sub>H</sub> + 结构加分 + 过渡加分 − P<sub>weather</sub>'

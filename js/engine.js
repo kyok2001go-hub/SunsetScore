@@ -1,6 +1,9 @@
 /* ============================================================
  * SunsetScore V1.7 - 评分引擎
  *
+ * V1.8：数据层优化（Batch/采样/缓存），Engine 仅新增采样与缓存
+ *   元信息输出（sampling_mode / spatial_completeness / data_freshness 等），
+ *   评分公式、权重与 Regime 逻辑保持不变。
  * V1.7 公式（weatherRegimeV17.enabled=true）：
  *   Score = Clamp[ (Σ component_i × DynamicWeight_i) × Q × G_H
  *                  + B_structure + B_transition − P_weather, 0, 100 ]
@@ -134,7 +137,9 @@
    *   location, utcOffsetSeconds, localNowUtc(Date),
    *   solar {sunset, civilDusk, sunsetAzimuthDeg, twilightMinutes},
    *   sunsetLocal(伪当地 Date), samples [{point, forecast}],
-   *   air (AQ 响应|null), expectedSampleCount
+   *   air (AQ 响应|null), expectedSampleCount,
+   *   V1.8 可选元信息：spatialCompleteness(0~1), samplingMode,
+   *   cacheStatus('FRESH'|'STALE'|'MISS'), dataAgeMinutes, escalated, escalationReason
    * } */
   function compute(input) {
     var cfg = SS.config;
@@ -744,14 +749,22 @@
     var completeness = present / available.length * 100;
 
     var fetched = input.samples.filter(function (s) { return !!s.forecast; }).length;
-    var spatial = fetched / input.expectedSampleCount * 100;
+    /* V1.8：优先使用加权完整度（核心节点权重高），未传入时回退简单比例 */
+    var spatial = input.spatialCompleteness != null
+      ? input.spatialCompleteness * 100
+      : fetched / input.expectedSampleCount * 100;
 
     var lowArr = input.samples.map(function (s) { return valueAt(s, 'low'); }).filter(valid);
-    var consistency = clamp(100 - stdDev(lowArr) * 1.5, 0, 100);
+    var spatialVariance = stdDev(lowArr);
+    var consistency = clamp(100 - spatialVariance * 1.5, 0, 100);
 
     var hoursToSunset = (input.solar.sunset.valueOf() - input.localNowUtc.valueOf()) / 3600000;
     var proximity = hoursToSunset < 0 ? 60 : (hoursToSunset <= 24 ? 100 : clamp(100 - (hoursToSunset - 24) * 5, 0, 100));
     var freshness = 90; /* 小时级预报默认为新鲜数据 */
+    /* V1.8：STALE 缓存回退数据的新鲜度衰减（仅影响 confidence，不影响 score） */
+    if (input.cacheStatus === 'STALE' && valid(input.dataAgeMinutes)) {
+      freshness = clamp(90 - Math.max(0, input.dataAgeMinutes - cfg.cacheTtlMinutes) / 60 * 10, 30, 90);
+    }
 
     var confidence = Math.round(
       0.30 * completeness + 0.15 * freshness + 0.20 * spatial + 0.20 * consistency + 0.15 * proximity
@@ -800,6 +813,17 @@
       score: score,
       confidence: confidence,
       level: level,
+
+      /* V1.8 数据层元信息（方案 9、15、17 章），仅供展示与升级决策 */
+      sampling_mode: input.samplingMode || null,
+      spatial_completeness: input.spatialCompleteness != null
+        ? Math.round(input.spatialCompleteness * 100) / 100
+        : (input.expectedSampleCount > 0 ? Math.round(fetched / input.expectedSampleCount * 100) / 100 : null),
+      spatial_variance: Math.round(spatialVariance * 10) / 10,
+      data_freshness: Math.round(freshness),
+      cache_status: input.cacheStatus || 'MISS',
+      escalated: !!input.escalated,
+      escalation_reason: input.escalationReason || null,
 
       components: {
         sky_canvas: Math.round(skyCanvas),
