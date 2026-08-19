@@ -790,20 +790,29 @@
     var sg = r.spatial_gradient || {};
     var cf = r.clearing_front || {};
     var rs = r.regime_state;   /* V1.7 天气型状态（回退路径为 null） */
-    $('details').innerHTML =
+
+    var groupScore =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">📐 评分与模型拆解</div>' +
       '<div class="detail-grid">' +
       '<span>' + (rs ? '组件动态加权合成 P' : '基础物理评分 P') + '</span><span>' + detailP(r) + '</span>' +
       '<span>大气质量修正 Q</span><span>' + (0.70 + 0.30 * r.components.atmosphere / 100).toFixed(2) + '</span>' +
       '<span>地平线门控 G<sub>H</sub></span><span>' + r.horizon_gate.toFixed(2) + '</span>' +
       '<span>总加分（结构+过渡）</span><span>+' + r.bonus + '</span>' +
+      '<span>天气风险扣分</span><span>-' + r.penalty + '</span>' +
       '<span>天气型强度</span><span>' + (rs ? Math.round(rs.strength * 100) + '%' : '—') + '</span>' +
+      '<span>动态权重分布</span><span>' + fmtDynamicWeights(rs) + '</span>' +
       '<span>Regime Transition</span><span>' + (rs
         ? (TRANSITION_LABEL[rs.transition] || '—') + ' · 评分 ' + rs.transitionScore +
           ' · 加分 ' + (r.transition_bonus >= 0 ? '+' : '') + r.transition_bonus
         : '—') + '</span>' +
-      '<span>动态权重分布</span><span>' + fmtDynamicWeights(rs) + '</span>' +
       '<span>WeatherScore 组成</span><span>' + fmtWeatherScore(r.weather_score) + '</span>' +
-      '<span>天气风险扣分</span><span>-' + r.penalty + '</span>' +
+      '</div></div>';
+
+    var groupSpatial =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">☁️ 空间云场结构</div>' +
+      '<div class="detail-grid">' +
       '<span>云幕结构评分</span><span>' + (cs.bankScore != null ? cs.bankScore : '—') + '</span>' +
       '<span>中心云量 / 对比度</span><span>' + fmt4(cs.centerCloud, cs.contrast) + '</span>' +
       '<span>云幕连续性</span><span>' + (cs.continuity != null ? cs.continuity : '—') + '</span>' +
@@ -812,23 +821,44 @@
         (cf.rate != null ? '率 ' + cf.rate + ' / 分 ' + cf.score + ' / 信 ' + cf.confidence : '—') + '</span>' +
       '<span>反日落评分</span><span>' + (cs.antiSunsetScore != null ? cs.antiSunsetScore : '—') + '</span>' +
       '<span>分区开阔度（走廊/云幕）</span><span>' + fmt4(so.corridor, so.bank) + '</span>' +
-      '<span>距离预报可信度</span><span>' + (r.distance_confidence != null ? r.distance_confidence : '—') + '</span>' +
+      '</div></div>';
+
+    var groupEvolution =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">🌅 临近预报与天空演化</div>' +
+      '<div class="detail-grid">' +
+      '<span>天空演化（V2.0）</span><span>' + fmtEvolutionDetail(r) + '</span>' +
+      '<span>Nowcasting 修正（V1.9）</span><span>' + fmtNowcastDetail(r) + '</span>' +
+      '</div></div>';
+
+    var groupWeather =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">🌡️ 气象观测数据</div>' +
+      '<div class="detail-grid">' +
       '<span>总云量 / 低 / 中 / 高</span><span>' + fmt4(d.cloud_cover, d.cloud_low, d.cloud_mid, d.cloud_high) + ' %</span>' +
       '<span>能见度</span><span>' + (d.visibility_km != null ? d.visibility_km + ' km' : '—') + '</span>' +
       '<span>AOD / PM2.5</span><span>' + (d.aod != null ? d.aod : '—') + ' / ' + (d.pm25 != null ? d.pm25 : '—') + '</span>' +
       '<span>相对湿度</span><span>' + (d.humidity != null ? d.humidity + ' %' : '—') + '</span>' +
       '<span>民用昏影时长</span><span>' + d.twilight_minutes + ' 分钟</span>' +
-      '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + '</span>' +
+      '</div></div>';
+
+    var groupReliability =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">📡 采样与数据可信度</div>' +
+      '<div class="detail-grid">' +
       '<span>采样模式（V1.8）</span><span>' + (r.sampling_mode || '—') +
         (r.escalated ? ' → FULL（' + (r.escalation_reason || '') + '）' : '') + '</span>' +
+      '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + '</span>' +
       '<span>空间完整度 / 方差</span><span>' +
         (r.spatial_completeness != null ? r.spatial_completeness : '—') + ' / ' +
         (r.spatial_variance != null ? r.spatial_variance : '—') + '</span>' +
+      '<span>距离预报可信度</span><span>' + (r.distance_confidence != null ? r.distance_confidence : '—') + '</span>' +
       '<span>数据新鲜度 / 缓存</span><span>' +
         (r.data_freshness != null ? r.data_freshness : '—') + ' / ' + (r.cache_status || '—') + '</span>' +
-      '<span>Nowcasting 修正（V1.9）</span><span>' + fmtNowcastDetail(r) + '</span>' +
-      '<span>天空演化（V2.0）</span><span>' + fmtEvolutionDetail(r) + '</span>' +
-      '</div>' +
+      '</div></div>';
+
+    $('details').innerHTML =
+      groupScore + groupSpatial + groupEvolution + groupWeather + groupReliability +
       '<p class="detail-note">公式：' + (rs
         ? 'Score = (Σ 组件×动态权重) × Q × G<sub>H</sub> + 结构加分 + 过渡加分 − P<sub>weather</sub>'
         : 'Score = P × Q × G<sub>H</sub> + B<sub>regime</sub> − P<sub>weather</sub>') +

@@ -13,7 +13,7 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '2.0',
+    version: '2.0.1',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -197,7 +197,7 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v20_',
+    cachePrefix: 'sunsetscore_v201_',
 
     /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
     samplingV18: {

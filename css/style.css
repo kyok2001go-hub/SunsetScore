@@ -248,18 +248,56 @@ body {
   padding: 8px 0;
   cursor: pointer;
   text-align: left;
+  transition: color 0.15s;
 }
 .details-toggle:hover { color: var(--text); }
-.details { padding: 8px 0 10px; }
+.details {
+  padding: 8px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.detail-group {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.detail-group-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-soft);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.5px;
+}
 .detail-grid {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px 16px;
-  font-size: 0.88rem;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 8px 14px;
+  font-size: 0.86rem;
+  align-items: baseline;
 }
-.detail-grid span:nth-child(odd) { color: var(--text-dim); }
-.detail-grid span:nth-child(even) { text-align: right; font-weight: 600; }
-.detail-note { margin-top: 14px; font-size: 0.8rem; color: var(--text-dim); }
+.detail-grid span:nth-child(odd) {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.detail-grid span:nth-child(even) {
+  text-align: right;
+  font-weight: 600;
+  color: #e8eef5;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.detail-note {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
 
 /* ---------- 页脚 ---------- */
 .footer {
@@ -357,4 +395,26 @@ body {
   .score-row { justify-content: center; }
   .score-side { min-width: 100%; }
   .bar-label { width: 64px; }
+
+  /* 黄金窗口在移动端单列单行展示，避免挤压折行 */
+  .nowcast-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  /* 详情在移动端分组与字号优化，彻底防止右侧溢出 */
+  .detail-group {
+    padding: 10px 12px;
+  }
+  .detail-grid {
+    grid-template-columns: minmax(88px, auto) 1fr;
+    gap: 7px 10px;
+    font-size: 0.82rem;
+  }
+  .detail-grid span:nth-child(even) {
+    font-size: 0.82rem;
+  }
+  .detail-note {
+    font-size: 0.75rem;
+  }
 }
