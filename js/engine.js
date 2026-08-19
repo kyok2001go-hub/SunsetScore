@@ -482,7 +482,14 @@
       if (valid(pr) && pr >= cfg.rainToClearMinRainMm) { lastRainIdx = k2; break; }
     }
     var goldenWindowOk = false;
-    if (lastRainIdx >= 0) {
+    /* V1.9：有分钟级雨停时刻时优先精确判定（技术方案 Phase 1），
+       替代小时级近似的区间重叠判断 */
+    var minuteStopMs = input.minutePrecip && input.minutePrecip.stopTimeMs;
+    if (lastRainIdx >= 0 && valid(minuteStopMs)) {
+      var gwMinute = cfg.rainToClearGoldenWindow;
+      var gapMinute = (Date.parse(localKey(input.sunsetLocal)) - minuteStopMs) / 60000;
+      goldenWindowOk = gapMinute >= gwMinute.min && gapMinute <= gwMinute.max;
+    } else if (lastRainIdx >= 0) {
       var rainEndMs = Date.parse(localSample.forecast.hourly.time[lastRainIdx + 1]);
       var gapMin = (Date.parse(localKey(input.sunsetLocal)) - rainEndMs) / 60000;
       var gw = cfg.rainToClearGoldenWindow;
@@ -824,6 +831,12 @@
       cache_status: input.cacheStatus || 'MISS',
       escalated: !!input.escalated,
       escalation_reason: input.escalationReason || null,
+
+      /* V1.9 Nowcasting 元信息透传（修正量由 app.js 叠加，引擎不感知） */
+      nowcast: input.nowcast || null,
+
+      /* V2.0 天空演化元信息透传（概率因子由 app.js 叠加，引擎不感知） */
+      sky_evolution: input.skyEvolution || null,
 
       components: {
         sky_canvas: Math.round(skyCanvas),

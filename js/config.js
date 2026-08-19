@@ -5,13 +5,15 @@
  * V1.61：新增空间演化能力参数（SPATIAL_FIELD_V161）
  * V1.7：新增 Weather Regime 动态权重参数（WEATHER_REGIME_V17）
  * V1.8：新增自适应采样与缓存参数（SPATIAL_API_V18）
+ * V1.9：新增 Nowcasting 临近预报参数（NOWCAST_V19）
+ * V2.0：新增天空演化概率预测参数（EVOLUTION_V20）
  * ============================================================ */
 (function (root) {
   'use strict';
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '1.8',
+    version: '2.0',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -195,7 +197,7 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v18_',
+    cachePrefix: 'sunsetscore_v20_',
 
     /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
     samplingV18: {
@@ -234,6 +236,105 @@
     /* 实际裁剪窗口 = [min(日落-6h, 当前-8h), max(日落+1h, 当前+2h)]，
        向当前时刻额外延伸，保证 Regime/Clearing 等回看特征有足够历史小时 */
     forecastWindowV18: { lookbackHours: 6, lookaheadHours: 1, nowLookbackHours: 8, nowLookaheadHours: 2 },
+
+    /* ---------- V1.9 Nowcasting 临近预报（技术方案 Phase 1-3） ---------- */
+    nowcastV19: {
+      enabled: true,
+      /* 融合权重（方案 8 章）：缺失源自动重归一到可用源 */
+      weights: { forecast: 0.40, precip: 0.20, radar: 0.25, satellite: 0.15 },
+      /* 雨停评分表（方案 4.4 节） */
+      rainClear: {
+        stopWithin30: 20, stopWithin60: 10,
+        persisting: -30, intensifying: -40,
+        dryThresholdMm: 0.1,     /* [TUNE] 视为无雨的降水上限（mm） */
+        dryStreakMinutes: 20     /* [TUNE] 连续无雨多久（分钟）才判定雨停 */
+      },
+      /* goldenWindowModifier 限幅与临近门控（方案 4.5 节）：
+         距日落 ≤fullGateHours 全量生效，到 fadeEndHours 线性衰减为 0 */
+      modifierLimit: 30,
+      proximityGate: { fullGateHours: 2, fadeEndHours: 4, fetchLimitHours: 4 },
+      /* 雷达源：RainViewer Weather Maps API（免费公开接口，无需注册与密钥）。
+         双帧雷达瓦片 → 日落走廊回波覆盖率 / 质心运动 / 到达风险。
+         注意：v2 API 最大 zoom=7；帧间隔 10 分钟，past 保留 2 小时 */
+      radar: {
+        endpoint: 'https://api.rainviewer.com/public/weather-maps.json',
+        tileSize: 256,
+        zoom: 7,
+        coverRadiusKm: 340,
+        echoAlphaThreshold: 30,  /* [TUNE] 瓦片像素 alpha 超过该值视为回波 */
+        arrivalHorizonMin: 120,
+        riskThresholds: { high: 30, medium: 90 }, /* 雨团预计进入走廊分钟数 → High/Medium/Low */
+        /* 旧端点备查：v1.json 已下线返回 404 */
+        legacyEndpointV1: 'https://api.rainviewer.com/v1.json'
+      },
+      /* 卫星（NASA GIBS，Phase 3）：图层名随 GIBS 产品调整，按候选列表探测可用性，
+         全部不可用时该源静默降级（V1.9.1：True Color 系列已下线） */
+      satellite: {
+        capabilities: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml',
+        tileBase: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best',
+        layers: {
+          himawari: {
+            candidates: ['Himawari_AHI_Band3_Red_Visible_1km', 'Himawari_AHI_True_Color'],
+            lonMin: 50, lonMax: 200
+          },
+          goesEast: {
+            candidates: ['GOES-East_ABI_Band2_Red_Visible_1km', 'GOES-East_ABI_True_Color'],
+            lonMin: -105, lonMax: 50
+          },
+          goesWest: {
+            candidates: ['GOES-West_ABI_Band2_Red_Visible_1km', 'GOES-West_ABI_True_Color'],
+            lonMin: -180, lonMax: -105
+          }
+        },
+        tileSize: 256, zoom: 4,
+        coverRadiusKm: 600,
+        cloudLumThreshold: 200,   /* [TUNE] 亮度高于该值且低饱和度视为云 */
+        cloudSatMax: 40,
+        highCloudCenter: 45,      /* [TUNE] 走廊云覆盖率最佳中心（近似薄高云带） */
+        highCloudWidth: 25,
+        arrivalHorizonMin: 60
+      },
+      /* 缓存 TTL（分钟，方案 9 章） */
+      ttlMinutes: { precip: 10, radar: 10, satellite: 15 },
+      /* QWeather 分钟级降水（Phase 1 首选数据源，覆盖中国区）：
+         host 填你的 API Host（QWeather 控制台查看，如 devapi.qweather.com），
+         key 填你的 API KEY；两者任一为空或请求失败 → 自动回退 Open-Meteo minutely_15。
+         注意：纯前端无后端，API Key 内嵌代码会被公开可见，请自行控制配额 */
+      qweather: {
+        host: 'nn33jrmyy9.re.qweatherapi.com',
+        key: '0a18c207fe044a7483c8a73568ecf468'
+      }
+    },
+
+    /* ---------- V2.0 天空演化概率预测（技术方案 5-12 章） ---------- */
+    evolutionV20: {
+      enabled: true,
+      /* 日落走廊（方案 5 章）：方位 ±30°、距离 0~250km、时间窗 0~120 分钟 */
+      corridor: { azimuthHalfWidth: 30, maxDistanceKm: 250 },
+      /* 开放概率模型（方案 6.3 章）：FutureCoverage = C0·e^(−kt)，
+         P_open = logistic(阈值 − FC(t), σ(t))，σ(t)=σ0+γ·t 随时间增大 */
+      openCoverageThreshold: 20,  /* [TUNE] 覆盖率低于该值认为走廊开放 */
+      sigma0: 8,                  /* [TUNE] 基础不确定度（%） */
+      sigmaPerMin: 0.15,          /* [TUNE] 不确定度随预测时距线性增长 */
+      probClamp: [0.02, 0.98],
+      /* 融合权重（方案 12 章权重表解释为演化引擎内部权重） */
+      fusionWeights: { background: 0.30, precip: 0.20, radar: 0.25, satellite: 0.15, observation: 0.10 },
+      /* QWeather 雨停置信度曲线（方案 7 章） */
+      rainStopConfidence: { noInfo: 0.5, persisting: 0.3, intensifying: 0.1, marginWidthMin: 10 },
+      /* 状态机（方案 9 章，全部 [TUNE]） */
+      stateMachine: {
+        openCoverageMax: 20, openProb60Min: 0.6,
+        blockedCoverageMin: 80, blockedProb60Max: 0.3,
+        trendEpsilon: 0.1,          /* 趋势判定阈值（%/min） */
+        maxSigma60: 40              /* σ(60) 归一化上限（%） */
+      },
+      /* Golden Window V3（方案 10 章）：Score × (floor + (1−floor) × P_open) */
+      gwFactor: { floor: 0.5 },
+      evolutionTtlMinutes: 10,
+      /* 卫星云覆盖风险阈值：覆盖率超过该值视为云层遮挡太阳区域（方案 8.3） */
+      cloudCoverRiskThreshold: 60,
+      satelliteOpenThreshold: 25   /* [TUNE] 卫星覆盖率低于该值认为开放 */
+    },
 
     /* ---------- API 端点 ---------- */
     endpoints: {

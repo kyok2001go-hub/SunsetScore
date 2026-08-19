@@ -270,6 +270,87 @@ body {
   line-height: 1.8;
 }
 
+/* ---------- V1.9 黄金窗口动态块 ---------- */
+.nowcast-section {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: rgba(255, 160, 80, 0.05);
+}
+.nowcast-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+  margin-bottom: 14px;
+}
+.sky-timeline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--card-border);
+}
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+.timeline-time { font-size: 0.75rem; color: var(--text-dim); }
+.timeline-icon { font-size: 1.3rem; }
+
+/* ---------- V2.0 天空演化概率块 ---------- */
+.sky-evolution {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: rgba(211, 173, 247, 0.06);
+}
+.evolution-state-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+.evolution-state-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.evo-open { background: rgba(82, 196, 26, 0.18); color: #95de64; }
+.evo-opening { background: rgba(255, 160, 80, 0.18); color: #ffa940; }
+.evo-closing { background: rgba(250, 173, 20, 0.18); color: #fad114; }
+.evo-blocked { background: rgba(255, 77, 79, 0.18); color: #ff7875; }
+.evo-uncertain { background: rgba(255, 255, 255, 0.08); color: #9fb3c8; }
+.evolution-prob-bars { display: flex; flex-direction: column; gap: 8px; }
+.evo-prob-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+.evo-prob-label { width: 56px; color: var(--text-dim); flex-shrink: 0; }
+.evo-prob-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.evo-prob-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #9254de, #ffa940);
+  transition: width 0.4s ease;
+}
+.evo-prob-value { width: 40px; text-align: right; font-weight: 600; }
+.evolution-coverage { margin-top: 12px; font-size: 0.85rem; color: var(--text-dim); }
+
 /* ---------- 移动端 ---------- */
 @media (max-width: 520px) {
   .header h1 { font-size: 1.7rem; }

@@ -45,7 +45,11 @@
         Math.round(azimuthDeg) + '_' + mode;
     },
     air: function (date, lat, lon) { return 'air_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
-    solar: function (date, lat, lon) { return 'solar_' + date + '_' + SS.cacheKeys.coord(lat, lon); }
+    solar: function (date, lat, lon) { return 'solar_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
+    /* V1.9 Nowcasting：type = precip / radar / satellite */
+    nowcast: function (type, date, lat, lon) { return 'nowcast_' + type + '_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
+    /* V2.0 天空演化结果缓存（方案 13 章 Evolution Cache） */
+    evolution: function (date, lat, lon) { return 'evolution_' + date + '_' + SS.cacheKeys.coord(lat, lon); }
   };
 
   SS.cache = {
