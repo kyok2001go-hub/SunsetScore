@@ -293,7 +293,7 @@ body {
   overflow-wrap: anywhere;
 }
 .detail-note {
-  margin-top: 4px;
+  margin-bottom: 4px;
   font-size: 0.78rem;
   color: var(--text-dim);
   line-height: 1.6;

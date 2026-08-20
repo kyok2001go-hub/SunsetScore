@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.0.1">
+  <link rel="stylesheet" href="css/style.css?v=2.0.2">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -66,8 +66,16 @@
             </div>
             <div class="score-side">
               <div class="info-line">
+                <span class="info-label">金色时刻</span>
+                <span id="r-golden-hour" class="info-value">—</span>
+              </div>
+              <div class="info-line">
                 <span class="info-label">日落时间</span>
                 <span id="r-sunset" class="info-value">—</span>
+              </div>
+              <div class="info-line">
+                <span class="info-label">蓝色时刻</span>
+                <span id="r-blue-hour" class="info-value">—</span>
               </div>
               <div class="info-line">
                 <span class="info-label">日落方位</span>
@@ -153,22 +161,22 @@
   </main>
 
   <footer class="footer">
-    数据来源：Open-Meteo（天气 / 空气质量 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.0.1<br>
+    数据来源：Open-Meteo（天气 / 空气质量 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.0.2<br>
     晚霞指数不是概率，而是"值不值得去看"的综合评分
   </footer>
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-  <script src="js/config.js?v=2.0.1"></script>
-  <script src="js/vendor/suncalc.js?v=2.0.1"></script>
-  <script src="js/solar.js?v=2.0.1"></script>
-  <script src="js/cache.js?v=2.0.1"></script>
-  <script src="js/data.js?v=2.0.1"></script>
-  <script src="js/engine.js?v=2.0.1"></script>
-  <script src="js/sampling.js?v=2.0.1"></script>
-  <script src="js/corridor.js?v=2.0.1"></script>
-  <script src="js/nowcast.js?v=2.0.1"></script>
-  <script src="js/evolution.js?v=2.0.1"></script>
-  <script src="js/app.js?v=2.0.1"></script>
+  <script src="js/config.js?v=2.0.2"></script>
+  <script src="js/vendor/suncalc.js?v=2.0.2"></script>
+  <script src="js/solar.js?v=2.0.2"></script>
+  <script src="js/cache.js?v=2.0.2"></script>
+  <script src="js/data.js?v=2.0.2"></script>
+  <script src="js/engine.js?v=2.0.2"></script>
+  <script src="js/sampling.js?v=2.0.2"></script>
+  <script src="js/corridor.js?v=2.0.2"></script>
+  <script src="js/nowcast.js?v=2.0.2"></script>
+  <script src="js/evolution.js?v=2.0.2"></script>
+  <script src="js/app.js?v=2.0.2"></script>
 </body>
 </html>

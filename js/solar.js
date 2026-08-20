@@ -22,7 +22,9 @@
     var pos = root.SunCalc.getPosition(t.sunset, lat, lon);
     return {
       sunset: t.sunset,
-      civilDusk: t.dusk,                          /* -6°，民用昏影终点 */
+      civilDusk: t.dusk,                          /* -6°，民用昏影终点 / 蓝色时刻终点 */
+      goldenHourStart: t.goldenHour || null,      /* +6°，傍晚金色时刻起点 */
+      goldenHourEnd: t.goldenHourDusk || null,    /* -4°，傍晚金色时刻终点 / 蓝色时刻起点 */
       sunsetAzimuthDeg: pos.azimuth,              /* 已是从北顺时针的罗盘方位角 */
       twilightMinutes: (t.dusk.valueOf() - t.sunset.valueOf()) / 60000
     };

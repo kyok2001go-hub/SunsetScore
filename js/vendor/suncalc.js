@@ -133,7 +133,8 @@ const times = [
     [-6, 'dawn', 'dusk'],
     [-12, 'nauticalDawn', 'nauticalDusk'],
     [-18, 'nightEnd', 'night'],
-    [6, 'goldenHourEnd', 'goldenHour']
+    [6, 'goldenHourEnd', 'goldenHour'],
+    [-4, 'goldenHourMorningEnd', 'goldenHourDusk']
 ];
 
 // adds a custom time to the times config

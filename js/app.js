@@ -128,14 +128,22 @@
   }
   function serializeSolar(s) {
     return {
-      sunset: s.sunset.toISOString(), civilDusk: s.civilDusk.toISOString(),
-      sunsetAzimuthDeg: s.sunsetAzimuthDeg, twilightMinutes: s.twilightMinutes
+      sunset: s.sunset.toISOString(),
+      civilDusk: s.civilDusk.toISOString(),
+      goldenHourStart: s.goldenHourStart ? s.goldenHourStart.toISOString() : null,
+      goldenHourEnd: s.goldenHourEnd ? s.goldenHourEnd.toISOString() : null,
+      sunsetAzimuthDeg: s.sunsetAzimuthDeg,
+      twilightMinutes: s.twilightMinutes
     };
   }
   function restoreSolar(v) {
     return {
-      sunset: new Date(v.sunset), civilDusk: new Date(v.civilDusk),
-      sunsetAzimuthDeg: v.sunsetAzimuthDeg, twilightMinutes: v.twilightMinutes
+      sunset: new Date(v.sunset),
+      civilDusk: new Date(v.civilDusk),
+      goldenHourStart: v.goldenHourStart ? new Date(v.goldenHourStart) : (v.goldenHour ? new Date(v.goldenHour) : null),
+      goldenHourEnd: v.goldenHourEnd ? new Date(v.goldenHourEnd) : null,
+      sunsetAzimuthDeg: v.sunsetAzimuthDeg,
+      twilightMinutes: v.twilightMinutes
     };
   }
 
@@ -221,6 +229,21 @@
       end: fmtHM(SS.data.toLocalShifted(viewing.endUtc, ectx.offset))
     };
     result.sunset_local = fmtHM(ectx.sunsetLocal);
+    var ghStart = ectx.solar.goldenHourStart
+      ? SS.data.toLocalShifted(ectx.solar.goldenHourStart, ectx.offset)
+      : null;
+    var ghEnd = ectx.solar.goldenHourEnd
+      ? SS.data.toLocalShifted(ectx.solar.goldenHourEnd, ectx.offset)
+      : null;
+    var bhEnd = ectx.solar.civilDusk
+      ? SS.data.toLocalShifted(ectx.solar.civilDusk, ectx.offset)
+      : null;
+    result.golden_hour = (ghStart && ghEnd)
+      ? fmtHM(ghStart) + ' – ' + fmtHM(ghEnd)
+      : (ghStart ? fmtHM(ghStart) + ' – ' + result.sunset_local : '—');
+    result.blue_hour = (ghEnd && bhEnd)
+      ? fmtHM(ghEnd) + ' – ' + fmtHM(bhEnd)
+      : (bhEnd ? result.sunset_local + ' – ' + fmtHM(bhEnd) : '—');
     result.date = fmtDate(ectx.localNow);
     return result;
   }
@@ -735,7 +758,9 @@
     ring.style.setProperty('--ring-color', color);
 
     $('r-confidence').textContent = r.confidence + ' / 100';
+    if ($('r-golden-hour')) $('r-golden-hour').textContent = r.golden_hour || '—';
     $('r-sunset').textContent = r.sunset_local;
+    if ($('r-blue-hour')) $('r-blue-hour').textContent = r.blue_hour || '—';
     $('r-azimuth').textContent = r.sunset_azimuth + '°';
     $('r-viewing').textContent = r.best_viewing.start + ' – ' + r.best_viewing.end +
       '（峰值 ' + r.best_viewing.peak + '）';
@@ -791,6 +816,12 @@
     var cf = r.clearing_front || {};
     var rs = r.regime_state;   /* V1.7 天气型状态（回退路径为 null） */
 
+    var noteHtml =
+      '<p class="detail-note">公式：' + (rs
+        ? 'Score = (Σ 组件×动态权重) × Q × G<sub>H</sub> + 结构加分 + 过渡加分 − P<sub>weather</sub>'
+        : 'Score = P × Q × G<sub>H</sub> + B<sub>regime</sub> − P<sub>weather</sub>') +
+      '，所有参数为初始经验值，未来将基于真实观测校准。</p>';
+
     var groupScore =
       '<div class="detail-group">' +
       '<div class="detail-group-title">📐 评分与模型拆解</div>' +
@@ -809,6 +840,14 @@
       '<span>WeatherScore 组成</span><span>' + fmtWeatherScore(r.weather_score) + '</span>' +
       '</div></div>';
 
+    var groupEvolution =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">🌅 临近预报与天空演化</div>' +
+      '<div class="detail-grid">' +
+      '<span>天空演化（V2.0）</span><span>' + fmtEvolutionDetail(r) + '</span>' +
+      '<span>Nowcasting 修正（V1.9）</span><span>' + fmtNowcastDetail(r) + '</span>' +
+      '</div></div>';
+
     var groupSpatial =
       '<div class="detail-group">' +
       '<div class="detail-group-title">☁️ 空间云场结构</div>' +
@@ -821,14 +860,6 @@
         (cf.rate != null ? '率 ' + cf.rate + ' / 分 ' + cf.score + ' / 信 ' + cf.confidence : '—') + '</span>' +
       '<span>反日落评分</span><span>' + (cs.antiSunsetScore != null ? cs.antiSunsetScore : '—') + '</span>' +
       '<span>分区开阔度（走廊/云幕）</span><span>' + fmt4(so.corridor, so.bank) + '</span>' +
-      '</div></div>';
-
-    var groupEvolution =
-      '<div class="detail-group">' +
-      '<div class="detail-group-title">🌅 临近预报与天空演化</div>' +
-      '<div class="detail-grid">' +
-      '<span>天空演化（V2.0）</span><span>' + fmtEvolutionDetail(r) + '</span>' +
-      '<span>Nowcasting 修正（V1.9）</span><span>' + fmtNowcastDetail(r) + '</span>' +
       '</div></div>';
 
     var groupWeather =
@@ -858,11 +889,7 @@
       '</div></div>';
 
     $('details').innerHTML =
-      groupScore + groupSpatial + groupEvolution + groupWeather + groupReliability +
-      '<p class="detail-note">公式：' + (rs
-        ? 'Score = (Σ 组件×动态权重) × Q × G<sub>H</sub> + 结构加分 + 过渡加分 − P<sub>weather</sub>'
-        : 'Score = P × Q × G<sub>H</sub> + B<sub>regime</sub> − P<sub>weather</sub>') +
-      '，所有参数为初始经验值，未来将基于真实观测校准。</p>';
+      noteHtml + groupScore + groupEvolution + groupSpatial + groupWeather + groupReliability;
 
     resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
