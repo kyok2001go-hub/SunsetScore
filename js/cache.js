@@ -49,7 +49,9 @@
     /* V1.9 Nowcasting：type = precip / radar / satellite */
     nowcast: function (type, date, lat, lon) { return 'nowcast_' + type + '_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
     /* V2.0 天空演化结果缓存（方案 13 章 Evolution Cache） */
-    evolution: function (date, lat, lon) { return 'evolution_' + date + '_' + SS.cacheKeys.coord(lat, lon); }
+    evolution: function (date, lat, lon) { return 'evolution_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
+    /* V2.1 全天空 360° 云场缓存 */
+    cloudField: function (date, lat, lon) { return 'cloudfield_' + date + '_' + SS.cacheKeys.coord(lat, lon); }
   };
 
   SS.cache = {

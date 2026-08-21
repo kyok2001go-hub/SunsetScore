@@ -203,6 +203,15 @@
     });
   }
 
+  /* 时区格式化：精简为 UTC+8、UTC-7 等标准紧凑时区字符串 */
+  function formatTimezone(offsetSeconds) {
+    var sign = offsetSeconds >= 0 ? '+' : '-';
+    var absSec = Math.abs(offsetSeconds);
+    var hours = Math.floor(absSec / 3600);
+    var mins = Math.floor((absSec % 3600) / 60);
+    return 'UTC' + sign + hours + (mins > 0 ? ':' + (mins < 10 ? '0' : '') + mins : '');
+  }
+
   /* 组装引擎输入并补全展示字段 */
   function buildResult(ectx, samples, mode, cacheStatus, ageMinutes, escalated, escalationReason) {
     var result = SS.engine.compute({
@@ -213,6 +222,8 @@
       sunsetLocal: ectx.sunsetLocal,
       samples: samples,
       air: ectx.air,
+      cloudField: ectx.cloudField || null,
+      totalSkyNodeCount: ectx.totalSkyNodeCount || samples.length,
       expectedSampleCount: samples.length,
       spatialCompleteness: SS.sampling.weightedCompleteness(samples),
       samplingMode: mode,
@@ -245,6 +256,10 @@
       ? fmtHM(ghEnd) + ' – ' + fmtHM(bhEnd)
       : (bhEnd ? result.sunset_local + ' – ' + fmtHM(bhEnd) : '—');
     result.date = fmtDate(ectx.localNow);
+    result.local_time_str = fmtHM(ectx.localNow);
+    result.timezone_str = formatTimezone(ectx.offset, ectx.timezone);
+    result.hours_to_sunset = ectx.hoursToSunset;
+    result.nowcast_active = !!ectx.ncActive;
     return result;
   }
 
@@ -403,26 +418,111 @@
     }).catch(function () { return result; });
   }
 
-  /* ---------- V2.0 天空演化概率（技术方案 9-10 章） ---------- */
+  /* V2.1 全天空 360° 云场与走廊合并采样（1 次 Batch 请求获取全部采样点） */
+  function gatherFullSkyAndCorridor(mode, loc, solar, localForecast, dateStr, ttlMinutes, dbg) {
+    if (mode === 'LOCAL_ONLY') {
+      var localNode = { distanceKm: 0, azimuthOffset: 0, latitude: loc.latitude, longitude: loc.longitude, direction: 'CENTER', key: 'CENTER_0' };
+      return Promise.resolve({
+        allSamples: [{ point: localNode, forecast: localForecast }],
+        skySamples: [{ point: localNode, forecast: localForecast }],
+        corridorSamples: [{ point: localNode, forecast: localForecast }],
+        cacheStatus: 'LOCAL',
+        ageMinutes: 0,
+        nodeCount: 1,
+        finalMode: 'LOCAL_ONLY'
+      });
+    }
+
+    var skyNodes = SS.cloudField.generateGridNodes(loc.latitude, loc.longitude);
+    var corridorNodes = SS.sampling.selectNodes('FULL', loc.latitude, loc.longitude, solar.sunsetAzimuthDeg);
+
+    var map = {};
+    var combinedNodes = [];
+    function add(n) {
+      var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
+      if (!map[k]) {
+        map[k] = n;
+        combinedNodes.push(n);
+      }
+    }
+    skyNodes.forEach(add);
+    corridorNodes.forEach(add);
+
+    var spatialKey = SS.cacheKeys.cloudField(dateStr, loc.latitude, loc.longitude);
+    return gatherSpatial(combinedNodes, localForecast, spatialKey, ttlMinutes, dbg).then(function (res) {
+      var sampleMap = {};
+      res.samples.forEach(function (s) {
+        var k = s.point.latitude.toFixed(4) + '_' + s.point.longitude.toFixed(4);
+        sampleMap[k] = s;
+      });
+
+      var skySamples = skyNodes.map(function (n) {
+        var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
+        return { point: n, forecast: sampleMap[k] ? sampleMap[k].forecast : null };
+      });
+      var corridorSamples = corridorNodes.map(function (n) {
+        var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
+        return { point: n, forecast: sampleMap[k] ? sampleMap[k].forecast : null };
+      });
+
+      return {
+        allSamples: res.samples,
+        skySamples: skySamples,
+        corridorSamples: corridorSamples,
+        cacheStatus: res.cacheStatus,
+        ageMinutes: res.ageMinutes,
+        nodeCount: combinedNodes.length,
+        finalMode: 'FULL_SKY'
+      };
+    }).catch(function () {
+      /* 失败时回退到经典走廊采样 */
+      return gatherWithFallback(mode, loc, solar, localForecast, dateStr, ttlMinutes, dbg)
+        .then(function (fallbackRes) {
+          return {
+            allSamples: fallbackRes.samples,
+            skySamples: fallbackRes.samples,
+            corridorSamples: fallbackRes.samples,
+            cacheStatus: fallbackRes.cacheStatus,
+            ageMinutes: fallbackRes.ageMinutes,
+            nodeCount: fallbackRes.nodeCount,
+            finalMode: fallbackRes.finalMode
+          };
+        });
+    });
+  }
+
+  /* ---------- V2.0/V2.1 天空演化与日落事件层 ---------- */
   var EVO_STATE_LABEL = { OPENING: '正在打开', OPEN: '开放', CLOSING: '正在闭合', BLOCKED: '持续遮挡', UNCERTAIN: '不确定' };
   var EVO_STATE_CLASS = {
     OPENING: 'evo-opening', OPEN: 'evo-open', CLOSING: 'evo-closing',
     BLOCKED: 'evo-blocked', UNCERTAIN: 'evo-uncertain'
   };
 
-  /* V2.0 概率模型优先；A/B 开关关闭时回退 V1.9 modifier 路径 */
+  /* V2.1 双因子乘法融合评分：FinalScore = BaseScore × SkyEvolutionFactor × GoldenWindowFactor */
   function applySkyEvolution(result, ectx, dbg) {
+    /* 仅在临近日落时段（ncActive 为 true）激活 Nowcasting 与日落走廊微观演化 */
+    if (!ectx.ncActive) {
+      result.nowcast = null;
+      result.nowcast_active = false;
+      if (result.sky_evolution_factor != null) {
+        result.score = Math.max(0, Math.min(100, Math.round(result.score * result.sky_evolution_factor)));
+        result.level = levelOf(result.score);
+      }
+      return Promise.resolve(result);
+    }
+    result.nowcast_active = true;
     if (cfg.evolutionV20.enabled) return applyEvolution(result, ectx, dbg);
     return applyNowcast(result, ectx, dbg);
   }
 
   function applyEvolutionResult(result, evo) {
     result.sky_evolution = evo;
-    /* Golden Window V3（方案 10 章）：Score × (floor + (1−floor) × P_open(日落时刻)) */
-    if (evo.gwFactor != null) {
-      result.score = Math.max(0, Math.min(100, Math.round(result.score * evo.gwFactor)));
-      result.level = levelOf(result.score);
-    }
+    result.base_score = result.score;
+    var gw = (evo && evo.gwFactor != null) ? evo.gwFactor : 1.0;
+    var ef = result.sky_evolution_factor != null ? result.sky_evolution_factor : 1.0;
+    result.score = Math.max(0, Math.min(100, Math.round(result.score * ef * gw)));
+    result.level = levelOf(result.score);
+
     /* 可解释输出 */
     var p60 = Math.round(evo.openProbability['60m'] * 100);
     if (evo.state === 'OPENING') result.reasons.push('天空演化：云层正在打开（60 分钟开放概率 ' + p60 + '%）');
@@ -434,78 +534,130 @@
   }
 
   function applyEvolution(result, ectx, dbg) {
-    if (!ectx.ncActive || !result) return Promise.resolve(result);
     var ctx = {
       lat: ectx.location.latitude, lon: ectx.location.longitude,
       dateStr: ectx.dateStr, nowUtc: ectx.nowUtc,
       sunsetAzimuthDeg: ectx.solar.sunsetAzimuthDeg,
       utcOffsetSeconds: ectx.offset,
-      forecastTrend: computeForecastTrend(ectx.localForecast, ectx.offset, ectx.nowUtc, ectx.solar)
+      forecastTrend: computeForecastTrend(ectx.localForecast, ectx.offset, ectx.nowUtc, ectx.solar),
+      motionForecast: result.cloud_motion || null
     };
-    /* 演化结果缓存（方案 13 章 Evolution Cache，10 分钟）；
-       与 V1.9 融合结果一并缓存，保证黄金窗口块在缓存命中时同样可渲染 */
+    /* 演化结果缓存（10 分钟） */
     var evoKey = SS.cacheKeys.evolution(ectx.dateStr, ectx.location.latitude, ectx.location.longitude);
     var cachedEvo = SS.cache.get(evoKey);
     if (cachedEvo) {
       result.nowcast = cachedEvo.nowcast || null;
+      result.nowcast_active = true;
       return Promise.resolve(applyEvolutionResult(result, cachedEvo.evo));
     }
     return SS.nowcast.run(ctx).then(function (fusion) {
-      if (!fusion || !fusion.detail) return result; /* 无演化源：保持 V1.7 基础分 */
       var evo = SS.evolution.fuseEvolution({
         forecastTrend: ctx.forecastTrend,
-        precip: fusion.detail.precip,
-        radar: fusion.detail.radar,
-        satellite: fusion.detail.satellite,
+        precip: fusion && fusion.detail ? fusion.detail.precip : null,
+        radar: fusion && fusion.detail ? fusion.detail.radar : null,
+        satellite: fusion && fusion.detail ? fusion.detail.satellite : null,
+        motionForecast: ctx.motionForecast,
         nowMs: ectx.nowUtc.valueOf(),
         sunsetMs: ectx.solar.sunset.valueOf()
       });
-      if (!evo) return result;
+      if (!evo) {
+        if (result.sky_evolution_factor != null) {
+          result.score = Math.max(0, Math.min(100, Math.round(result.score * result.sky_evolution_factor)));
+          result.level = levelOf(result.score);
+        }
+        result.nowcast = fusion;
+        result.nowcast_active = true;
+        return result;
+      }
       SS.cache.set(evoKey, { evo: evo, nowcast: fusion }, cfg.evolutionV20.evolutionTtlMinutes);
-      /* 黄金窗口块沿用 V1.9 融合结果展示（雨停时间/趋势等） */
       result.nowcast = fusion;
+      result.nowcast_active = true;
       return applyEvolutionResult(result, evo);
-    }).catch(function () { return result; });
+    }).catch(function () {
+      if (result.sky_evolution_factor != null) {
+        result.score = Math.max(0, Math.min(100, Math.round(result.score * result.sky_evolution_factor)));
+        result.level = levelOf(result.score);
+      }
+      return result;
+    });
   }
 
-  /* 天空演化区块渲染（方案 15 章） */
+  /* 格式化为最贴近主流天气预报平台的标准风力参数（如：南风 · 10 km/h（2级）） */
+  function fmtStandardWind(w) {
+    if (!w) return '—';
+    var dir = w.label || '—';
+    /* 选取代表性风速（阵风或持续风速）并换算对应风级 */
+    var displaySpeed = w.gustsKmH != null ? Math.round(w.gustsKmH) : Math.round((w.speedKmH || 0) * 1.8);
+    if (displaySpeed < 1) displaySpeed = Math.round(w.speedKmH || 0);
+    var beaufort = SS.wind && SS.wind.formatBeaufort ? SS.wind.formatBeaufort(displaySpeed) : (w.beaufort || { level: 2 });
+    var levelText = (beaufort.level != null && beaufort.level > 0) ? beaufort.level + '级' : '微风';
+    return dir + ' · ' + displaySpeed + ' km/h（' + levelText + '）';
+  }
+
+  /* 融合统一的【天空演化】模块渲染（全天候天空动力学 + 风场驱动云场演化） */
   function renderSkyEvolution(r) {
     var block = $('sky-evolution-block');
     if (!block) return;
+    var st = r.all_day_sky_state;
+    var cm = r.cloud_motion;
+    var cf = r.cloud_field;
     var evo = r.sky_evolution;
-    if (!evo) { hide(block); return; }
+    if (!st && !evo) {
+      hide(block);
+      return;
+    }
     show(block);
-    var badge = $('evo-state');
-    badge.textContent = EVO_STATE_LABEL[evo.state] || evo.state;
-    badge.className = 'evolution-state-badge ' + (EVO_STATE_CLASS[evo.state] || 'evo-uncertain');
-    $('evo-confidence').textContent = '置信度 ' + Math.round(evo.confidence * 100) + '%';
 
-    var bars = $('evo-probs');
-    bars.innerHTML = '';
-    SS.evolution.HORIZONS.forEach(function (h) {
-      var p = evo.openProbability[h + 'm'];
-      if (p == null) return;
-      var row = document.createElement('div');
-      row.className = 'evo-prob-row';
-      row.innerHTML =
-        '<span class="evo-prob-label">' + h + ' 分钟</span>' +
-        '<div class="evo-prob-track"><div class="evo-prob-fill" style="width:' + Math.round(p * 100) + '%"></div></div>' +
-        '<span class="evo-prob-value">' + Math.round(p * 100) + '%</span>';
-      bars.appendChild(row);
-    });
+    /* 状态徽章：展示全天 6 态宏观演化状态 */
+    var badge = $('sky-state-badge');
+    if (badge && st) {
+      badge.textContent = st.icon + ' ' + st.label;
+      badge.style.background = st.color ? st.color + '22' : 'rgba(255,255,255,0.1)';
+      badge.style.color = st.color || '#fff';
+      badge.style.border = '1px solid ' + (st.color ? st.color + '66' : 'rgba(255,255,255,0.2)');
+    } else if (badge && evo) {
+      badge.textContent = EVO_STATE_LABEL[evo.state] || evo.state;
+      badge.style.background = 'rgba(255,255,255,0.1)';
+      badge.style.color = '#fff';
+      badge.style.border = '1px solid rgba(255,255,255,0.2)';
+    }
 
-    /* 未来云覆盖率（卫星，无降雨场景才有） */
-    var cov = $('evo-coverage');
-    cov.innerHTML = '';
-    var sat = evo.detail && evo.detail.satellite;
-    if (sat && sat.futureCoverage) {
-      var seg = ['30m', '60m', '90m'].map(function (k) {
-        return k + ' ' + sat.futureCoverage[k] + '%';
-      });
-      var row2 = document.createElement('div');
-      row2.className = 'evo-coverage-row';
-      row2.textContent = '未来云覆盖（卫星）：' + seg.join(' → ');
-      cov.appendChild(row2);
+    /* 风向风速（最贴近主流天气预报的简洁参数展示） */
+    var windEl = $('sky-wind-val');
+    if (windEl) {
+      windEl.textContent = fmtStandardWind(cm && cm.wind);
+    }
+
+    /* 云场态势 */
+    var trendEl = $('sky-trend-val');
+    if (trendEl) {
+      var avgC = (cf && cf.summary) ? cf.summary.avgCloudCover : (st && st.metrics ? st.metrics.currentCloudCover : '—');
+      trendEl.textContent = (st ? st.description + '（全天云量 ' + avgC + '%）' : '全天云量 ' + avgC + '%');
+    }
+
+    /* 演化因子 */
+    var factorEl = $('sky-factor-val');
+    if (factorEl) {
+      var fac = r.sky_evolution_factor != null ? r.sky_evolution_factor : 1.0;
+      factorEl.textContent = '×' + fac.toFixed(2) + (st && st.label ? ' · ' + st.label : '');
+    }
+
+    /* 日落走廊演化态势 */
+    var corridorEl = $('sky-corridor-val');
+    if (corridorEl) {
+      if (evo && evo.sunsetOpenProbability != null) {
+        corridorEl.textContent = '开放概率 ' + Math.round(evo.sunsetOpenProbability * 100) + '% · ' + (EVO_STATE_LABEL[evo.state] || '稳定');
+      } else if (evo && evo.openProbability && evo.openProbability['60m'] != null) {
+        corridorEl.textContent = '60m 开放概率 ' + Math.round(evo.openProbability['60m'] * 100) + '% · ' + (EVO_STATE_LABEL[evo.state] || '稳定');
+      } else {
+        corridorEl.textContent = '日落走廊通畅 · 背景支持良好';
+      }
+    }
+
+    /* 上游云团预警 */
+    var arrivalEl = $('sky-arrival-val');
+    if (arrivalEl) {
+      arrivalEl.textContent = (cm && cm.arrivalRisk ? cm.arrivalRisk.summaryText : '上游无密集浓云');
     }
   }
 
@@ -523,7 +675,10 @@
     var block = $('nowcast-block');
     if (!block) return;
     var nc = r.nowcast;
-    if (!nc) { hide(block); return; }
+    if (!r.nowcast_active || !nc) {
+      hide(block);
+      return;
+    }
     show(block);
     var gw = nc.goldenWindow;
     var openTxt = gw
@@ -600,11 +755,14 @@
       .then(function (locRes) {
         var location = locRes.value;
         var nowUtc = new Date();
-        var dateStr = fmtDate(nowUtc); /* UTC 日期：跨日缓存自然隔离 */
-        setLoading('正在获取本地天气…');
+        setLoading('正在获取本地天气与时区…');
+
+        /* 1. 先通过 forecast 接口获取当地真实时区偏移与天气预报 */
+        var roughOffsetSec = Math.round((location.longitude || 0) * 240);
+        var roughLocalDate = fmtDate(SS.data.toLocalShifted(nowUtc, roughOffsetSec));
 
         return fetchWithCache(
-          SS.cacheKeys.forecast(dateStr, location.latitude, location.longitude),
+          SS.cacheKeys.forecast(roughLocalDate, location.latitude, location.longitude),
           cache18.ttlForecastMinutes,
           cache18.staleMaxAgeHours,
           function () {
@@ -615,10 +773,14 @@
         ).then(function (fcRes) {
           var localForecast = fcRes.value;
           var offset = localForecast.utc_offset_seconds || 0;
+          var timezone = localForecast.timezone || location.timezone || 'auto';
+
+          /* 2. 精确计算该城市所在地的当前当地时间与当地日期 */
           var localNow = SS.data.toLocalShifted(nowUtc, offset);
+          var dateStr = fmtDate(localNow);
 
           /* 结果级缓存：同城重复查询的快速路径 */
-          var fullKey = resultCacheKey + '_' + fmtDate(localNow);
+          var fullKey = resultCacheKey + '_' + dateStr;
           var cached = SS.cache.get(fullKey);
           if (cached) {
             renderResult(cached, offset, true);
@@ -627,7 +789,7 @@
             return null;
           }
 
-          /* 太阳几何（24h 缓存，纯本地计算不消耗 API） */
+          /* 3. 太阳几何：基于该城市当地日期的正午时刻计算当天日落 */
           var solarKey = SS.cacheKeys.solar(dateStr, location.latitude, location.longitude);
           return fetchWithCache(solarKey, cache18.ttlSolarHours * 60, cache18.ttlSolarHours, function () {
             var s = computeSolar(location, nowUtc, offset);
@@ -647,12 +809,10 @@
               dbg.apiRequests++;
               return SS.data.fetchAirQuality(location.latitude, location.longitude);
             }, dbg, 'air').catch(function () {
-              /* AQ 失败容忍（也不缓存 null）：视为无数据，不影响主流程 */
               return { value: null, cacheStatus: 'MISS', ageMinutes: 0 };
             }).then(function (airRes) {
 
-              /* V1.9：分钟级降水预取（距日落 ≤4h 才拉取），
-                 供引擎黄金窗口精确判定与后续 Nowcasting 融合 */
+              /* 4. 黄金窗口激活判定：仅在距日落 -0.5h ~ +3.0h (T-180m) 内激活 */
               var hoursToSunset = (solar.sunset.valueOf() - nowUtc.valueOf()) / 3600000;
               var ncCfg = cfg.nowcastV19;
               var ncActive = ncCfg.enabled && hoursToSunset >= -0.5 &&
@@ -662,53 +822,59 @@
                 : Promise.resolve(null);
 
               return precipPromise.then(function (minutePrecip) {
-                /* Sampling Controller：本地 Regime 预判 → 采样模式（方案 8 章） */
                 var reg = SS.sampling.estimateLocalRegime({
                   localForecast: localForecast, utcOffsetSeconds: offset,
                   nowUtc: nowUtc, sunsetLocal: sunsetLocal
                 });
                 var mode = cfg18.enabled ? SS.sampling.decideSamplingMode(reg) : 'FULL';
-                var plannedCount = SS.sampling.selectNodes(
-                  mode, location.latitude, location.longitude, solar.sunsetAzimuthDeg).length;
-                setLoading(mode === 'LOCAL_ONLY'
-                  ? '阴天浓厚，仅基于本地天气评估…'
-                  : '正在采样日落方向的空间云场（' + plannedCount + ' 个观测点 · 批量请求）…');
+                setLoading('正在获取全天空 360° 云场与风场动力学（33 个观测点 · 单次批量请求）…');
 
                 var ectx = {
-                  location: location, offset: offset, nowUtc: nowUtc, localNow: localNow,
+                  location: location, offset: offset, timezone: timezone,
+                  nowUtc: nowUtc, localNow: localNow,
                   solar: solar, sunsetLocal: sunsetLocal, air: airRes.value, dateStr: dateStr,
                   localForecast: localForecast, minutePrecip: minutePrecip,
                   ncActive: ncActive, hoursToSunset: hoursToSunset
                 };
 
-                return gatherWithFallback(mode, location, solar, localForecast, dateStr, ttl, dbg)
+                return gatherFullSkyAndCorridor(mode, location, solar, localForecast, dateStr, ttl, dbg)
                   .then(function (spatialRes) {
                     dbg.samplingMode = spatialRes.finalMode;
                     dbg.requestedNodes = spatialRes.nodeCount;
-                    setLoading('正在计算晚霞指数…');
+                    setLoading('正在进行风场动力学推演与评分…');
 
-                    var samples = trimSamples(spatialRes.samples, nowUtc, solar.sunset);
-                    var result = buildResult(ectx, samples, spatialRes.finalMode,
+                    /* 1. 构建全天空当前与日落云场对象 (CloudField) */
+                    var cloudFieldNow = SS.cloudField.buildCloudField(spatialRes.skySamples, nowUtc);
+                    var cloudFieldSunset = SS.cloudField.buildCloudField(spatialRes.skySamples, solar.sunset);
+
+                    /* 2. 运行风场平流未来云场预测 (30/60/120m) 与上游到达风险 */
+                    var motionForecast = SS.cloudMotion.forecast(cloudFieldNow, solar.sunsetAzimuthDeg);
+
+                    /* 3. 运行全天天空状态机 (6态) */
+                    var allDaySkyState = SS.skyState.determineState(cloudFieldNow, motionForecast);
+
+                    /* 4. 走廊样本与全天空场送入核心评分引擎 */
+                    ectx.cloudField = cloudFieldNow;
+                    ectx.totalSkyNodeCount = spatialRes.skySamples ? spatialRes.skySamples.length : 33;
+                    var corridorSamples = trimSamples(spatialRes.corridorSamples, nowUtc, solar.sunset);
+                    var result = buildResult(ectx, corridorSamples, spatialRes.finalMode,
                       spatialRes.cacheStatus, spatialRes.ageMinutes, false, null);
                     result.data_age = spatialRes.ageMinutes;
-                    /* 降级提示：因 API 失败退到更少采样点时明示用户 */
-                    if (spatialRes.finalMode !== mode ||
-                        (spatialRes.finalMode === 'LOCAL_ONLY' && mode !== 'LOCAL_ONLY')) {
-                      result.warnings.push('空间采样数据不完整，已基于可用数据评估，置信度有所降低');
+
+                    /* 挂载 V2.1 动力学对象与因子 */
+                    result.cloud_field = cloudFieldNow;
+                    result.cloud_field_sunset = cloudFieldSunset;
+                    result.cloud_motion = motionForecast;
+                    result.all_day_sky_state = allDaySkyState;
+                    result.sky_evolution_factor = allDaySkyState.factor;
+
+                    /* 降级提示 */
+                    if (spatialRes.finalMode === 'LOCAL_ONLY') {
+                      result.warnings.push('阴天浓厚，已基于本地天气快速评估');
                     }
 
-                    /* Confidence Check：必要时 7 → 13 重算（方案 9 章，最多升级 1 次） */
-                    var esc = (cfg18.enabled && spatialRes.finalMode === 'STANDARD')
-                      ? SS.sampling.shouldEscalate(result)
-                      : { escalate: false, reason: null };
-                    var basePromise = esc.escalate
-                      ? escalateToFull(ectx, samples, result, esc, ttl, dbg)
-                          .then(function (fullResult) { return fullResult || result; })
-                      : Promise.resolve(result);
-
-                    /* V1.9/V2.0：Nowcasting/天空演化概率 → 完成（A/B 开关自动选择） */
-                    return basePromise
-                      .then(function (finalResult) { return applySkyEvolution(finalResult, ectx, dbg); })
+                    /* 5. 日落事件层与演化融合 */
+                    return applySkyEvolution(result, ectx, dbg)
                       .then(function (finalResult) { return finish(finalResult, fullKey, offset, dbg); });
                   });
               });
@@ -736,10 +902,14 @@
   function renderResult(r, offset, fromCache) {
     clearStatus();
     show(resultEl);
-    renderNowcastBlock(r, offset);
     renderSkyEvolution(r);
+    renderNowcastBlock(r, offset);
 
     $('r-city').textContent = r.city + (r.admin1 && r.admin1 !== r.city ? ' · ' + r.admin1 : '');
+    var localTimeEl = $('r-local-time');
+    if (localTimeEl) {
+      localTimeEl.textContent = '当地 ' + (r.local_time_str || '—') + ' (' + (r.timezone_str || 'UTC') + ')';
+    }
     $('r-score').textContent = r.score;
     var badge = $('r-level');
     badge.textContent = r.level;
@@ -759,7 +929,11 @@
 
     $('r-confidence').textContent = r.confidence + ' / 100';
     if ($('r-golden-hour')) $('r-golden-hour').textContent = r.golden_hour || '—';
-    $('r-sunset').textContent = r.sunset_local;
+    var sunsetText = r.sunset_local;
+    if (r.hours_to_sunset != null && r.hours_to_sunset < -0.5) {
+      sunsetText += '（今日已过）';
+    }
+    $('r-sunset').textContent = sunsetText;
     if ($('r-blue-hour')) $('r-blue-hour').textContent = r.blue_hour || '—';
     $('r-azimuth').textContent = r.sunset_azimuth + '°';
     $('r-viewing').textContent = r.best_viewing.start + ' – ' + r.best_viewing.end +
@@ -784,20 +958,18 @@
       row.className = 'bar-row';
       row.innerHTML =
         '<span class="bar-label"><span class="bar-label-name">' + COMPONENT_LABELS[key] + '</span>' +
-        (weightText ? '<span class="bar-label-weight">' + weightText + '</span>' : '') +
-        '</span>' +
+        (weightText ? '<span class="bar-label-weight">' + weightText + '</span>' : '') + '</span>' +
         '<div class="bar-track"><div class="bar-fill" style="width:' + val + '%"></div></div>' +
         '<span class="bar-value">' + val + '</span>';
       bars.appendChild(row);
     });
 
-    /* 原因 / 提示 */
-    var reasonsEl = $('r-reasons');
-    reasonsEl.innerHTML = '';
+    var rsnEl = $('r-reasons');
+    rsnEl.innerHTML = '';
     r.reasons.forEach(function (t) {
       var li = document.createElement('li');
-      li.textContent = '✓ ' + t;
-      reasonsEl.appendChild(li);
+      li.textContent = t;
+      rsnEl.appendChild(li);
     });
     var warnEl = $('r-warnings');
     warnEl.innerHTML = '';
@@ -815,11 +987,17 @@
     var sg = r.spatial_gradient || {};
     var cf = r.clearing_front || {};
     var rs = r.regime_state;   /* V1.7 天气型状态（回退路径为 null） */
+    var cm = r.cloud_motion || {};
+    var cfSummary = (r.cloud_field && r.cloud_field.summary) || {};
+    var st = r.all_day_sky_state || {};
+    var ar = cm.arrivalRisk || {};
 
     var noteHtml =
       '<p class="detail-note">公式：' + (rs
         ? 'Score = (Σ 组件×动态权重) × Q × G<sub>H</sub> + 结构加分 + 过渡加分 − P<sub>weather</sub>'
         : 'Score = P × Q × G<sub>H</sub> + B<sub>regime</sub> − P<sub>weather</sub>') +
+      (r.sky_evolution_factor ? ' · 全天演化 ×' + r.sky_evolution_factor : '') +
+      (r.sky_evolution && r.sky_evolution.gwFactor ? ' · 黄金窗口 ×' + r.sky_evolution.gwFactor : '') +
       '，所有参数为初始经验值，未来将基于真实观测校准。</p>';
 
     var groupScore =
@@ -842,15 +1020,22 @@
 
     var groupEvolution =
       '<div class="detail-group">' +
-      '<div class="detail-group-title">🌅 临近预报与天空演化</div>' +
+      '<div class="detail-group-title">🌅 天空演化与风场动力学</div>' +
       '<div class="detail-grid">' +
-      '<span>天空演化（V2.0）</span><span>' + fmtEvolutionDetail(r) + '</span>' +
-      '<span>Nowcasting 修正（V1.9）</span><span>' + fmtNowcastDetail(r) + '</span>' +
+      '<span>全天宏观状态</span><span>' + (st.label ? st.icon + ' ' + st.label + '（演化因子 ×' + (r.sky_evolution_factor || 1.0) + '）' : '—') + '</span>' +
+      '<span>全天空平均云量</span><span>' + (cfSummary.avgCloudCover != null ? cfSummary.avgCloudCover + '%（低/中/高: ' + cfSummary.avgCloudLow + '/' + cfSummary.avgCloudMid + '/' + cfSummary.avgCloudHigh + '%）' : '—') + '</span>' +
+      '<span>空间云场不均度</span><span>' + (cfSummary.spatialVariance != null ? cfSummary.spatialVariance + '（标准差）' : '—') + '</span>' +
+      '<span>风向风速</span><span>' + fmtStandardWind(cm.wind) + '</span>' +
+      '<span>分层云移动流速</span><span>' + (cm.layerWinds ? '低云 ' + cm.layerWinds.low.speedKmH + ' km/h · 中云 ' + cm.layerWinds.mid.speedKmH + ' km/h · 高云 ' + cm.layerWinds.high.speedKmH + ' km/h' : '—') + '</span>' +
+      '<span>上游浓云侵入预警</span><span>' + (ar.summaryText || '—') + '</span>' +
+      '<span>30/60/120m 侵入概率</span><span>' + (ar.risk30m != null ? '30m: ' + Math.round(ar.risk30m * 100) + '% / 60m: ' + Math.round(ar.risk60m * 100) + '% / 120m: ' + Math.round(ar.risk120m * 100) + '%' : '—') + '</span>' +
+      '<span>日落走廊演化</span><span>' + fmtEvolutionDetail(r) + '</span>' +
+      '<span>Nowcasting 修正</span><span>' + fmtNowcastDetail(r) + '</span>' +
       '</div></div>';
 
     var groupSpatial =
       '<div class="detail-group">' +
-      '<div class="detail-group-title">☁️ 空间云场结构</div>' +
+      '<div class="detail-group-title">☁️ 日落走廊云场结构</div>' +
       '<div class="detail-grid">' +
       '<span>云幕结构评分</span><span>' + (cs.bankScore != null ? cs.bankScore : '—') + '</span>' +
       '<span>中心云量 / 对比度</span><span>' + fmt4(cs.centerCloud, cs.contrast) + '</span>' +
@@ -858,7 +1043,7 @@
       '<span>空间梯度（' + (GRADIENT_TYPE_LABEL[sg.type] || '—') + '）</span><span>' + (sg.value != null ? sg.value : '—') + '</span>' +
       '<span>清空锋面（' + (CLEARING_DIR_LABEL[cf.direction] || '—') + '）</span><span>' +
         (cf.rate != null ? '率 ' + cf.rate + ' / 分 ' + cf.score + ' / 信 ' + cf.confidence : '—') + '</span>' +
-      '<span>反日落评分</span><span>' + (cs.antiSunsetScore != null ? cs.antiSunsetScore : '—') + '</span>' +
+      '<span>反日落评分（360°反向）</span><span>' + (cs.antiSunsetScore != null ? cs.antiSunsetScore + (cs.antiSunsetCloud != null ? '（反向高云 ' + cs.antiSunsetCloud + '%）' : '') : '—') + '</span>' +
       '<span>分区开阔度（走廊/云幕）</span><span>' + fmt4(so.corridor, so.bank) + '</span>' +
       '</div></div>';
 
@@ -877,15 +1062,16 @@
       '<div class="detail-group">' +
       '<div class="detail-group-title">📡 采样与数据可信度</div>' +
       '<div class="detail-grid">' +
-      '<span>采样模式（V1.8）</span><span>' + (r.sampling_mode || '—') +
+      '<span>采样模式（V2.1）</span><span>' + (r.sampling_mode === 'FULL' || r.sampling_mode === 'FULL_SKY' ? 'FULL_SKY（360° 全天空采样）' : (r.sampling_mode || '—')) +
         (r.escalated ? ' → FULL（' + (r.escalation_reason || '') + '）' : '') + '</span>' +
-      '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + '</span>' +
-      '<span>空间完整度 / 方差</span><span>' +
+      '<span>全天空动力学网格</span><span>8方位 × 4距离 × 3高度层（96 状态网格）</span>' +
+      '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + ' 个节点</span>' +
+      '<span>空间完整度 / 全天空方差</span><span>' +
         (r.spatial_completeness != null ? r.spatial_completeness : '—') + ' / ' +
-        (r.spatial_variance != null ? r.spatial_variance : '—') + '</span>' +
+        (r.spatial_variance != null ? r.spatial_variance : '—') + '（360° 标准差）</span>' +
       '<span>距离预报可信度</span><span>' + (r.distance_confidence != null ? r.distance_confidence : '—') + '</span>' +
       '<span>数据新鲜度 / 缓存</span><span>' +
-        (r.data_freshness != null ? r.data_freshness : '—') + ' / ' + (r.cache_status || '—') + '</span>' +
+        (r.data_freshness != null ? r.data_freshness + ' min' : '0 min') + ' / ' + (r.cache_status || '—') + '</span>' +
       '</div></div>';
 
     $('details').innerHTML =

@@ -420,13 +420,33 @@
     ]);
     if (atmosphere == null) atmosphere = 55; /* 数据全缺时的中性兜底 */
     
-    /* ===== V1.61 Anti-Sunset Cloud（增强方案六章） ===== */
-    /* 最小采样方案：本地节点数据近似反日落方向天空背景（本地云量为网格平均，
-       含全向信息），关注高云提供的色彩反射与天空层次；
-       enabled=false 时保持 canvas 兜底（A/B 开关） */
+    /* ===== V1.61/V2.1 Anti-Sunset Cloud ===== */
+    /* V2.1 升级：若传入 360° CloudField，则提取日落方位反向 (sunsetAzimuth + 180°)
+       的真实射线节点计算反日落中高云反射；未传入时回退本地高云兜底 */
+    var antiHighVal = null, antiTotalVal = null;
     if (sf61.antiSunset.enabled) {
       var antiW = sf61.antiSunset.weights;
       var antiHigh = ls.high != null ? ls.high : 0;
+      if (input.cloudField && typeof input.cloudField.getByRay === 'function') {
+        var antiAzimuth = (input.solar.sunsetAzimuthDeg + 180) % 360;
+        var antiRayNodes = input.cloudField.getByRay(antiAzimuth);
+        if (antiRayNodes && antiRayNodes.length) {
+          var validHighs = [], validTotals = [];
+          antiRayNodes.forEach(function (n) {
+            if (n.hasData && n.data) {
+              if (valid(n.data.cloud_cover_high)) validHighs.push(n.data.cloud_cover_high);
+              if (valid(n.data.cloud_cover)) validTotals.push(n.data.cloud_cover);
+            }
+          });
+          if (validHighs.length) {
+            antiHigh = avg(validHighs);
+            antiHighVal = Math.round(antiHigh);
+          }
+          if (validTotals.length) {
+            antiTotalVal = Math.round(avg(validTotals));
+          }
+        }
+      }
       var antiVis = visScore != null ? visScore : 50;
       antiSunsetScore = clamp(
         antiW.high * antiHigh + antiW.continuity * continuity + antiW.visibility * antiVis,
@@ -487,7 +507,7 @@
     var minuteStopMs = input.minutePrecip && input.minutePrecip.stopTimeMs;
     if (lastRainIdx >= 0 && valid(minuteStopMs)) {
       var gwMinute = cfg.rainToClearGoldenWindow;
-      var gapMinute = (Date.parse(localKey(input.sunsetLocal)) - minuteStopMs) / 60000;
+      var gapMinute = (input.solar.sunset.valueOf() - minuteStopMs) / 60000;
       goldenWindowOk = gapMinute >= gwMinute.min && gapMinute <= gwMinute.max;
     } else if (lastRainIdx >= 0) {
       var rainEndMs = Date.parse(localSample.forecast.hourly.time[lastRainIdx + 1]);
@@ -762,7 +782,9 @@
       : fetched / input.expectedSampleCount * 100;
 
     var lowArr = input.samples.map(function (s) { return valueAt(s, 'low'); }).filter(valid);
-    var spatialVariance = stdDev(lowArr);
+    var spatialVariance = (input.cloudField && input.cloudField.summary && input.cloudField.summary.spatialVariance != null)
+      ? input.cloudField.summary.spatialVariance
+      : stdDev(lowArr);
     var consistency = clamp(100 - spatialVariance * 1.5, 0, 100);
 
     var hoursToSunset = (input.solar.sunset.valueOf() - input.localNowUtc.valueOf()) / 3600000;
@@ -822,7 +844,7 @@
       level: level,
 
       /* V1.8 数据层元信息（方案 9、15、17 章），仅供展示与升级决策 */
-      sampling_mode: input.samplingMode || null,
+      sampling_mode: input.samplingMode || 'FULL',
       spatial_completeness: input.spatialCompleteness != null
         ? Math.round(input.spatialCompleteness * 100) / 100
         : (input.expectedSampleCount > 0 ? Math.round(fetched / input.expectedSampleCount * 100) / 100 : null),
@@ -831,6 +853,7 @@
       cache_status: input.cacheStatus || 'MISS',
       escalated: !!input.escalated,
       escalation_reason: input.escalationReason || null,
+      data_age: valid(input.dataAgeMinutes) ? input.dataAgeMinutes : 0,
 
       /* V1.9 Nowcasting 元信息透传（修正量由 app.js 叠加，引擎不感知） */
       nowcast: input.nowcast || null,
@@ -854,14 +877,16 @@
       horizon_gate: gate,
       hard_gates: hardGates,
 
-      /* V1.6 空间语义输出（方案六章） */
+      /* V1.6/V2.1 空间语义输出（方案六章与 360° 反日落） */
       cloud_structure: {
         bankScore: Math.round(bankScore),
         centerCloud: centerCloudRaw != null ? Math.round(centerCloudRaw) : null,
         contrast: contrastRaw != null ? Math.round(contrastRaw) : null,
         continuity: Math.round(continuity),
         structureScore: Math.round(cloudStructureScore),
-        antiSunsetScore: Math.round(antiSunsetScore)
+        antiSunsetScore: Math.round(antiSunsetScore),
+        antiSunsetCloud: antiHighVal,
+        antiSunsetTotal: antiTotalVal
       },
       /* V1.61 空间演化输出（增强方案七章） */
       spatial_gradient: {
@@ -911,8 +936,8 @@
         cloud_low: valid(lv.low) ? Math.round(lv.low) : null,
         cloud_mid: valid(lv.mid) ? Math.round(lv.mid) : null,
         cloud_high: valid(lv.high) ? Math.round(lv.high) : null,
-        samples_fetched: fetched,
-        samples_expected: input.expectedSampleCount,
+        samples_fetched: input.totalSkyNodeCount || fetched,
+        samples_expected: input.totalSkyNodeCount || input.expectedSampleCount,
         twilight_minutes: Math.round(input.solar.twilightMinutes)
       },
 

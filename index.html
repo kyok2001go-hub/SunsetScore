@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.0.2">
+  <link rel="stylesheet" href="css/style.css?v=2.1.0">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -48,7 +48,10 @@
         <div class="result-overview">
           <div class="result-head">
             <div>
-              <h2 id="r-city">—</h2>
+              <div class="city-title-row">
+                <h2 id="r-city">—</h2>
+                <span id="r-local-time" class="local-time-badge">—</span>
+              </div>
               <p id="r-meta" class="meta">—</p>
             </div>
             <div class="confidence" title="预测置信度">
@@ -93,6 +96,36 @@
           </div>
         </div>
 
+        <!-- 融合统一的【天空演化】模块（全天候天空动力学 + 风场驱动云场演化） -->
+        <div class="result-section sky-evolution" id="sky-evolution-block">
+          <div class="sky-evolution-header">
+            <h3 class="card-title">🌅 天空演化</h3>
+            <span id="sky-state-badge" class="sky-state-badge">—</span>
+          </div>
+          <div class="sky-evolution-grid">
+            <div class="info-line">
+              <span class="info-label">风向风速</span>
+              <span id="sky-wind-val" class="info-value">—</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">云场态势</span>
+              <span id="sky-trend-val" class="info-value">—</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">演化因子</span>
+              <span id="sky-factor-val" class="info-value">—</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">日落走廊</span>
+              <span id="sky-corridor-val" class="info-value">—</span>
+            </div>
+            <div class="info-line full-width">
+              <span class="info-label">上游云团预警</span>
+              <span id="sky-arrival-val" class="info-value">—</span>
+            </div>
+          </div>
+        </div>
+
         <!-- V1.9 黄金窗口动态状态（有 Nowcasting 数据时显示） -->
         <div class="nowcast-section hidden" id="nowcast-block">
           <h3 class="card-title">🌅 黄金窗口预测</h3>
@@ -119,17 +152,6 @@
             </div>
           </div>
           <div class="sky-timeline" id="n-timeline" aria-label="未来两小时天空变化趋势"></div>
-        </div>
-
-        <!-- V2.0 天空演化概率（有演化数据时显示） -->
-        <div class="result-section sky-evolution hidden" id="sky-evolution-block">
-          <h3 class="card-title">🌅 天空演化（未来 120 分钟）</h3>
-          <div class="evolution-state-row">
-            <span id="evo-state" class="evolution-state-badge evo-uncertain">—</span>
-            <span id="evo-confidence" class="info-value">—</span>
-          </div>
-          <div class="evolution-prob-bars" id="evo-probs" aria-label="未来各时距走廊开放概率"></div>
-          <div class="evolution-coverage" id="evo-coverage"></div>
         </div>
 
         <hr class="result-divider">
@@ -161,22 +183,26 @@
   </main>
 
   <footer class="footer">
-    数据来源：Open-Meteo（天气 / 空气质量 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.0.2<br>
+    数据来源：Open-Meteo（天气 / 空气质量 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.1.0<br>
     晚霞指数不是概率，而是"值不值得去看"的综合评分
   </footer>
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-  <script src="js/config.js?v=2.0.2"></script>
-  <script src="js/vendor/suncalc.js?v=2.0.2"></script>
-  <script src="js/solar.js?v=2.0.2"></script>
-  <script src="js/cache.js?v=2.0.2"></script>
-  <script src="js/data.js?v=2.0.2"></script>
-  <script src="js/engine.js?v=2.0.2"></script>
-  <script src="js/sampling.js?v=2.0.2"></script>
-  <script src="js/corridor.js?v=2.0.2"></script>
-  <script src="js/nowcast.js?v=2.0.2"></script>
-  <script src="js/evolution.js?v=2.0.2"></script>
-  <script src="js/app.js?v=2.0.2"></script>
+  <script src="js/config.js?v=2.1.0"></script>
+  <script src="js/vendor/suncalc.js?v=2.1.0"></script>
+  <script src="js/solar.js?v=2.1.0"></script>
+  <script src="js/cache.js?v=2.1.0"></script>
+  <script src="js/data.js?v=2.1.0"></script>
+  <script src="js/cloud_field.js?v=2.1.0"></script>
+  <script src="js/wind.js?v=2.1.0"></script>
+  <script src="js/cloud_motion.js?v=2.1.0"></script>
+  <script src="js/sky_state.js?v=2.1.0"></script>
+  <script src="js/engine.js?v=2.1.0"></script>
+  <script src="js/sampling.js?v=2.1.0"></script>
+  <script src="js/corridor.js?v=2.1.0"></script>
+  <script src="js/nowcast.js?v=2.1.0"></script>
+  <script src="js/evolution.js?v=2.1.0"></script>
+  <script src="js/app.js?v=2.1.0"></script>
 </body>
 </html>

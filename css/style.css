@@ -66,6 +66,7 @@ body {
 #search-form { display: flex; gap: 10px; }
 #city-input {
   flex: 1;
+  min-width: 0;
   padding: 12px 16px;
   border-radius: 10px;
   border: 1px solid var(--card-border);
@@ -80,6 +81,8 @@ body {
 
 #search-btn {
   padding: 12px 28px;
+  white-space: nowrap;
+  flex-shrink: 0;
   border: none;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--accent), var(--accent-soft));
@@ -147,8 +150,32 @@ body {
   gap: 12px;
   margin-bottom: 18px;
 }
-.result-head h2 { font-size: 1.4rem; }
-.meta { color: var(--text-dim); font-size: 0.88rem; margin-top: 2px; }
+.city-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.city-title-row h2 {
+  font-size: 1.4rem;
+  margin: 0;
+  white-space: nowrap;
+}
+.local-time-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-soft);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.meta { color: var(--text-dim); font-size: 0.88rem; margin-top: 4px; }
 
 .confidence { text-align: right; flex-shrink: 0; }
 .confidence-label { display: block; font-size: 0.75rem; color: var(--text-dim); }
@@ -339,64 +366,65 @@ body {
 .timeline-time { font-size: 0.75rem; color: var(--text-dim); }
 .timeline-icon { font-size: 1.3rem; }
 
-/* ---------- V2.0 天空演化概率块 ---------- */
+/* ---------- 融合统一的【天空演化】模块样式 ---------- */
 .sky-evolution {
   margin-top: 22px;
   padding: 16px 18px;
-  border: 1px solid var(--card-border);
+  border: 1px solid rgba(146, 84, 222, 0.25);
   border-radius: 12px;
-  background: rgba(211, 173, 247, 0.06);
+  background: rgba(146, 84, 222, 0.05);
 }
-.evolution-state-row {
+.sky-evolution-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  font-size: 0.9rem;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.evolution-state-badge {
+.sky-evolution-header .card-title {
+  margin: 0;
+}
+.sky-state-badge {
   padding: 4px 12px;
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.85rem;
-}
-.evo-open { background: rgba(82, 196, 26, 0.18); color: #95de64; }
-.evo-opening { background: rgba(255, 160, 80, 0.18); color: #ffa940; }
-.evo-closing { background: rgba(250, 173, 20, 0.18); color: #fad114; }
-.evo-blocked { background: rgba(255, 77, 79, 0.18); color: #ff7875; }
-.evo-uncertain { background: rgba(255, 255, 255, 0.08); color: #9fb3c8; }
-.evolution-prob-bars { display: flex; flex-direction: column; gap: 8px; }
-.evo-prob-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.85rem;
-}
-.evo-prob-label { width: 56px; color: var(--text-dim); flex-shrink: 0; }
-.evo-prob-track {
-  flex: 1;
-  height: 10px;
-  border-radius: 5px;
   background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
+  color: #fff;
+  letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.evo-prob-fill {
-  height: 100%;
-  border-radius: 5px;
-  background: linear-gradient(90deg, #9254de, #ffa940);
-  transition: width 0.4s ease;
+.sky-evolution-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
 }
-.evo-prob-value { width: 40px; text-align: right; font-weight: 600; }
-.evolution-coverage { margin-top: 12px; font-size: 0.85rem; color: var(--text-dim); }
+.sky-evolution-grid .info-line.full-width {
+  grid-column: 1 / -1;
+}
 
 /* ---------- 移动端 ---------- */
 @media (max-width: 520px) {
   .header h1 { font-size: 1.7rem; }
+  .search-card { padding: 16px; }
+  #search-form { gap: 8px; }
+  #city-input { padding: 10px 14px; font-size: 0.92rem; }
+  #search-btn { padding: 10px 18px; font-size: 0.92rem; }
+
+  .city-title-row { gap: 6px; flex-wrap: nowrap; }
+  .city-title-row h2 { font-size: 1.22rem; }
+  .local-time-badge { font-size: 0.72rem; padding: 1px 6px; }
+  .confidence span:last-child { font-size: 0.95rem; }
+
   .score-row { justify-content: center; }
   .score-side { min-width: 100%; }
   .bar-label { width: 64px; }
 
-  /* 黄金窗口在移动端单列单行展示，避免挤压折行 */
+  /* 天空演化与黄金窗口在移动端单列单行展示 */
+  .sky-evolution-grid,
   .nowcast-grid {
     grid-template-columns: 1fr;
     gap: 10px;

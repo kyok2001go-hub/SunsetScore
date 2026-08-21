@@ -74,9 +74,13 @@
     return fetchJson(url).then(function (json) {
       var m15 = json && json.minutely_15;
       if (!m15 || !m15.time || !m15.precipitation || m15.time.length < 8) return null;
-      var stepMs = m15.time.length > 1 ? Date.parse(m15.time[1]) - Date.parse(m15.time[0]) : 900000;
+      var offsetMs = (json.utc_offset_seconds || 0) * 1000;
+      var times = m15.time.map(function (tStr) {
+        return new Date(Date.parse(tStr) - offsetMs).toISOString();
+      });
+      var stepMs = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 900000;
       return {
-        times: m15.time, precip: m15.precipitation, stepMs: stepMs,
+        times: times, precip: m15.precipitation, stepMs: stepMs,
         source: 'openmeteo', summary: null
       };
     });

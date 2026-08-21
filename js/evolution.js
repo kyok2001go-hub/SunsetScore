@@ -88,7 +88,7 @@
   /* 走廊开放概率融合（方案 7 章）：
      CorridorOpenProbability(t) = P_radar(t) × RainStopConfidence(t)。
      雷达缺失时以卫星覆盖率演化替代（无降雨场景），再缺失则仅雨停置信度 */
-  function corridorOpenProbability(radarEvo, satelliteEvo, precip) {
+  function corridorOpenProbability(radarEvo, satelliteEvo, precip, motionForecast) {
     var cfg = SS.config.evolutionV20;
     var out = {};
     HORIZONS.forEach(function (h) {
@@ -97,10 +97,16 @@
         p = radarEvo.openProbability[h + 'm'];
       } else if (satelliteEvo && satelliteEvo.openProbability) {
         p = satelliteEvo.openProbability[h + 'm'];
+      } else if (motionForecast && motionForecast.predictions && (motionForecast.predictions['m' + h] || motionForecast.predictions['m60'])) {
+        var pred = motionForecast.predictions['m' + h] || motionForecast.predictions['m60'];
+        var cPred = pred.avgCloudCover;
+        var rPred = motionForecast.arrivalRisk ? (motionForecast.arrivalRisk['risk' + h + 'm'] || motionForecast.arrivalRisk.risk60m || 0) : 0;
+        var pOpenBase = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
+        p = pOpenBase * (1 - rPred * 0.8);
       }
       if (p == null) p = 0.5;
       p = p * rainStopConfidence(precip, h);
-      if (radarEvo == null && satelliteEvo == null) p = rainStopConfidence(precip, h);
+      if (radarEvo == null && satelliteEvo == null && motionForecast == null) p = rainStopConfidence(precip, h);
       out[h + 'm'] = Math.round(clamp(p, cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
     });
     return out;
@@ -181,9 +187,9 @@
     /* 卫星演化仅在无降雨场景参与（避免降水回波与云覆盖双重计） */
     if (satEvo && precip && precip.available && precip.rainingNow) satEvo = null;
 
-    if (!radarEvo && !satEvo && !(precip && precip.available)) return null;
+    if (!radarEvo && !satEvo && !(precip && precip.available) && !sources.motionForecast) return null;
 
-    var openProb = corridorOpenProbability(radarEvo, satEvo, precip);
+    var openProb = corridorOpenProbability(radarEvo, satEvo, precip, sources.motionForecast);
 
     /* 小时背景概率（方案 12 章 background 权重）：由小时云量趋势给出弱先验 */
     var bgP = valid(sources.forecastTrend)
@@ -197,12 +203,12 @@
     });
 
     /* 观测修正权重（方案 12 章 observation）：当前覆盖率与开放阈值的即时距离 */
-    var coverageNow = radarEvo ? radarEvo.coverageNow : (satEvo ? satEvo.coverageNow : null);
+    var coverageNow = radarEvo ? radarEvo.coverageNow : (satEvo ? satEvo.coverageNow : (sources.motionForecast ? sources.motionForecast.predictions.m30.avgCloudCover : null));
     var trend = radarEvo ? radarEvo.trend : (satEvo ? satEvo.trend : null);
 
     /* 置信度：源可用性加权 × (1 − 归一化 σ(60)) */
     var srcFactor = (radarEvo ? 0.5 : 0) + (precip && precip.available ? 0.3 : 0) +
-      (satEvo ? 0.2 : 0);
+      (satEvo ? 0.2 : 0) + (sources.motionForecast ? 0.25 : 0);
     var sigma60 = cfg.sigma0 + cfg.sigmaPerMin * 60;
     var sigmaNorm = clamp(sigma60 / cfg.stateMachine.maxSigma60, 0, 1);
     var confidence = clamp(srcFactor * (1 - sigmaNorm), 0.1, 0.98);
@@ -217,6 +223,7 @@
     if (radarEvo) evo.sources.push('radar');
     if (satEvo) evo.sources.push('satellite');
     if (precip && precip.available) evo.sources.push('precip');
+    if (sources.motionForecast) evo.sources.push('cloud_motion');
     if (valid(sources.forecastTrend)) evo.sources.push('forecast');
     evo.sources.push('background');
 
@@ -224,7 +231,7 @@
     evo.state = st.state;
     evo.confidence = st.confidence;
 
-    /* Golden Window V3：日落时刻的走廊开放概率与乘法因子 */
+    /* Golden Window V3/V4：日落时刻的走廊开放概率与乘法因子 */
     if (valid(sources.sunsetMs)) {
       var tSunset = clamp((sources.sunsetMs - (sources.nowMs || Date.now())) / 60000, 0, 120);
       /* 四时距概率在日落时距处的插值（就近取档） */
@@ -239,10 +246,11 @@
       evo.gwFactor = Math.round((floor + (1 - floor) * pSunset) * 1000) / 1000;
     }
 
-    /* 详情透传：卫星未来覆盖率与到达风险、雷达演化原始输出 */
+    /* 详情透传：卫星未来覆盖率与到达风险、雷达演化原始输出、风场平流外推 */
     evo.detail = {
       radar: radarEvo,
       satellite: satEvo,
+      motion: sources.motionForecast,
       precip: precip ? {
         source: precip.source,
         rainingNow: precip.rainingNow,

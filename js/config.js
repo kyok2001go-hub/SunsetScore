@@ -13,7 +13,7 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '2.0.2',
+    version: '2.1.0',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -197,7 +197,7 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v202_',
+    cachePrefix: 'sunsetscore_v213_',
 
     /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
     samplingV18: {
@@ -336,6 +336,64 @@
       satelliteOpenThreshold: 25   /* [TUNE] 卫星覆盖率低于该值认为开放 */
     },
 
+    /* ---------- V2.1 全天空 360° 云场引擎（技术方案 第 4 章） ---------- */
+    cloudFieldV21: {
+      enabled: true,
+      /* 8 方位与方位角（0°=北，顺时针） */
+      directions: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+      azimuths: [0, 45, 90, 135, 180, 225, 270, 315],
+      /* 4 距离带（km） */
+      distancesKm: [50, 100, 200, 300],
+      /* 3 高度层 */
+      levels: ['LOW', 'MID', 'HIGH'],
+      /* 云层浓厚/遮挡阈值（%） */
+      denseCloudThreshold: 70,
+      clearCloudThreshold: 20
+    },
+
+    /* ---------- V2.1 风场驱动云平流运动模型（技术方案 第 5 章） ---------- */
+    windMotionV21: {
+      enabled: true,
+      /* 预测时距（分钟） */
+      forecastHorizonsMin: [30, 60, 120],
+      /* 大气边界层（ABL）分层动力学切变与地转偏转配置 */
+      stratifiedLayers: {
+        low:  { multiplier: 1.8, minSpeedKmH: 8.0,  veeringDeg: 15 },
+        mid:  { multiplier: 2.5, minSpeedKmH: 18.0, veeringDeg: 30 },
+        high: { multiplier: 4.0, minSpeedKmH: 35.0, veeringDeg: 45 }
+      },
+      /* 兼容保留 */
+      upperWindSpeedMultiplier: { low: 1.8, mid: 2.5, high: 4.0 },
+      /* 上游到达风险判定参数 */
+      arrivalRisk: {
+        upstreamSectorHalfWidthDeg: 35,
+        denseCloudCoverMin: 65,
+        /* 风险衰减/扩散系数 */
+        dispersionPer100Km: 0.10,
+        /* 日落演化有效到达时效上限（分钟）：超过该时限的远方云团不计入今日落即时威胁 */
+        maxArrivalHorizonMin: 180
+      }
+    },
+
+    /* ---------- V2.1 全天天空状态机与演化因子（技术方案 第 6、8 章） ---------- */
+    skyStateV21: {
+      enabled: true,
+      states: ['CLEAR', 'OPENING', 'STABLE', 'CLOSING', 'CLOUD_ARRIVING', 'UNCERTAIN'],
+      clearCloudMax: 25,
+      openingDropRateMin: 5,        /* 每小时云量下降 5% 以上 */
+      closingGrowthRateMin: 5,      /* 每小时云量上升 5% 以上 */
+      cloudArrivingRiskThreshold: 0.35,
+      /* SkyEvolutionFactor 限幅区间 [0.65, 1.15] */
+      factorRange: [0.65, 1.15]
+    },
+
+    /* ---------- V2.1 日落事件层与 Golden Window V4（技术方案 第 7、8 章） ---------- */
+    goldenWindowV4: {
+      enabled: true,
+      activationWindowMin: 180,     /* 距日落 T-180m 内激活 */
+      baseFloor: 0.50
+    },
+
     /* ---------- API 端点 ---------- */
     endpoints: {
       geocoding: 'https://geocoding-api.open-meteo.com/v1/search',
@@ -345,7 +403,7 @@
     hourlyVariables: [
       'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high',
       'visibility', 'relative_humidity_2m', 'precipitation', 'precipitation_probability',
-      'wind_speed_10m', 'surface_pressure'
+      'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'surface_pressure'
     ].join(',')
   };
 })(typeof window !== 'undefined' ? window : globalThis);
