@@ -898,9 +898,17 @@
       var sx = cx + 258 * Math.sin(sunRad);
       var sy = cy - 258 * Math.cos(sunRad);
       svgContent += '<line x1="' + cx + '" y1="' + cy + '" x2="' + sx.toFixed(1) + '" y2="' + sy.toFixed(1) + '" class="radar-sunset-ray" />';
-      var badgeX = cx + 296 * Math.sin(sunRad);
-      var badgeY = cy - 296 * Math.cos(sunRad);
-      svgContent += '<text x="' + badgeX.toFixed(1) + '" y="' + (badgeY + 4).toFixed(1) + '" class="radar-sunset-badge">🌅 日落 ' + Math.round(sunAz) + '°</text>';
+
+      /* 徽标沿日落射线中段排布（R=195px），配备暗色外廓光晕，杜绝溢出外框边缘 */
+      var badgeR = 195;
+      var badgeX = cx + badgeR * Math.sin(sunRad);
+      var badgeY = cy - badgeR * Math.cos(sunRad);
+      var badgeText = '🌅 日落 ' + Math.round(sunAz) + '°';
+
+      svgContent += '<g class="radar-sunset-badge-group">';
+      svgContent += '<text x="' + badgeX.toFixed(1) + '" y="' + (badgeY + 5).toFixed(1) + '" class="radar-sunset-badge-shadow">' + badgeText + '</text>';
+      svgContent += '<text x="' + badgeX.toFixed(1) + '" y="' + (badgeY + 5).toFixed(1) + '" class="radar-sunset-badge">' + badgeText + '</text>';
+      svgContent += '</g>';
     }
 
     /* ===== B. 云层绘制（严格按 低云 -> 中云 -> 高云 自底向上堆叠分层，并支持开关） ===== */
@@ -984,11 +992,35 @@
       el.addEventListener('mouseenter', function (e) { showTooltip(e, p); });
       el.addEventListener('mousemove', function (e) { showTooltip(e, p); });
       el.addEventListener('mouseleave', hideTooltip);
-      el.addEventListener('touchstart', function (e) { showTooltip(e, p); }, { passive: true });
+
+      /* 移动端与点击：点击点位打开/更新气泡，并阻止冒泡以避免触发全局关闭 */
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        showTooltip(e, p);
+      });
+      el.addEventListener('touchstart', function (e) {
+        e.stopPropagation();
+        showTooltip(e, p);
+      }, { passive: false });
     });
 
     if (container) {
       container.addEventListener('mouseleave', hideTooltip);
+    }
+
+    /* 移动端点击页面任意其他区域关闭气泡（全局监听仅绑定一次） */
+    if (!window._radarGlobalDismissBound) {
+      function handleGlobalTouchOrClick(e) {
+        var t = $('radar-tooltip');
+        if (t && !t.classList.contains('hidden')) {
+          if (!e.target.closest || (!e.target.closest('.radar-node-target') && !e.target.closest('#radar-tooltip'))) {
+            t.classList.add('hidden');
+          }
+        }
+      }
+      document.addEventListener('touchstart', handleGlobalTouchOrClick, { passive: true });
+      document.addEventListener('click', handleGlobalTouchOrClick);
+      window._radarGlobalDismissBound = true;
     }
   }
 

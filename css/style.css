@@ -543,15 +543,29 @@ body {
   dominant-baseline: auto;
 }
 .radar-sunset-ray {
-  stroke: rgba(255, 170, 70, 0.75);
-  stroke-width: 1.8;
-  stroke-dasharray: 5, 3;
+  stroke: rgba(255, 170, 70, 0.85);
+  stroke-width: 2;
+  stroke-dasharray: 6, 3;
+}
+.radar-sunset-badge-group {
+  pointer-events: none;
 }
 .radar-sunset-badge {
-  fill: #ffaa46;
-  font-size: 11px;
-  font-weight: 600;
+  fill: #ffb04f;
+  font-size: 13.5px;
+  font-weight: 700;
   text-anchor: middle;
+  dominant-baseline: central;
+}
+.radar-sunset-badge-shadow {
+  fill: none;
+  stroke: rgba(18, 14, 30, 0.95);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 /* Cloud bubbles */
@@ -608,37 +622,104 @@ body {
   gap: 12px;
 }
 
-/* ---------- 移动端 ---------- */
-@media (max-width: 520px) {
-  .header h1 { font-size: 1.7rem; }
-  .search-card { padding: 16px; }
-  #search-form { gap: 8px; }
-  #city-input { padding: 10px 14px; font-size: 0.92rem; }
-  #search-btn { padding: 10px 18px; font-size: 0.92rem; }
+/* ---------- 移动端适配与空间深度优化 ---------- */
+@media (max-width: 640px) {
+  /* 1. 主模块卡片距屏幕边缘间隙缩小 50%（由 16px 缩减至 8px，充分利用屏幕宽度） */
+  .container {
+    padding: 16px 8px 36px;
+    gap: 12px;
+  }
+  .header {
+    padding: 28px 10px 6px;
+  }
+  .header h1 {
+    font-size: 1.72rem;
+  }
+  .subtitle {
+    font-size: 0.95rem;
+  }
+
+  /* 2. 主模块卡片内部间隙与内边距缩小 50%（由 20px 缩减至 10px） */
+  .card {
+    padding: 16px 10px;
+    border-radius: 12px;
+  }
+  .search-card {
+    padding: 14px 10px;
+  }
+  #search-form {
+    gap: 8px;
+  }
+  #city-input {
+    padding: 10px 12px;
+    font-size: 0.92rem;
+  }
+  #search-btn {
+    padding: 10px 16px;
+    font-size: 0.92rem;
+  }
+
+  /* 3. 【天空演化】、【当前全天空云场分布】、【黄金窗口】等内部模块两侧与主模块边缘间隙缩小 50%（由 18px 缩减至 9px） */
+  .sky-evolution,
+  .cloud-field-radar-section,
+  .nowcast-section {
+    padding: 14px 9px;
+    margin-top: 16px;
+    border-radius: 10px;
+  }
+
+  /* 4. 雷达图“日落 286°”文字在移动端放大并适配（粗体醒目且不溢出） */
+  .radar-sunset-badge,
+  .radar-sunset-badge-shadow {
+    font-size: 16.5px;
+    font-weight: 700;
+  }
+  .radar-sunset-badge-shadow {
+    stroke-width: 6px;
+  }
+  .radar-dir-label {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .radar-dist-label {
+    font-size: 11px;
+  }
+  .radar-header {
+    margin-bottom: 10px;
+    gap: 6px;
+  }
+  .radar-legend {
+    gap: 6px;
+  }
+  .legend-item {
+    padding: 3px 8px;
+    font-size: 0.76rem;
+  }
 
   .city-title-row { gap: 6px; flex-wrap: nowrap; }
   .city-title-row h2 { font-size: 1.22rem; }
   .local-time-badge { font-size: 0.72rem; padding: 1px 6px; }
   .confidence span:last-child { font-size: 0.95rem; }
 
-  .score-row { justify-content: center; }
-  .score-side { min-width: 100%; }
+  .score-row { justify-content: center; gap: 14px; }
+  .score-side { min-width: 100%; gap: 8px; }
   .bar-label { width: 64px; }
 
-  /* 天空演化与黄金窗口在移动端单列单行展示 */
+  /* 天空演化与黄金窗口在移动端单列展示 */
   .sky-evolution-grid,
   .nowcast-grid {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
   }
 
   /* 详情在移动端分组与字号优化，彻底防止右侧溢出 */
   .detail-group {
-    padding: 10px 12px;
+    padding: 10px 8px;
+    border-radius: 8px;
   }
   .detail-grid {
-    grid-template-columns: minmax(88px, auto) 1fr;
-    gap: 7px 10px;
+    grid-template-columns: minmax(82px, auto) 1fr;
+    gap: 6px 8px;
     font-size: 0.82rem;
   }
   .detail-grid span:nth-child(even) {
@@ -646,5 +727,9 @@ body {
   }
   .detail-note {
     font-size: 0.75rem;
+  }
+
+  .result-divider {
+    margin: 16px 0;
   }
 }
