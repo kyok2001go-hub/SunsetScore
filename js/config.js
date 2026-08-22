@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V1.7 - 可调参数集中配置
+ * SunsetScore V2.1.1 - 可调参数集中配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * V1.6：新增 Spatial Cloud Field 空间语义参数（SPATIAL_FIELD_V16）
  * V1.61：新增空间演化能力参数（SPATIAL_FIELD_V161）
@@ -7,13 +7,15 @@
  * V1.8：新增自适应采样与缓存参数（SPATIAL_API_V18）
  * V1.9：新增 Nowcasting 临近预报参数（NOWCAST_V19）
  * V2.0：新增天空演化概率预测参数（EVOLUTION_V20）
+ * V2.1：全天空云场演化与风场驱动预测系统（立体33点采样）
+ * V2.1.1：全天空云场分布33点立体雷达图与动态风场矢量流场可视化
  * ============================================================ */
 (function (root) {
   'use strict';
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '2.1.0',
+    version: '2.1.1',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],

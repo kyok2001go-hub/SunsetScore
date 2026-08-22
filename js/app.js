@@ -661,6 +661,337 @@
     }
   }
 
+  /* ---------- V2.1.1 当前全天空云场分布（33 点全天空立体雷达方位图与动态风场矢量） ---------- */
+  var RADAR_DIRS = [
+    { dir: 'N', az: 0, label: '北 (N)' },
+    { dir: 'NE', az: 45, label: '东北 (NE)' },
+    { dir: 'E', az: 90, label: '东 (E)' },
+    { dir: 'SE', az: 135, label: '东南 (SE)' },
+    { dir: 'S', az: 180, label: '南 (S)' },
+    { dir: 'SW', az: 225, label: '西南 (SW)' },
+    { dir: 'W', az: 270, label: '西 (W)' },
+    { dir: 'NW', az: 315, label: '西北 (NW)' }
+  ];
+  /* 扩大每一环间距（扩大50km内环至74px）：50km(74px) -> 100km(132px) -> 200km(190px) -> 300km(248px)，步长 58px */
+  var RADAR_DISTS = [50, 100, 200, 300];
+  var RADAR_RADII = { 50: 74, 100: 132, 200: 190, 300: 248 };
+
+  /* 分层显示状态控制（低云 / 中云 / 高云） */
+  var radarVisibleLayers = { low: true, mid: true, high: true };
+  var cachedRadarResult = null;
+  var radarTogglesBound = false;
+
+  function initRadarLayerToggles() {
+    if (radarTogglesBound) return;
+    var container = $('radar-layer-toggles');
+    if (!container) return;
+
+    var btns = container.querySelectorAll('.legend-item[data-layer]');
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        var layer = btn.getAttribute('data-layer');
+        if (!layer) return;
+
+        /* 切换图层显隐 */
+        radarVisibleLayers[layer] = !radarVisibleLayers[layer];
+        btn.classList.toggle('inactive', !radarVisibleLayers[layer]);
+        btn.classList.toggle('active', radarVisibleLayers[layer]);
+        btn.setAttribute('aria-pressed', radarVisibleLayers[layer] ? 'true' : 'false');
+
+        /* 立即平滑刷新雷达图 */
+        if (cachedRadarResult) {
+          renderCloudFieldRadar(cachedRadarResult);
+        }
+      });
+    });
+    radarTogglesBound = true;
+  }
+
+  function renderCloudFieldRadar(r) {
+    var block = $('cloud-field-radar-block');
+    var svg = $('cloud-field-radar-svg');
+    var tooltip = $('radar-tooltip');
+    if (!block || !svg) return;
+
+    var cf = r.cloud_field;
+    if (!cf || (!cf.nodes && !cf.nodeMap)) {
+      hide(block);
+      return;
+    }
+    show(block);
+    cachedRadarResult = r;
+    initRadarLayerToggles();
+
+    /* 画布几何参数（中心 310, 310，外环 248px，文字 280px，viewBox 0 0 620 620） */
+    var cx = 310, cy = 310;
+    /* 严格几何约束：50km 内环弦长 56.64px，径向步长 58px。
+       圆形最大半径提升至原先 150% (23.5px，直径 47px)。
+       在 100% 满云量时，相邻两点边缘净间隙保持在 ~9.6px（间隙收紧约 20%），绝对不交涉且视觉饱满 */
+    var maxCloudRadius = 23.5;
+
+    /* 收集 33 个节点及其云量 */
+    var centerNode = cf.center || {};
+    var cData = centerNode.data || {};
+    var allPoints = [];
+
+    /* 1. 中心本地节点 (0km) */
+    allPoints.push({
+      key: 'CENTER_0',
+      label: '本地中心 (0km)',
+      azimuth: 0,
+      distanceKm: 0,
+      x: cx,
+      y: cy,
+      low: cData.cloud_cover_low || 0,
+      mid: cData.cloud_cover_mid || 0,
+      high: cData.cloud_cover_high || 0,
+      total: cData.cloud_cover || 0
+    });
+
+    /* 2. 8 方位 × 4 距离 = 32 个远端节点 */
+    RADAR_DIRS.forEach(function (dInfo) {
+      var radAngle = (dInfo.az * Math.PI) / 180;
+      RADAR_DISTS.forEach(function (dist) {
+        var ringR = RADAR_RADII[dist] || 248;
+        var nx = cx + ringR * Math.sin(radAngle);
+        var ny = cy - ringR * Math.cos(radAngle);
+
+        var nodeKey = dInfo.dir + '_' + dist;
+        var nodeRecord = (cf.nodeMap && cf.nodeMap[nodeKey]) || null;
+        if (!nodeRecord && cf.nodes) {
+          for (var i = 0; i < cf.nodes.length; i++) {
+            if (cf.nodes[i].direction === dInfo.dir && cf.nodes[i].distanceKm === dist) {
+              nodeRecord = cf.nodes[i];
+              break;
+            }
+          }
+        }
+        var nd = (nodeRecord && nodeRecord.data) ? nodeRecord.data : {};
+        allPoints.push({
+          key: nodeKey,
+          label: dInfo.label + ' · ' + dist + 'km',
+          azimuth: dInfo.az,
+          distanceKm: dist,
+          x: Math.round(nx * 10) / 10,
+          y: Math.round(ny * 10) / 10,
+          low: nd.cloud_cover_low || 0,
+          mid: nd.cloud_cover_mid || 0,
+          high: nd.cloud_cover_high || 0,
+          total: nd.cloud_cover || 0
+        });
+      });
+    });
+
+    /* 统一尺度：云量百分比映射为圆形半径 (0% -> 0, >0% -> 3.2 ~ 23.5px) */
+    function calcRadius(pct) {
+      if (!pct || pct <= 0) return 0;
+      return Math.max(3.2, (pct / 100) * maxCloudRadius);
+    }
+
+    /* 提取风场动力学参数（风向与风速） */
+    var cm = r.cloud_motion || {};
+    var windObj = cm.wind || (cData.wind_speed_10m != null ? cData : {});
+    var windSpeed = (windObj.speedKmH != null) ? windObj.speedKmH : (windObj.wind_speed_10m || 15);
+    var windDirFrom = (windObj.directionDeg != null) ? windObj.directionDeg : (windObj.wind_direction_10m || 0);
+    var flowHeading = (windDirFrom + 180) % 360; /* 风向前进流动朝向 */
+    var windDurationNum = Math.max(1.0, Math.min(6.0, 36 / Math.max(3, windSpeed)));
+    var windDuration = windDurationNum.toFixed(2) + 's';
+
+    var svgContent = '';
+
+    /* ===== A0. 剪裁区域与底层动态风向渐变矢量流场（Dynamic Gradient Wind Particles） ===== */
+    svgContent += '<defs>';
+    svgContent += '<clipPath id="radar-disc-clip"><circle cx="' + cx + '" cy="' + cy + '" r="248" /></clipPath>';
+    /* 渐变定义：尾部(y=0%)全透明 0 -> 头部(y=100%)透明度 20%~26% */
+    svgContent += '<linearGradient id="wind-trail-grad" x1="0%" y1="0%" x2="0%" y2="100%">';
+    svgContent += '<stop offset="0%" stop-color="#ffffff" stop-opacity="0" />';
+    svgContent += '<stop offset="45%" stop-color="#ffffff" stop-opacity="0.04" />';
+    svgContent += '<stop offset="80%" stop-color="#ffffff" stop-opacity="0.12" />';
+    svgContent += '<stop offset="100%" stop-color="#ffffff" stop-opacity="0.22" />';
+    svgContent += '</linearGradient>';
+
+    svgContent += '<linearGradient id="wind-trail-grad-fine" x1="0%" y1="0%" x2="0%" y2="100%">';
+    svgContent += '<stop offset="0%" stop-color="#ffffff" stop-opacity="0" />';
+    svgContent += '<stop offset="50%" stop-color="#ffffff" stop-opacity="0.03" />';
+    svgContent += '<stop offset="85%" stop-color="#ffffff" stop-opacity="0.08" />';
+    svgContent += '<stop offset="100%" stop-color="#ffffff" stop-opacity="0.15" />';
+    svgContent += '</linearGradient>';
+
+    svgContent += '<linearGradient id="wind-trail-grad-accent" x1="0%" y1="0%" x2="0%" y2="100%">';
+    svgContent += '<stop offset="0%" stop-color="#e2f0ff" stop-opacity="0" />';
+    svgContent += '<stop offset="40%" stop-color="#e2f0ff" stop-opacity="0.06" />';
+    svgContent += '<stop offset="80%" stop-color="#e2f0ff" stop-opacity="0.16" />';
+    svgContent += '<stop offset="100%" stop-color="#e2f0ff" stop-opacity="0.28" />';
+    svgContent += '</linearGradient>';
+    svgContent += '</defs>';
+
+    /* 动态矢量流场组：旋转对准实际风流前进方向，全场限制在 300km 距离盘内流动（密度降低 50%） */
+    var rotDeg = (flowHeading - 180);
+    svgContent += '<g class="radar-wind-flow" clip-path="url(#radar-disc-clip)" transform="rotate(' + rotDeg.toFixed(1) + ' ' + cx + ' ' + cy + ')">';
+    var windTracks = [-180, -108, -36, 36, 108, 180];
+    windTracks.forEach(function (gx, tIdx) {
+      var lineX = cx + gx;
+      var isAccent = (tIdx === 2 || tIdx === 3);
+      var isFine = (tIdx === 0 || tIdx === 5);
+      var trailLen = isAccent ? 52 : (isFine ? 38 : 46);
+      var gradId = isAccent ? 'url(#wind-trail-grad-accent)' : (isFine ? 'url(#wind-trail-grad-fine)' : 'url(#wind-trail-grad)');
+      var trailCls = isAccent ? 'radar-wind-trail trail-accent' : 'radar-wind-trail';
+      var baseDelay = -0.5 * tIdx - 0.2 * (tIdx % 2);
+
+      /* 渐变流线粒子 1 */
+      var delay1 = baseDelay.toFixed(2) + 's';
+      svgContent += '<g class="radar-wind-particle">';
+      svgContent += '<animateTransform attributeName="transform" type="translate" from="0 -290" to="0 290" dur="' + windDuration + '" repeatCount="indefinite" begin="' + delay1 + '" />';
+      svgContent += '<path d="M ' + lineX.toFixed(1) + ' ' + (cy - trailLen) + ' L ' + (lineX + 1.2).toFixed(1) + ' ' + (cy - 2) + ' A 1.2 1.2 0 0 1 ' + (lineX - 1.2).toFixed(1) + ' ' + (cy - 2) + ' Z" fill="' + gradId + '" class="' + trailCls + '" />';
+      svgContent += '</g>';
+
+      /* 渐变流线粒子 2（交错半个周期） */
+      var delay2 = (baseDelay - windDurationNum * 0.5).toFixed(2) + 's';
+      svgContent += '<g class="radar-wind-particle">';
+      svgContent += '<animateTransform attributeName="transform" type="translate" from="0 -290" to="0 290" dur="' + windDuration + '" repeatCount="indefinite" begin="' + delay2 + '" />';
+      svgContent += '<path d="M ' + lineX.toFixed(1) + ' ' + (cy - trailLen) + ' L ' + (lineX + 1.2).toFixed(1) + ' ' + (cy - 2) + ' A 1.2 1.2 0 0 1 ' + (lineX - 1.2).toFixed(1) + ' ' + (cy - 2) + ' Z" fill="' + gradId + '" class="' + trailCls + '" />';
+      svgContent += '</g>';
+    });
+    svgContent += '</g>';
+
+    /* ===== A. 网格底图层 ===== */
+    /* 1. 4 圈同心虚线距离环（间距加大） */
+    RADAR_DISTS.forEach(function (dist) {
+      var rPx = RADAR_RADII[dist];
+      svgContent += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rPx + '" class="radar-grid-ring" />';
+    });
+
+    /* 2. 8 根方位轴线（虚线） */
+    RADAR_DIRS.forEach(function (dInfo) {
+      var radAngle = (dInfo.az * Math.PI) / 180;
+      var xEnd = cx + 248 * Math.sin(radAngle);
+      var yEnd = cy - 248 * Math.cos(radAngle);
+      svgContent += '<line x1="' + cx + '" y1="' + cy + '" x2="' + xEnd.toFixed(1) + '" y2="' + yEnd.toFixed(1) + '" class="radar-grid-axis" />';
+    });
+
+    /* 3. 中心十字基准点 */
+    svgContent += '<line x1="' + (cx - 6) + '" y1="' + cy + '" x2="' + (cx + 6) + '" y2="' + cy + '" stroke="rgba(255,255,255,0.28)" stroke-width="1.2" />';
+    svgContent += '<line x1="' + cx + '" y1="' + (cy - 6) + '" x2="' + cx + '" y2="' + (cy + 6) + '" stroke="rgba(255,255,255,0.28)" stroke-width="1.2" />';
+
+    /* 4. 8 方位文字标签（外环 R=280） */
+    RADAR_DIRS.forEach(function (dInfo) {
+      var radAngle = (dInfo.az * Math.PI) / 180;
+      var lx = cx + 280 * Math.sin(radAngle);
+      var ly = cy - 280 * Math.cos(radAngle);
+      svgContent += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" class="radar-dir-label">' + dInfo.dir + '</text>';
+    });
+
+    /* 5. 距离刻度文字标签（沿北偏东 22.5° 轴线排列） */
+    var distLabelAngle = (22.5 * Math.PI) / 180;
+    RADAR_DISTS.forEach(function (dist) {
+      var rPx = RADAR_RADII[dist];
+      var tx = cx + rPx * Math.sin(distLabelAngle);
+      var ty = cy - rPx * Math.cos(distLabelAngle);
+      svgContent += '<text x="' + tx.toFixed(1) + '" y="' + (ty - 4).toFixed(1) + '" class="radar-dist-label">' + dist + 'km</text>';
+    });
+
+    /* 6. 日落方位指示虚线与徽标 */
+    if (r.sunset_azimuth != null) {
+      var sunAz = r.sunset_azimuth;
+      var sunRad = (sunAz * Math.PI) / 180;
+      var sx = cx + 258 * Math.sin(sunRad);
+      var sy = cy - 258 * Math.cos(sunRad);
+      svgContent += '<line x1="' + cx + '" y1="' + cy + '" x2="' + sx.toFixed(1) + '" y2="' + sy.toFixed(1) + '" class="radar-sunset-ray" />';
+      var badgeX = cx + 296 * Math.sin(sunRad);
+      var badgeY = cy - 296 * Math.cos(sunRad);
+      svgContent += '<text x="' + badgeX.toFixed(1) + '" y="' + (badgeY + 4).toFixed(1) + '" class="radar-sunset-badge">🌅 日落 ' + Math.round(sunAz) + '°</text>';
+    }
+
+    /* ===== B. 云层绘制（严格按 低云 -> 中云 -> 高云 自底向上堆叠分层，并支持开关） ===== */
+    /* 1. 底层：低云 (LOW) 半透明蓝 */
+    if (radarVisibleLayers.low) {
+      allPoints.forEach(function (p) {
+        var rLow = calcRadius(p.low);
+        if (rLow > 0) {
+          svgContent += '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + rLow.toFixed(1) + '" class="radar-cloud-circle radar-cloud-low" />';
+        }
+      });
+    }
+
+    /* 2. 中层：中云 (MID) 半透明绿 */
+    if (radarVisibleLayers.mid) {
+      allPoints.forEach(function (p) {
+        var rMid = calcRadius(p.mid);
+        if (rMid > 0) {
+          svgContent += '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + rMid.toFixed(1) + '" class="radar-cloud-circle radar-cloud-mid" />';
+        }
+      });
+    }
+
+    /* 3. 顶层：高云 (HIGH) 半透明橘 */
+    if (radarVisibleLayers.high) {
+      allPoints.forEach(function (p) {
+        var rHigh = calcRadius(p.high);
+        if (rHigh > 0) {
+          svgContent += '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + rHigh.toFixed(1) + '" class="radar-cloud-circle radar-cloud-high" />';
+        }
+      });
+    }
+
+    /* ===== C. 交互层（33 个采样点透明触发 Hitbox 与中心微光标点） ===== */
+    allPoints.forEach(function (p, pIdx) {
+      svgContent += '<g class="radar-node-target" data-idx="' + pIdx + '">';
+      svgContent += '<circle cx="' + p.x + '" cy="' + p.y + '" r="24" fill="transparent" />';
+      svgContent += '<circle cx="' + p.x + '" cy="' + p.y + '" r="2.8" fill="rgba(255,255,255,0.45)" class="radar-hover-indicator" stroke="transparent" />';
+      svgContent += '</g>';
+    });
+
+    svg.innerHTML = svgContent;
+
+    /* 交互事件绑定与 Tooltip */
+    var targets = svg.querySelectorAll('.radar-node-target');
+    var container = svg.closest('.radar-chart-container');
+
+    function showTooltip(e, p) {
+      if (!tooltip || !container) return;
+      var rect = container.getBoundingClientRect();
+      var clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      var clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+      var posX = clientX - rect.left;
+      var posY = clientY - rect.top;
+
+      var lowStyle = radarVisibleLayers.low ? 'color:#85a5ff' : 'color:rgba(133,165,255,0.4);text-decoration:line-through';
+      var midStyle = radarVisibleLayers.mid ? 'color:#95de64' : 'color:rgba(149,222,100,0.4);text-decoration:line-through';
+      var highStyle = radarVisibleLayers.high ? 'color:#ffc069' : 'color:rgba(255,192,105,0.4);text-decoration:line-through';
+
+      tooltip.innerHTML =
+        '<div class="radar-tooltip-title">' + p.label + '</div>' +
+        '<div class="radar-tooltip-row"><span>总云量:</span><strong>' + p.total + '%</strong></div>' +
+        '<div class="radar-tooltip-row" style="' + lowStyle + '"><span>低云 (LOW):</span><span>' + p.low + '%' + (!radarVisibleLayers.low ? ' (隐藏)' : '') + '</span></div>' +
+        '<div class="radar-tooltip-row" style="' + midStyle + '"><span>中云 (MID):</span><span>' + p.mid + '%' + (!radarVisibleLayers.mid ? ' (隐藏)' : '') + '</span></div>' +
+        '<div class="radar-tooltip-row" style="' + highStyle + '"><span>高云 (HIGH):</span><span>' + p.high + '%' + (!radarVisibleLayers.high ? ' (隐藏)' : '') + '</span></div>';
+
+      tooltip.style.left = Math.max(60, Math.min(rect.width - 60, posX)) + 'px';
+      tooltip.style.top = Math.max(40, posY - 10) + 'px';
+      tooltip.classList.remove('hidden');
+    }
+
+    function hideTooltip() {
+      if (tooltip) tooltip.classList.add('hidden');
+    }
+
+    targets.forEach(function (el) {
+      var idx = parseInt(el.getAttribute('data-idx'), 10);
+      var p = allPoints[idx];
+      if (!p) return;
+
+      el.addEventListener('mouseenter', function (e) { showTooltip(e, p); });
+      el.addEventListener('mousemove', function (e) { showTooltip(e, p); });
+      el.addEventListener('mouseleave', hideTooltip);
+      el.addEventListener('touchstart', function (e) { showTooltip(e, p); }, { passive: true });
+    });
+
+    if (container) {
+      container.addEventListener('mouseleave', hideTooltip);
+    }
+  }
+
   /* 天空变化时间轴：以分钟降水为主，每 30 分钟一个点，共 5 点 */
   function precipAtSeries(s, tMs) {
     if (!s || !s.times) return null;
@@ -903,6 +1234,7 @@
     clearStatus();
     show(resultEl);
     renderSkyEvolution(r);
+    renderCloudFieldRadar(r);
     renderNowcastBlock(r, offset);
 
     $('r-city').textContent = r.city + (r.admin1 && r.admin1 !== r.city ? ' · ' + r.admin1 : '');
