@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.2 - 极简基线参考模型与实况观测回测闭环 (Baseline & Feedback Engine)
+ * SunsetScore V2.2.1 - 极简基线参考模型与实况观测回测闭环 (Baseline & Feedback Engine)
  * 职责：
  *   1. 提供透明、无复杂多层经验调参的极简晚霞基准模型 (SS.baseline.compute)
  *   2. 作为对照组，客观评估高级动力学模型相对于基线模型的增益

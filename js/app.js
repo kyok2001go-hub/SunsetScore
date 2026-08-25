@@ -64,6 +64,7 @@
     show(errorEl);
     errorEl.textContent = msg;
     hide(resultEl);
+    if ($('floating-feedback-wrapper')) hide($('floating-feedback-wrapper'));
   }
   function clearStatus() {
     hide(statusEl);
@@ -263,8 +264,15 @@
     result.query_id = (SS.baseline && SS.baseline.generateQueryId)
       ? SS.baseline.generateQueryId()
       : ('qid_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
-    result.latitude = ectx.location ? ectx.location.latitude : null;
-    result.longitude = ectx.location ? ectx.location.longitude : null;
+    result.city = (ectx.location && (ectx.location.name || ectx.location.city)) || '';
+    result.country = (ectx.location && ectx.location.country) || '';
+    result.admin1 = (ectx.location && ectx.location.admin1) || '';
+    result.latitude = ectx.location ? Number(ectx.location.latitude) : null;
+    result.longitude = ectx.location ? Number(ectx.location.longitude) : null;
+    result.sunset_azimuth = ectx.solar ? Math.round(ectx.solar.sunsetAzimuthDeg * 10) / 10 : null;
+    result.sunset_time_local = result.date + ' ' + result.sunset_local;
+    result.twilight_minutes = ectx.solar ? Math.round(ectx.solar.twilightMinutes) : 28;
+    result.best_viewing_window = result.best_viewing ? (result.best_viewing.start + ' – ' + result.best_viewing.end + ' (峰值 ' + result.best_viewing.peak + ')') : null;
     return result;
   }
 
@@ -339,7 +347,7 @@
       'Open Prob (60m)': result.sky_evolution
         ? Math.round(result.sky_evolution.openProbability['60m'] * 100) + '%' : '—'
     };
-    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.2]', summary);
+    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.2.1]', summary);
     if (!DEBUG_MODE) return;
     var panel = $('debug-panel');
     if (!panel) {
@@ -1117,6 +1125,7 @@
   function predict(query) {
     clearStatus();
     hide(resultEl);
+    if ($('floating-feedback-wrapper')) hide($('floating-feedback-wrapper'));
     btn.disabled = true;
 
     var coords = parseCoordinates(query);
@@ -1340,90 +1349,10 @@
     }
     $('r-regime').textContent = regimeText;
 
-    /* 渲染基线参考标签 (Task 6) */
-    if ($('r-baseline-tag')) {
-      $('r-baseline-tag').textContent = '基线参考: ' + (r.baseline_score != null ? r.baseline_score + ' 分 · ' + r.baseline_level : '—');
-    }
-
-    /* 绑定实况反馈按钮交互 (方案 A：反馈驱动的特征对提交至 Cloudflare D1 与本地双写) */
-    var fbMsg = $('feedback-msg');
-    if (fbMsg) hide(fbMsg);
-    var fbGroup = $('feedback-btn-group');
-    if (fbGroup) {
-      var fbButtons = fbGroup.querySelectorAll('.fb-btn');
-      fbButtons.forEach(function (btn) {
-        btn.classList.remove('active');
-        btn.onclick = function () {
-          fbButtons.forEach(function (b) { b.classList.remove('active'); });
-          btn.classList.add('active');
-          var rating = btn.getAttribute('data-rating');
-
-          var d = r.data || {};
-          var cs = r.cloud_structure || {};
-          var st = r.all_day_sky_state || {};
-          var cm = r.cloud_motion || {};
-          var lw = (cm && cm.layerWinds) || {};
-          var comp = r.components || {};
-
-          var fbPayload = {
-            query_id: r.query_id || ((SS.baseline && SS.baseline.generateQueryId) ? SS.baseline.generateQueryId() : ('qid_' + Date.now())),
-            city: r.city,
-            country: r.country || null,
-            latitude: r.latitude != null ? r.latitude : (d.latitude || 0),
-            longitude: r.longitude != null ? r.longitude : (d.longitude || 0),
-            timezone: r.timezone_str || null,
-            sunset_time_local: r.sunset_local || null,
-            sunset_azimuth: r.sunset_azimuth != null ? r.sunset_azimuth : null,
-            model_version: (SS.config && SS.config.version) || '2.2.0',
-            predicted_score: r.score,
-            predicted_level: r.level,
-            baseline_score: r.baseline_score != null ? r.baseline_score : null,
-            baseline_level: r.baseline_level || null,
-            regime_label: r.regime_label || null,
-            sky_evolution_state: st.state || null,
-            sky_evolution_factor: r.sky_evolution_factor != null ? r.sky_evolution_factor : 1.0,
-            comp_sky_canvas: comp.sky_canvas,
-            comp_horizon: comp.horizon,
-            comp_illumination: comp.illumination,
-            comp_atmosphere: comp.atmosphere,
-            comp_weather: comp.weather,
-            cloud_cover_total: d.cloud_cover,
-            cloud_cover_low: d.cloud_low,
-            cloud_cover_mid: d.cloud_mid,
-            cloud_cover_high: d.cloud_high,
-            corridor_cloud_mid: cs.corridorMid,
-            corridor_cloud_high: cs.corridorHigh,
-            anti_sunset_score: cs.antiSunsetScore,
-            layer_wind_850_speed: lw.low ? lw.low.speedKmH : null,
-            layer_wind_850_dir: lw.low ? lw.low.fromDeg : null,
-            visibility_km: d.visibility_km,
-            precipitation: d.precip,
-            user_rating: rating,
-            user_rating_label: btn.textContent.trim(),
-            user_comment: null,
-            timestamp: Date.now()
-          };
-
-          if (SS.baseline && SS.baseline.submitFeedback) {
-            SS.baseline.submitFeedback(fbPayload).then(function (res) {
-              if (fbMsg) {
-                if (res && res.remote) {
-                  fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」并同步至 Cloudflare D1 数据库！';
-                } else {
-                  fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」（已保存至本地回测库）';
-                }
-                show(fbMsg);
-              }
-            });
-          } else if (SS.baseline && SS.baseline.saveFeedback) {
-            SS.baseline.saveFeedback(fbPayload);
-            if (fbMsg) {
-              fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」，感谢协助回测校准！';
-              show(fbMsg);
-            }
-          }
-        };
-      });
+    /* 记录当前预测结果供实况反馈悬浮按钮与弹窗使用 */
+    currentPredictionResult = r;
+    if ($('floating-feedback-wrapper')) {
+      show($('floating-feedback-wrapper'));
     }
 
     /* 评分构成条形图（V1.7：标签下方小字显示动态权重占比） */
@@ -1656,4 +1585,286 @@
     var open = d.classList.toggle('hidden') === false;
     $('details-toggle').textContent = '为什么是这个分数？ ' + (open ? '▴' : '▾');
   });
+
+  /* ---------- 实况反馈悬浮按钮与弹窗交互逻辑 ---------- */
+  var currentPredictionResult = null;
+  var selectedRating = null;
+  var selectedRatingLabel = '';
+  var FEEDBACK_COOLDOWN_MS = 30 * 60 * 1000; /* 30 分钟防刷限频 */
+
+  function getFeedbackCooldownKey(city) {
+    return 'ss_fb_last_ts_' + (city || 'default').trim().toLowerCase();
+  }
+
+  function getRemainingCooldownMinutes(city) {
+    try {
+      var lastTs = parseInt(localStorage.getItem(getFeedbackCooldownKey(city)) || '0', 10);
+      if (!lastTs) return 0;
+      var elapsed = Date.now() - lastTs;
+      if (elapsed < FEEDBACK_COOLDOWN_MS) {
+        return Math.ceil((FEEDBACK_COOLDOWN_MS - elapsed) / 60000);
+      }
+    } catch (e) {}
+    return 0;
+  }
+
+  function markFeedbackSubmitted(city) {
+    try {
+      localStorage.setItem(getFeedbackCooldownKey(city), String(Date.now()));
+    } catch (e) {}
+  }
+
+  var floatingWrapper = $('floating-feedback-wrapper');
+  var floatingBtn = $('floating-feedback-btn');
+  var fbModal = $('feedback-modal');
+  var fbModalClose = $('feedback-modal-close');
+  var modalSubmitBtn = $('modal-feedback-submit-btn');
+  var modalFbGroup = $('modal-feedback-btn-group');
+
+  function showToast(message, type) {
+    var container = $('toast-container');
+    if (!container) return;
+    var toast = document.createElement('div');
+    toast.className = 'ss-toast' + (type === 'warning' ? ' warning' : '');
+    var icon = type === 'warning' ? '⚠️' : '🎉';
+    toast.innerHTML = '<span class="ss-toast-icon">' + icon + '</span><span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(function () {
+      if (toast && toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 3500);
+  }
+
+  function resetFeedbackSelection() {
+    selectedRating = null;
+    selectedRatingLabel = '';
+    if (modalFbGroup) {
+      var modalButtons = modalFbGroup.querySelectorAll('.modal-fb-btn');
+      modalButtons.forEach(function (btn) {
+        btn.classList.remove('active');
+      });
+    }
+  }
+
+  function openFeedbackModal() {
+    if (!currentPredictionResult) {
+      showToast('请先搜索城市获取今日晚霞预测~', 'warning');
+      return;
+    }
+    resetFeedbackSelection();
+    if (fbModal) {
+      show(fbModal);
+      document.body.style.overflow = 'hidden';
+    }
+  }
+
+  function closeFeedbackModal() {
+    if (fbModal) {
+      hide(fbModal);
+      document.body.style.overflow = '';
+      resetFeedbackSelection();
+    }
+  }
+
+  if (floatingBtn) {
+    floatingBtn.onclick = function (e) {
+      e.stopPropagation();
+      openFeedbackModal();
+    };
+  }
+
+  if (fbModalClose) {
+    fbModalClose.onclick = function (e) {
+      e.stopPropagation();
+      closeFeedbackModal();
+    };
+  }
+
+  if (fbModal) {
+    fbModal.onclick = function (e) {
+      if (e.target === fbModal) {
+        closeFeedbackModal();
+      }
+    };
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && fbModal && !fbModal.classList.contains('hidden')) {
+      closeFeedbackModal();
+    }
+  });
+
+  if (modalFbGroup) {
+    var modalButtons = modalFbGroup.querySelectorAll('.modal-fb-btn');
+    modalButtons.forEach(function (b) {
+      b.onclick = function (e) {
+        e.stopPropagation();
+        modalButtons.forEach(function (btn) { btn.classList.remove('active'); });
+        b.classList.add('active');
+        selectedRating = b.getAttribute('data-rating');
+        var labelEl = b.querySelector('.modal-fb-label') || b;
+        selectedRatingLabel = labelEl.textContent.trim();
+        /* 仅高亮选中，不立即提交！ */
+      };
+    });
+  }
+
+  if (modalSubmitBtn) {
+    modalSubmitBtn.onclick = function (e) {
+      e.stopPropagation();
+      if (!selectedRating) {
+        showToast('请先选择实况评级（如极佳彩霞）~', 'warning');
+        return;
+      }
+      if (!currentPredictionResult) {
+        showToast('暂无预测数据，请先搜索城市~', 'warning');
+        return;
+      }
+
+      var r = currentPredictionResult;
+      var remaining = getRemainingCooldownMinutes(r.city);
+      if (remaining > 0) {
+        showToast('30 分钟内限提交一次反馈，还需等待 ' + remaining + ' 分钟~', 'warning');
+        return;
+      }
+
+      modalSubmitBtn.disabled = true;
+      modalSubmitBtn.textContent = '提交中…';
+
+      var d = r.data || {};
+      var cs = r.cloud_structure || {};
+      var st = r.all_day_sky_state || {};
+      var cm = r.cloud_motion || {};
+      var lw = (cm && cm.layerWinds) || {};
+      var ar = (cm && cm.arrivalRisk) || {};
+      var evo = r.sky_evolution || {};
+      var rs = r.regime_state || {};
+      var dynW = (rs && rs.dynamicWeight) || {};
+      var comp = r.components || {};
+
+      var corridorMid = cs.corridorMid != null ? cs.corridorMid : (cs.centerCloud != null ? cs.centerCloud : (d.cloud_mid != null ? d.cloud_mid : 0));
+      var corridorHigh = cs.corridorHigh != null ? cs.corridorHigh : (cs.antiSunsetCloud != null ? cs.antiSunsetCloud : (d.cloud_high != null ? d.cloud_high : 0));
+
+      var openProb = evo.openProbability || {};
+      var evoDetail = evo.detail || {};
+
+      var rawSnapshotObj = {
+        query_id: r.query_id,
+        timestamp: Date.now(),
+        city: r.city,
+        country: r.country,
+        admin1: r.admin1,
+        coordinates: { lat: r.latitude, lon: r.longitude },
+        timezone: r.timezone_str,
+        sunset: { local: r.sunset_local, azimuth: r.sunset_azimuth, twilight_minutes: r.twilight_minutes },
+        score: { final: r.score, level: r.level, baseline: r.baseline_score, baseline_level: r.baseline_level },
+        components: comp,
+        dynamic_weights: dynW,
+        regime: { label: r.regime_label, strength: rs.strength, transition: rs.transition },
+        weather_data: d,
+        cloud_structure: cs,
+        layer_winds: lw,
+        sky_evolution: {
+          macro_state: st.state,
+          macro_factor: r.sky_evolution_factor,
+          gw_factor: evo.gwFactor,
+          open_probability: openProb,
+          arrival_risk: ar,
+          has_real_tiles: evo.hasRealTiles,
+          degraded_sources: evo.degradedSources
+        },
+        best_viewing: r.best_viewing
+      };
+
+      var fbPayload = {
+        query_id: r.query_id || ((SS.baseline && SS.baseline.generateQueryId) ? SS.baseline.generateQueryId() : ('qid_' + Date.now())),
+        city: r.city || '未知城市',
+        country: r.country || '',
+        admin1: r.admin1 || '',
+        latitude: r.latitude != null ? r.latitude : (d.latitude || 0),
+        longitude: r.longitude != null ? r.longitude : (d.longitude || 0),
+        timezone: r.timezone_str || 'UTC',
+        sunset_time_local: r.sunset_time_local || (r.date + ' ' + (r.sunset_local || '18:00')),
+        sunset_azimuth: r.sunset_azimuth != null ? r.sunset_azimuth : 270,
+        twilight_minutes: r.twilight_minutes != null ? r.twilight_minutes : 28,
+        best_viewing_window: r.best_viewing_window || null,
+        model_version: (SS.config && SS.config.version) || '2.2.1',
+        predicted_score: r.score != null ? r.score : 50,
+        predicted_level: r.level || '一般',
+        baseline_score: r.baseline_score != null ? r.baseline_score : null,
+        baseline_level: r.baseline_level || null,
+        regime_label: r.regime_label || '—',
+        regime_strength: rs.strength != null ? rs.strength : null,
+        sky_evolution_state: st.state || 'STABLE',
+        sky_evolution_factor: r.sky_evolution_factor != null ? r.sky_evolution_factor : 1.0,
+        gw_factor: evo.gwFactor != null ? evo.gwFactor : 1.0,
+        comp_sky_canvas: comp.sky_canvas != null ? comp.sky_canvas : 0,
+        comp_horizon: comp.horizon != null ? comp.horizon : 0,
+        comp_illumination: comp.illumination != null ? comp.illumination : 0,
+        comp_atmosphere: comp.atmosphere != null ? comp.atmosphere : 0,
+        comp_weather: comp.weather != null ? comp.weather : 0,
+        cloud_cover_total: d.cloud_cover != null ? d.cloud_cover : 0,
+        cloud_cover_low: d.cloud_low != null ? d.cloud_low : 0,
+        cloud_cover_mid: d.cloud_mid != null ? d.cloud_mid : 0,
+        cloud_cover_high: d.cloud_high != null ? d.cloud_high : 0,
+        corridor_cloud_mid: corridorMid,
+        corridor_cloud_high: corridorHigh,
+        anti_sunset_score: cs.antiSunsetScore != null ? cs.antiSunsetScore : 0,
+        spatial_variance: r.spatial_variance != null ? r.spatial_variance : null,
+        cloud_continuity: cs.continuity != null ? cs.continuity : null,
+        aod: d.aod != null ? d.aod : null,
+        pm25: d.pm25 != null ? d.pm25 : null,
+        humidity: d.humidity != null ? d.humidity : null,
+        surface_pressure: d.surface_pressure != null ? d.surface_pressure : null,
+        visibility_km: d.visibility_km != null ? d.visibility_km : 10.0,
+        precipitation: d.precip != null ? d.precip : 0,
+        layer_wind_850_speed: (lw.low && lw.low.speedKmH != null) ? lw.low.speedKmH : null,
+        layer_wind_850_dir: (lw.low && lw.low.fromDeg != null) ? lw.low.fromDeg : null,
+        layer_wind_700_speed: (lw.mid && lw.mid.speedKmH != null) ? lw.mid.speedKmH : null,
+        layer_wind_700_dir: (lw.mid && lw.mid.fromDeg != null) ? lw.mid.fromDeg : null,
+        layer_wind_500_speed: (lw.high && lw.high.speedKmH != null) ? lw.high.speedKmH : null,
+        layer_wind_500_dir: (lw.high && lw.high.fromDeg != null) ? lw.high.fromDeg : null,
+        is_real_sounding: lw.low ? (lw.low.isRealSounding ? 1 : 0) : 1,
+        open_prob_30m: openProb['30m'] != null ? openProb['30m'] : null,
+        open_prob_60m: openProb['60m'] != null ? openProb['60m'] : null,
+        open_prob_120m: openProb['120m'] != null ? openProb['120m'] : null,
+        arrival_risk_30m: ar.risk30m != null ? ar.risk30m : null,
+        arrival_risk_60m: ar.risk60m != null ? ar.risk60m : null,
+        tile_radar_available: evoDetail.radar ? 1 : 0,
+        tile_sat_available: evoDetail.satellite ? 1 : 0,
+        dyn_weight_canvas: dynW.skyCanvas != null ? dynW.skyCanvas : null,
+        dyn_weight_horizon: dynW.horizon != null ? dynW.horizon : null,
+        dyn_weight_illum: dynW.illumination != null ? dynW.illumination : null,
+        dyn_weight_atmo: dynW.atmosphere != null ? dynW.atmosphere : null,
+        dyn_weight_weather: dynW.weather != null ? dynW.weather : null,
+        user_rating: selectedRating,
+        user_rating_label: selectedRatingLabel,
+        user_comment: null,
+        raw_snapshot_json: JSON.stringify(rawSnapshotObj),
+        timestamp: Date.now()
+      };
+
+      var done = function (res) {
+        modalSubmitBtn.disabled = false;
+        modalSubmitBtn.textContent = '提交';
+        if (res && res.error && (res.cooldown || res.error.indexOf('30 分钟') >= 0)) {
+          showToast(res.error, 'warning');
+          return;
+        }
+        markFeedbackSubmitted(r.city);
+        closeFeedbackModal();
+        showToast('感谢反馈~我们会努力做得更好', 'success');
+      };
+
+      if (SS.baseline && SS.baseline.submitFeedback) {
+        SS.baseline.submitFeedback(fbPayload).then(done).catch(done);
+      } else if (SS.baseline && SS.baseline.saveFeedback) {
+        SS.baseline.saveFeedback(fbPayload);
+        done();
+      } else {
+        done();
+      }
+    };
+  }
 })();

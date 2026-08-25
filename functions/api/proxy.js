@@ -70,7 +70,7 @@ export async function onRequestGet(context) {
   try {
     const upstreamRes = await fetch(parsedTarget.toString(), {
       headers: {
-        'User-Agent': 'SunsetScore-Proxy/2.2.0 (Cloudflare Edge)'
+        'User-Agent': 'SunsetScore-Proxy/2.2.1 (Cloudflare Edge)'
       }
     });
 

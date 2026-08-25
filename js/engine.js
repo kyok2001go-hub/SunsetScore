@@ -153,7 +153,9 @@
 
     var times = localSample.forecast.hourly.time;
     var idx = hourIndex(times, input.sunsetLocal);
-    var nowIdx = hourIndex(times, SS.data.toLocalShifted(input.localNowUtc, input.utcOffsetSeconds));
+    var nowUtc = input.localNowUtc || input.nowUtc || new Date();
+    var offsetSec = input.utcOffsetSeconds != null ? input.utcOffsetSeconds : (input.offset || 0);
+    var nowIdx = hourIndex(times, SS.data.toLocalShifted(nowUtc, offsetSec));
 
     var lv = sampleAt(localSample.forecast, idx);
     var ls = cloudScores(lv, cfg);
@@ -546,7 +548,7 @@
     input.samples.forEach(function (s) {
       if (!s.forecast) return;
       var jNow = hourIndex(s.forecast.hourly.time,
-        SS.data.toLocalShifted(input.localNowUtc, input.utcOffsetSeconds));
+        SS.data.toLocalShifted(nowUtc, offsetSec));
       var jPast = jNow - histLen;
       if (jNow < 0 || jPast < 0 || histLen === 0) return;
       var lowSeries = s.forecast.hourly.cloud_cover_low;
@@ -788,7 +790,7 @@
       : stdDev(lowArr);
     var consistency = clamp(100 - spatialVariance * 1.5, 0, 100);
 
-    var hoursToSunset = (input.solar.sunset.valueOf() - input.localNowUtc.valueOf()) / 3600000;
+    var hoursToSunset = (input.solar.sunset.valueOf() - nowUtc.valueOf()) / 3600000;
     var proximity = hoursToSunset < 0 ? 60 : (hoursToSunset <= 24 ? 100 : clamp(100 - (hoursToSunset - 24) * 5, 0, 100));
     var freshness = 90; /* 小时级预报默认为新鲜数据 */
     /* V1.8：STALE 缓存回退数据的新鲜度衰减（仅影响 confidence，不影响 score） */
@@ -886,8 +888,10 @@
         continuity: Math.round(continuity),
         structureScore: Math.round(cloudStructureScore),
         antiSunsetScore: Math.round(antiSunsetScore),
-        antiSunsetCloud: antiHighVal,
-        antiSunsetTotal: antiTotalVal
+        antiSunsetCloud: antiHighVal != null ? antiHighVal : 0,
+        antiSunsetTotal: antiTotalVal != null ? antiTotalVal : 0,
+        corridorMid: valid(lv.mid) ? Math.round(lv.mid) : 0,
+        corridorHigh: valid(lv.high) ? Math.round(lv.high) : 0
       },
       /* V1.61 空间演化输出（增强方案七章） */
       spatial_gradient: {
@@ -929,14 +933,15 @@
       warnings: warnings,
 
       data: {
-        visibility_km: visKm != null ? Math.round(visKm * 10) / 10 : null,
+        visibility_km: visKm != null ? Math.round(visKm * 10) / 10 : (valid(lv.visM) ? Math.round(lv.visM / 100) / 10 : 10.0),
         aod: valid(aod) ? Math.round(aod * 100) / 100 : null,
         pm25: valid(pm25) ? Math.round(pm25) : null,
         humidity: valid(lv.rh) ? Math.round(lv.rh) : null,
-        cloud_cover: valid(lv.cloud) ? Math.round(lv.cloud) : null,
-        cloud_low: valid(lv.low) ? Math.round(lv.low) : null,
-        cloud_mid: valid(lv.mid) ? Math.round(lv.mid) : null,
-        cloud_high: valid(lv.high) ? Math.round(lv.high) : null,
+        cloud_cover: valid(lv.cloud) ? Math.round(lv.cloud) : 0,
+        cloud_low: valid(lv.low) ? Math.round(lv.low) : 0,
+        cloud_mid: valid(lv.mid) ? Math.round(lv.mid) : 0,
+        cloud_high: valid(lv.high) ? Math.round(lv.high) : 0,
+        precip: valid(lv.precip) ? Math.round(lv.precip * 10) / 10 : 0,
         samples_fetched: input.totalSkyNodeCount || fetched,
         samples_expected: input.totalSkyNodeCount || input.expectedSampleCount,
         twilight_minutes: Math.round(input.solar.twilightMinutes)
