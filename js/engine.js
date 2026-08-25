@@ -937,6 +937,7 @@
         aod: valid(aod) ? Math.round(aod * 100) / 100 : null,
         pm25: valid(pm25) ? Math.round(pm25) : null,
         humidity: valid(lv.rh) ? Math.round(lv.rh) : null,
+        surface_pressure: valid(lv.pressure) ? Math.round(lv.pressure * 10) / 10 : null,
         cloud_cover: valid(lv.cloud) ? Math.round(lv.cloud) : 0,
         cloud_low: valid(lv.low) ? Math.round(lv.low) : 0,
         cloud_mid: valid(lv.mid) ? Math.round(lv.mid) : 0,

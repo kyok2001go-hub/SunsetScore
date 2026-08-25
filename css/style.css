@@ -904,6 +904,48 @@ body {
   border-radius: 50%;
   background: #fff;
 }
+.feedback-modal-comment-wrap {
+  margin-bottom: 16px;
+}
+.modal-fb-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  line-height: 1.45;
+}
+.modal-fb-textarea:focus {
+  border-color: rgba(235, 120, 85, 0.65);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 12px rgba(235, 115, 80, 0.18);
+}
+.modal-fb-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.30);
+  font-size: 0.83rem;
+  font-weight: 300;
+  letter-spacing: 0.2px;
+}
+.modal-fb-textarea::-webkit-input-placeholder {
+  color: rgba(255, 255, 255, 0.30);
+  font-size: 0.83rem;
+  font-weight: 300;
+  letter-spacing: 0.2px;
+}
+.modal-fb-textarea::-moz-placeholder {
+  color: rgba(255, 255, 255, 0.30);
+  font-size: 0.83rem;
+  font-weight: 300;
+  letter-spacing: 0.2px;
+  opacity: 1;
+}
 .feedback-modal-footer {
   display: flex;
   flex-direction: column;
@@ -978,6 +1020,18 @@ body {
   color: #ffaa46;
 }
 
+/* ---------- 页脚与底部安全留白 ---------- */
+.footer {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  padding: 32px 16px 95px; /* 底部增加 95px 充足留白，确保页面滑动到底部时不被悬浮反馈按钮遮挡 */
+  max-width: 720px;
+  margin: 0 auto;
+  opacity: 0.85;
+}
+
 @keyframes floatUp {
   from { opacity: 0; transform: translate(-50%, 24px); }
   to { opacity: 1; transform: translate(-50%, 0); }
@@ -1000,6 +1054,10 @@ body {
 }
 
 @media (max-width: 640px) {
+  .footer {
+    padding: 24px 16px 105px;
+    font-size: 0.78rem;
+  }
   .floating-feedback-btn {
     padding: 11px 22px;
     font-size: 0.92rem;

@@ -1,5 +1,5 @@
 -- ============================================================
--- SunsetScore V2.2.1 - Cloudflare D1 数据库完整全量结构定义
+-- SunsetScore V2.2.2 - Cloudflare D1 数据库完整全量结构定义
 -- 包含：宏观天文、逐层微气象、NWP分层探空、天空演化时序、动态权重、原始快照
 -- ============================================================
 
@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS sunset_feedback (
     -- 1. 主键与时间戳
     id TEXT PRIMARY KEY,                           -- 记录唯一标识 (如 fb_1724567890_abcde)
     query_id TEXT NOT NULL,                       -- 对应单次查询快照唯一 ID (UUID)
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- 记录创建时间 (UTC)
+    created_at TEXT NOT NULL,                     -- 记录创建时间 (北京时间 UTC+8, YYYY-MM-DD HH:mm:ss)
+    created_at_local TEXT,                        -- 观测点当地时间 (对应当地时区, YYYY-MM-DD HH:mm:ss)
     
     -- 2. 地理与天文元数据
     city TEXT NOT NULL,                           -- 城市名
@@ -22,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sunset_feedback (
     best_viewing_window TEXT,                     -- 最佳观赏时间窗 (如 18:35 - 19:05)
     
     -- 3. 预测输出指标 (Model Predictions)
-    model_version TEXT NOT NULL,                  -- 模型版本 (如 2.2.1)
+    model_version TEXT NOT NULL,                  -- 模型版本 (如 2.2.2)
     predicted_score INTEGER NOT NULL,             -- 高级动力学预测总分 (0~100)
     predicted_level TEXT NOT NULL,                -- 预测等级 (极佳/好/一般/较差)
     baseline_score INTEGER,                       -- 极简基线模型得分 (0~100)

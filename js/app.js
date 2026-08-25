@@ -347,7 +347,7 @@
       'Open Prob (60m)': result.sky_evolution
         ? Math.round(result.sky_evolution.openProbability['60m'] * 100) + '%' : '—'
     };
-    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.2.1]', summary);
+    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.2.2]', summary);
     if (!DEBUG_MODE) return;
     var panel = $('debug-panel');
     if (!panel) {
@@ -1645,6 +1645,9 @@
         btn.classList.remove('active');
       });
     }
+    if ($('modal-feedback-comment')) {
+      $('modal-feedback-comment').value = '';
+    }
   }
 
   function openFeedbackModal() {
@@ -1789,7 +1792,7 @@
         sunset_azimuth: r.sunset_azimuth != null ? r.sunset_azimuth : 270,
         twilight_minutes: r.twilight_minutes != null ? r.twilight_minutes : 28,
         best_viewing_window: r.best_viewing_window || null,
-        model_version: (SS.config && SS.config.version) || '2.2.1',
+        model_version: (SS.config && SS.config.version) || '2.2.2',
         predicted_score: r.score != null ? r.score : 50,
         predicted_level: r.level || '一般',
         baseline_score: r.baseline_score != null ? r.baseline_score : null,
@@ -1840,7 +1843,7 @@
         dyn_weight_weather: dynW.weather != null ? dynW.weather : null,
         user_rating: selectedRating,
         user_rating_label: selectedRatingLabel,
-        user_comment: null,
+        user_comment: $('modal-feedback-comment') && $('modal-feedback-comment').value.trim() ? $('modal-feedback-comment').value.trim() : null,
         raw_snapshot_json: JSON.stringify(rawSnapshotObj),
         timestamp: Date.now()
       };

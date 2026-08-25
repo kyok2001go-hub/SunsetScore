@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.2.1">
+  <link rel="stylesheet" href="css/style.css?v=2.2.2">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -251,6 +251,11 @@
         </button>
       </div>
 
+      <!-- 弹窗备注输入框 (选填) -->
+      <div class="feedback-modal-comment-wrap">
+        <textarea id="modal-feedback-comment" class="modal-fb-textarea" placeholder="选填，补充晚霞实况细节(如: 晚霞方位、火烧云面积、持续时长等)" rows="2" maxlength="200"></textarea>
+      </div>
+
       <!-- 弹窗底部提交按钮 -->
       <div class="feedback-modal-footer">
         <button type="button" id="modal-feedback-submit-btn" class="feedback-submit-btn">
@@ -264,27 +269,27 @@
   <div id="toast-container" class="toast-container"></div>
 
   <footer class="footer">
-    数据来源：Open-Meteo（天气 / 空气质量 / 探空风 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.2.1<br>
+    数据来源：Open-Meteo（天气 / 空气质量 / 探空风 / 地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.2.2<br>
     晚霞指数不是概率，而是"值不值得去看"的综合评分
   </footer>
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-  <script src="js/config.js?v=2.2.1"></script>
-  <script src="js/vendor/suncalc.js?v=2.2.1"></script>
-  <script src="js/solar.js?v=2.2.1"></script>
-  <script src="js/baseline.js?v=2.2.1"></script>
-  <script src="js/cache.js?v=2.2.1"></script>
-  <script src="js/data.js?v=2.2.1"></script>
-  <script src="js/cloud_field.js?v=2.2.1"></script>
-  <script src="js/wind.js?v=2.2.1"></script>
-  <script src="js/cloud_motion.js?v=2.2.1"></script>
-  <script src="js/sky_state.js?v=2.2.1"></script>
-  <script src="js/engine.js?v=2.2.1"></script>
-  <script src="js/sampling.js?v=2.2.1"></script>
-  <script src="js/corridor.js?v=2.2.1"></script>
-  <script src="js/nowcast.js?v=2.2.1"></script>
-  <script src="js/evolution.js?v=2.2.1"></script>
-  <script src="js/app.js?v=2.2.1"></script>
+  <script src="js/config.js?v=2.2.2"></script>
+  <script src="js/vendor/suncalc.js?v=2.2.2"></script>
+  <script src="js/solar.js?v=2.2.2"></script>
+  <script src="js/baseline.js?v=2.2.2"></script>
+  <script src="js/cache.js?v=2.2.2"></script>
+  <script src="js/data.js?v=2.2.2"></script>
+  <script src="js/cloud_field.js?v=2.2.2"></script>
+  <script src="js/wind.js?v=2.2.2"></script>
+  <script src="js/cloud_motion.js?v=2.2.2"></script>
+  <script src="js/sky_state.js?v=2.2.2"></script>
+  <script src="js/engine.js?v=2.2.2"></script>
+  <script src="js/sampling.js?v=2.2.2"></script>
+  <script src="js/corridor.js?v=2.2.2"></script>
+  <script src="js/nowcast.js?v=2.2.2"></script>
+  <script src="js/evolution.js?v=2.2.2"></script>
+  <script src="js/app.js?v=2.2.2"></script>
 </body>
 </html>

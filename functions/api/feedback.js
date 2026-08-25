@@ -27,6 +27,34 @@ async function sha256(str) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
 }
 
+/**
+ * 获取指定时区的格式化时间字符串 (YYYY-MM-DD HH:mm:ss)
+ */
+function formatDateTimeZone(date, timeZone) {
+  try {
+    const formatter = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: timeZone || 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    for (const p of parts) {
+      map[p.type] = p.value;
+    }
+    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+  } catch (e) {
+    // 兜底为 UTC+8
+    const d = new Date(date.getTime() + 8 * 3600 * 1000);
+    return d.toISOString().replace('T', ' ').slice(0, 19);
+  }
+}
+
 export async function onRequestOptions() {
   return new Response(null, {
     status: 204,
@@ -56,8 +84,11 @@ export async function onRequestPost(context) {
     return jsonResponse({ success: false, error: '无效的 JSON 请求体' }, 400);
   }
 
-  if (!payload || !payload.query_id || !payload.city || payload.predicted_score == null || !payload.user_rating) {
-    return jsonResponse({ success: false, error: '缺少必要的特征或反馈字段 (query_id, city, predicted_score, user_rating)' }, 400);
+  if (!payload || !payload.user_rating || !payload.city) {
+    return jsonResponse({
+      success: false,
+      error: '缺少必填字段：city 与 user_rating 为必填项'
+    }, 400);
   }
 
   /* 客户端 IP 与 User-Agent 脱敏提取 */
@@ -66,6 +97,12 @@ export async function onRequestPost(context) {
   const clientUa = (request.headers.get('user-agent') || '').slice(0, 250);
 
   const recordId = 'fb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+  const now = new Date();
+  const createdAtBeijing = formatDateTimeZone(now, 'Asia/Shanghai');
+  let createdAtLocal = createdAtBeijing;
+  if (payload.timezone) {
+    createdAtLocal = formatDateTimeZone(now, payload.timezone);
+  }
 
   /* 1. 自动建表（确保首次部署即使未手动执行 schema.sql 也能无缝写入） */
   try {
@@ -73,7 +110,8 @@ export async function onRequestPost(context) {
       CREATE TABLE IF NOT EXISTS sunset_feedback (
         id TEXT PRIMARY KEY,
         query_id TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at TEXT NOT NULL,
+        created_at_local TEXT,
         city TEXT NOT NULL,
         country TEXT,
         admin1 TEXT,
@@ -147,6 +185,7 @@ export async function onRequestPost(context) {
 
   /* 2. 自动热迁移（对现有线上旧表自动增补新列，保证数据无损平滑升级） */
   const MIGRATION_COLUMNS = [
+    ['created_at_local', 'TEXT'],
     ['admin1', 'TEXT'],
     ['twilight_minutes', 'INTEGER'],
     ['best_viewing_window', 'TEXT'],
@@ -219,7 +258,7 @@ export async function onRequestPost(context) {
   try {
     const insertStmt = env.DB.prepare(`
       INSERT INTO sunset_feedback (
-        id, query_id, city, country, admin1, latitude, longitude, timezone, sunset_time_local, sunset_azimuth, twilight_minutes, best_viewing_window,
+        id, query_id, created_at, created_at_local, city, country, admin1, latitude, longitude, timezone, sunset_time_local, sunset_azimuth, twilight_minutes, best_viewing_window,
         model_version, predicted_score, predicted_level, baseline_score, baseline_level, regime_label, regime_strength, sky_evolution_state, sky_evolution_factor, gw_factor,
         comp_sky_canvas, comp_horizon, comp_illumination, comp_atmosphere, comp_weather, cloud_cover_total, cloud_cover_low, cloud_cover_mid, cloud_cover_high, corridor_cloud_mid, corridor_cloud_high, anti_sunset_score, spatial_variance, cloud_continuity,
         aod, pm25, humidity, surface_pressure, visibility_km, precipitation,
@@ -229,7 +268,7 @@ export async function onRequestPost(context) {
         user_rating, user_rating_label, user_comment, user_ip_hash, client_ua,
         raw_snapshot_json
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
@@ -241,7 +280,9 @@ export async function onRequestPost(context) {
       )
     `).bind(
       recordId,
-      String(payload.query_id),
+      payload.query_id ? String(payload.query_id) : 'n/a',
+      createdAtBeijing,
+      createdAtLocal,
       String(payload.city),
       payload.country ? String(payload.country) : null,
       payload.admin1 ? String(payload.admin1) : null,
@@ -252,7 +293,7 @@ export async function onRequestPost(context) {
       payload.sunset_azimuth != null ? Number(payload.sunset_azimuth) : null,
       payload.twilight_minutes != null ? Math.round(Number(payload.twilight_minutes)) : null,
       payload.best_viewing_window ? String(payload.best_viewing_window) : null,
-      payload.model_version ? String(payload.model_version) : '2.2.1',
+      payload.model_version ? String(payload.model_version) : '2.2.2',
       Math.round(Number(payload.predicted_score) || 0),
       String(payload.predicted_level || '一般'),
       payload.baseline_score != null ? Math.round(Number(payload.baseline_score)) : null,

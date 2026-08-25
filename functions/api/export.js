@@ -10,6 +10,7 @@ const EXPORT_COLUMNS = [
   'id',
   'query_id',
   'created_at',
+  'created_at_local',
 
   // 2. 地理与日落天文信息
   'city',
