@@ -260,6 +260,11 @@
     result.timezone_str = formatTimezone(ectx.offset, ectx.timezone);
     result.hours_to_sunset = ectx.hoursToSunset;
     result.nowcast_active = !!ectx.ncActive;
+    result.query_id = (SS.baseline && SS.baseline.generateQueryId)
+      ? SS.baseline.generateQueryId()
+      : ('qid_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
+    result.latitude = ectx.location ? ectx.location.latitude : null;
+    result.longitude = ectx.location ? ectx.location.longitude : null;
     return result;
   }
 
@@ -294,16 +299,35 @@
       .catch(function () { return null; });
   }
 
-  /* ---------- V1.8 Debug 信息（方案 26 章） ---------- */
+  /* ---------- V1.8 / V2.2 Debug 信息（方案 26 章） ---------- */
   function renderDebugPanel(dbg, result) {
+    var layerWindsText = '—';
+    if (result.cloud_motion && result.cloud_motion.layerWinds) {
+      var lw = result.cloud_motion.layerWinds;
+      layerWindsText = '低(850hPa): ' + lw.low.speedKmH + 'km/h ' + (lw.low.isRealSounding ? '🟢真实探空' : '⚪切变估算') +
+        ' · 中(700hPa): ' + lw.mid.speedKmH + 'km/h ' + (lw.mid.isRealSounding ? '🟢' : '⚪') +
+        ' · 高(500hPa): ' + lw.high.speedKmH + 'km/h ' + (lw.high.isRealSounding ? '🟢' : '⚪');
+    }
+
     var summary = {
       'Sampling Mode': dbg.samplingMode + (result.escalated ? ' → FULL' : ''),
       'Requested Nodes': dbg.requestedNodes + (result.escalated ? ' → ' + result.data.samples_expected : ''),
       'API Requests': dbg.apiRequests,
       'Cache': dbg.caches.join(' · ') || '—',
+      'Advanced Score': result.score + ' (' + result.level + ')',
+      'Baseline Score': result.baseline_score != null ? result.baseline_score + ' (' + result.baseline_level + ')' : '—',
+      'Layer Winds': layerWindsText,
       'Spatial Completeness': result.spatial_completeness != null ? result.spatial_completeness : '—',
       'Spatial Variance': result.spatial_variance != null ? result.spatial_variance : '—',
       'Score Confidence': result.confidence,
+      'Tile Sources': (function () {
+        var evo = result.sky_evolution;
+        if (!evo) return '—';
+        var d = evo.detail || {};
+        var rText = d.radar ? '🟢雷达(正常)' : '⚪雷达(离线/NWP回退)';
+        var sText = d.satellite ? '🟢卫星(正常)' : '⚪卫星(离线/NWP回退)';
+        return rText + ' · ' + sText;
+      })(),
       'Escalated': result.escalated ? 'YES' : 'NO',
       'Escalation Reason': result.escalation_reason || '—',
       'Nowcast Modifier': result.nowcast && result.nowcast.appliedModifier != null
@@ -315,7 +339,7 @@
       'Open Prob (60m)': result.sky_evolution
         ? Math.round(result.sky_evolution.openProbability['60m'] * 100) + '%' : '—'
     };
-    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.0]', summary);
+    if (typeof console !== 'undefined' && console.info) console.info('[SunsetScore V2.2]', summary);
     if (!DEBUG_MODE) return;
     var panel = $('debug-panel');
     if (!panel) {
@@ -329,7 +353,21 @@
     Object.keys(summary).forEach(function (k) {
       html += k + ': <span style="color:#e8eef5">' + summary[k] + '</span><br>';
     });
+    html += '<div style="margin-top:10px;"><button id="btn-export-fb" type="button" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid #ff7a45;background:rgba(255,122,69,0.2);color:#fff;cursor:pointer;">📥 导出实况回测数据集 (JSON)</button></div>';
     panel.innerHTML = html;
+    var exportBtn = $('btn-export-fb');
+    if (exportBtn) {
+      exportBtn.onclick = function () {
+        var jsonStr = (SS.baseline && SS.baseline.exportFeedbackJson) ? SS.baseline.exportFeedbackJson() : '[]';
+        var blob = new Blob([jsonStr], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'sunsetscore_feedback_' + Date.now() + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+    }
     show(panel);
   }
 
@@ -418,7 +456,7 @@
     }).catch(function () { return result; });
   }
 
-  /* V2.1 全天空 360° 云场与走廊合并采样（1 次 Batch 请求获取全部采样点） */
+  /* V2.2 全天空 360° 33 节点网格采样与走廊插值（解决问题 5：去除冗余坐标） */
   function gatherFullSkyAndCorridor(mode, loc, solar, localForecast, dateStr, ttlMinutes, dbg) {
     if (mode === 'LOCAL_ONLY') {
       var localNode = { distanceKm: 0, azimuthOffset: 0, latitude: loc.latitude, longitude: loc.longitude, direction: 'CENTER', key: 'CENTER_0' };
@@ -433,46 +471,25 @@
       });
     }
 
+    /* 严格仅请求 33 个空间全天空网格节点 (1 中心 + 8 方位 × 4 距离) */
     var skyNodes = SS.cloudField.generateGridNodes(loc.latitude, loc.longitude);
-    var corridorNodes = SS.sampling.selectNodes('FULL', loc.latitude, loc.longitude, solar.sunsetAzimuthDeg);
-
-    var map = {};
-    var combinedNodes = [];
-    function add(n) {
-      var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
-      if (!map[k]) {
-        map[k] = n;
-        combinedNodes.push(n);
-      }
-    }
-    skyNodes.forEach(add);
-    corridorNodes.forEach(add);
-
     var spatialKey = SS.cacheKeys.cloudField(dateStr, loc.latitude, loc.longitude);
-    return gatherSpatial(combinedNodes, localForecast, spatialKey, ttlMinutes, dbg).then(function (res) {
-      var sampleMap = {};
-      res.samples.forEach(function (s) {
-        var k = s.point.latitude.toFixed(4) + '_' + s.point.longitude.toFixed(4);
-        sampleMap[k] = s;
-      });
 
-      var skySamples = skyNodes.map(function (n) {
-        var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
-        return { point: n, forecast: sampleMap[k] ? sampleMap[k].forecast : null };
-      });
-      var corridorSamples = corridorNodes.map(function (n) {
-        var k = n.latitude.toFixed(4) + '_' + n.longitude.toFixed(4);
-        return { point: n, forecast: sampleMap[k] ? sampleMap[k].forecast : null };
-      });
+    return gatherSpatial(skyNodes, localForecast, spatialKey, ttlMinutes, dbg).then(function (res) {
+      var skySamples = res.samples;
+      /* 走廊 13 节点完全由 33 点全天空样本在同半径环上按日落方位角插值得到 */
+      var corridorSamples = SS.cloudField.interpolateCorridorSamples(
+        skySamples, loc.latitude, loc.longitude, solar.sunsetAzimuthDeg, cfg.distancesKm, cfg.azimuthOffsets
+      );
 
       return {
-        allSamples: res.samples,
+        allSamples: skySamples,
         skySamples: skySamples,
         corridorSamples: corridorSamples,
         cacheStatus: res.cacheStatus,
         ageMinutes: res.ageMinutes,
-        nodeCount: combinedNodes.length,
-        finalMode: 'FULL_SKY'
+        nodeCount: skyNodes.length,
+        finalMode: 'FULL_SKY_33'
       };
     }).catch(function () {
       /* 失败时回退到经典走廊采样 */
@@ -530,6 +547,11 @@
     if (evo.state === 'CLOSING') result.warnings.push('天空演化：云层正在闭合，日落时段可能被遮挡');
     if (evo.state === 'BLOCKED') result.warnings.push('天空演化：走廊持续遮挡，开放概率低');
     if (evo.state === 'UNCERTAIN') result.warnings.push('天空演化：变化不确定，请关注临近时段更新');
+
+    /* 解决问题 8：显式提示雷达/卫星瓦片降级状态，绝不静默失效 */
+    if (evo.degradedSources && evo.degradedSources.length) {
+      result.warnings.push('实况' + evo.degradedSources.join('与') + '暂时未覆盖/离线（已平滑切换至 NWP 动力学时序推演）');
+    }
     return result;
   }
 
@@ -1210,21 +1232,31 @@
                     var cloudFieldNow = SS.cloudField.buildCloudField(spatialRes.skySamples, nowUtc);
                     var cloudFieldSunset = SS.cloudField.buildCloudField(spatialRes.skySamples, solar.sunset);
 
-                    /* 2. 运行风场平流未来云场预测 (30/60/120m) 与上游到达风险 */
-                    var motionForecast = SS.cloudMotion.forecast(cloudFieldNow, solar.sunsetAzimuthDeg);
+                    /* 2. 运行未来云场预测 (30/60/120m 基于 NWP 时序插值) 与真实探空分层风动力学 (解决问题 2 & 3) */
+                    var motionForecast = SS.cloudMotion.forecast(cloudFieldNow, solar.sunsetAzimuthDeg, spatialRes.skySamples, nowUtc);
 
-                    /* 3. 运行全天天空状态机 (6态) */
-                    var allDaySkyState = SS.skyState.determineState(cloudFieldNow, motionForecast);
+                    /* 3. 运行日落扇区加权全天天空状态机 (6态) (解决问题 4) */
+                    var allDaySkyState = SS.skyState.determineState(cloudFieldNow, motionForecast, solar.sunsetAzimuthDeg);
 
-                    /* 4. 走廊样本与全天空场送入核心评分引擎 */
-                    ectx.cloudField = cloudFieldNow;
+                    /* 4. 走廊样本与日落全天空场送入核心评分引擎 (解决问题 1：反日落采用日落时刻预报云场) */
+                    ectx.cloudField = cloudFieldSunset;
+                    ectx.cloudFieldNow = cloudFieldNow;
+                    ectx.cloudFieldSunset = cloudFieldSunset;
                     ectx.totalSkyNodeCount = spatialRes.skySamples ? spatialRes.skySamples.length : 33;
                     var corridorSamples = trimSamples(spatialRes.corridorSamples, nowUtc, solar.sunset);
                     var result = buildResult(ectx, corridorSamples, spatialRes.finalMode,
                       spatialRes.cacheStatus, spatialRes.ageMinutes, false, null);
                     result.data_age = spatialRes.ageMinutes;
 
-                    /* 挂载 V2.1 动力学对象与因子 */
+                    /* 极简基线参考模型计算 (解决问题 6) */
+                    var baselineRes = (SS.baseline && typeof SS.baseline.compute === 'function')
+                      ? SS.baseline.compute(ectx, corridorSamples)
+                      : null;
+                    result.baseline_score = baselineRes ? baselineRes.score : null;
+                    result.baseline_level = baselineRes ? baselineRes.level : null;
+                    result.baseline_detail = baselineRes;
+
+                    /* 挂载 V2.2 动力学对象与因子 */
                     result.cloud_field = cloudFieldNow;
                     result.cloud_field_sunset = cloudFieldSunset;
                     result.cloud_motion = motionForecast;
@@ -1308,6 +1340,92 @@
     }
     $('r-regime').textContent = regimeText;
 
+    /* 渲染基线参考标签 (Task 6) */
+    if ($('r-baseline-tag')) {
+      $('r-baseline-tag').textContent = '基线参考: ' + (r.baseline_score != null ? r.baseline_score + ' 分 · ' + r.baseline_level : '—');
+    }
+
+    /* 绑定实况反馈按钮交互 (方案 A：反馈驱动的特征对提交至 Cloudflare D1 与本地双写) */
+    var fbMsg = $('feedback-msg');
+    if (fbMsg) hide(fbMsg);
+    var fbGroup = $('feedback-btn-group');
+    if (fbGroup) {
+      var fbButtons = fbGroup.querySelectorAll('.fb-btn');
+      fbButtons.forEach(function (btn) {
+        btn.classList.remove('active');
+        btn.onclick = function () {
+          fbButtons.forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          var rating = btn.getAttribute('data-rating');
+
+          var d = r.data || {};
+          var cs = r.cloud_structure || {};
+          var st = r.all_day_sky_state || {};
+          var cm = r.cloud_motion || {};
+          var lw = (cm && cm.layerWinds) || {};
+          var comp = r.components || {};
+
+          var fbPayload = {
+            query_id: r.query_id || ((SS.baseline && SS.baseline.generateQueryId) ? SS.baseline.generateQueryId() : ('qid_' + Date.now())),
+            city: r.city,
+            country: r.country || null,
+            latitude: r.latitude != null ? r.latitude : (d.latitude || 0),
+            longitude: r.longitude != null ? r.longitude : (d.longitude || 0),
+            timezone: r.timezone_str || null,
+            sunset_time_local: r.sunset_local || null,
+            sunset_azimuth: r.sunset_azimuth != null ? r.sunset_azimuth : null,
+            model_version: (SS.config && SS.config.version) || '2.2.0',
+            predicted_score: r.score,
+            predicted_level: r.level,
+            baseline_score: r.baseline_score != null ? r.baseline_score : null,
+            baseline_level: r.baseline_level || null,
+            regime_label: r.regime_label || null,
+            sky_evolution_state: st.state || null,
+            sky_evolution_factor: r.sky_evolution_factor != null ? r.sky_evolution_factor : 1.0,
+            comp_sky_canvas: comp.sky_canvas,
+            comp_horizon: comp.horizon,
+            comp_illumination: comp.illumination,
+            comp_atmosphere: comp.atmosphere,
+            comp_weather: comp.weather,
+            cloud_cover_total: d.cloud_cover,
+            cloud_cover_low: d.cloud_low,
+            cloud_cover_mid: d.cloud_mid,
+            cloud_cover_high: d.cloud_high,
+            corridor_cloud_mid: cs.corridorMid,
+            corridor_cloud_high: cs.corridorHigh,
+            anti_sunset_score: cs.antiSunsetScore,
+            layer_wind_850_speed: lw.low ? lw.low.speedKmH : null,
+            layer_wind_850_dir: lw.low ? lw.low.fromDeg : null,
+            visibility_km: d.visibility_km,
+            precipitation: d.precip,
+            user_rating: rating,
+            user_rating_label: btn.textContent.trim(),
+            user_comment: null,
+            timestamp: Date.now()
+          };
+
+          if (SS.baseline && SS.baseline.submitFeedback) {
+            SS.baseline.submitFeedback(fbPayload).then(function (res) {
+              if (fbMsg) {
+                if (res && res.remote) {
+                  fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」并同步至 Cloudflare D1 数据库！';
+                } else {
+                  fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」（已保存至本地回测库）';
+                }
+                show(fbMsg);
+              }
+            });
+          } else if (SS.baseline && SS.baseline.saveFeedback) {
+            SS.baseline.saveFeedback(fbPayload);
+            if (fbMsg) {
+              fbMsg.textContent = '✅ 已记录实况反馈「' + btn.textContent.trim() + '」，感谢协助回测校准！';
+              show(fbMsg);
+            }
+          }
+        };
+      });
+    }
+
     /* 评分构成条形图（V1.7：标签下方小字显示动态权重占比） */
     var bars = $('r-bars');
     bars.innerHTML = '';
@@ -1382,6 +1500,16 @@
       '<span>WeatherScore 组成</span><span>' + fmtWeatherScore(r.weather_score) + '</span>' +
       '</div></div>';
 
+    var groupBaseline =
+      '<div class="detail-group">' +
+      '<div class="detail-group-title">📊 极简基准对照与回测闭环</div>' +
+      '<div class="detail-grid">' +
+      '<span>当前动力学模型得分</span><span>' + r.score + ' 分 · ' + r.level + '</span>' +
+      '<span>极简单峰基准得分</span><span>' + (r.baseline_score != null ? r.baseline_score + ' 分 · ' + r.baseline_level : '—') + '</span>' +
+      '<span>基线算法公式</span><span>' + ((r.baseline_detail && r.baseline_detail.formula) || '—') + '</span>' +
+      '<span>模型增益 / 偏差</span><span>' + (r.baseline_score != null ? (r.score - r.baseline_score >= 0 ? '+' : '') + (r.score - r.baseline_score) + ' 分' : '—') + '</span>' +
+      '</div></div>';
+
     var groupEvolution =
       '<div class="detail-group">' +
       '<div class="detail-group-title">🌅 天空演化与风场动力学</div>' +
@@ -1394,6 +1522,9 @@
       '<span>上游浓云侵入预警</span><span>' + (ar.summaryText || '—') + '</span>' +
       '<span>30/60/120m 侵入概率</span><span>' + (ar.risk30m != null ? '30m: ' + Math.round(ar.risk30m * 100) + '% / 60m: ' + Math.round(ar.risk60m * 100) + '% / 120m: ' + Math.round(ar.risk120m * 100) + '%' : '—') + '</span>' +
       '<span>日落走廊演化</span><span>' + fmtEvolutionDetail(r) + '</span>' +
+      '<span>实况瓦片信号源</span><span>' + (r.sky_evolution && r.sky_evolution.detail
+        ? ('雷达: ' + (r.sky_evolution.detail.radar ? '🟢 3帧回波' : '⚪ 未覆盖/NWP平滑回退') + ' · 卫星: ' + (r.sky_evolution.detail.satellite ? '🟢 正常' : '⚪ 未覆盖/NWP平滑回退'))
+        : '—') + '</span>' +
       '<span>Nowcasting 修正</span><span>' + fmtNowcastDetail(r) + '</span>' +
       '</div></div>';
 
@@ -1426,7 +1557,7 @@
       '<div class="detail-group">' +
       '<div class="detail-group-title">📡 采样与数据可信度</div>' +
       '<div class="detail-grid">' +
-      '<span>采样模式（V2.1）</span><span>' + (r.sampling_mode === 'FULL' || r.sampling_mode === 'FULL_SKY' ? 'FULL_SKY（360° 全天空采样）' : (r.sampling_mode || '—')) +
+      '<span>采样模式（V2.2）</span><span>' + (r.sampling_mode === 'FULL_SKY_33' || r.sampling_mode === 'FULL' || r.sampling_mode === 'FULL_SKY' ? 'FULL_SKY_33（33 节点全天空立体采样与走廊插值）' : (r.sampling_mode || '—')) +
         (r.escalated ? ' → FULL（' + (r.escalation_reason || '') + '）' : '') + '</span>' +
       '<span>全天空动力学网格</span><span>8方位 × 4距离 × 3高度层（96 状态网格）</span>' +
       '<span>空间采样点</span><span>' + d.samples_fetched + ' / ' + d.samples_expected + ' 个节点</span>' +
@@ -1439,7 +1570,7 @@
       '</div></div>';
 
     $('details').innerHTML =
-      noteHtml + groupScore + groupEvolution + groupSpatial + groupWeather + groupReliability;
+      noteHtml + groupScore + groupBaseline + groupEvolution + groupSpatial + groupWeather + groupReliability;
 
     resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }

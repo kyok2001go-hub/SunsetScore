@@ -19,21 +19,93 @@
 
   /**
    * 综合分析当前云场与未来平流预测，推断全天空状态
+   * 支持日落方位角加权（日落走廊 60%、反日落 25%、侧向 15%），杜绝无关方位天气干扰
+   * @param {object} cloudField 360° 当前全天空云场
+   * @param {object} motionForecast 云场动力学预报对象
+   * @param {number} [sunsetAzimuthDeg] 日落方位角（度）
    */
-  function determineState(cloudField, motionForecast) {
+  function determineState(cloudField, motionForecast, sunsetAzimuthDeg) {
     if (!cloudField || !cloudField.summary) {
       return { state: 'UNCERTAIN', factor: 1.0, confidence: 0.5 };
     }
 
     var cfg = (SS.config && SS.config.skyStateV21) || {};
-    var avgNow = cloudField.summary.avgCloudCover;
+    var wholeAvgNow = cloudField.summary.avgCloudCover;
     var variance = cloudField.summary.spatialVariance;
     var risk = motionForecast ? motionForecast.arrivalRisk : null;
     var pred60 = (motionForecast && motionForecast.predictions && motionForecast.predictions.m60) || null;
+    var wholeAvg60 = pred60 ? pred60.avgCloudCover : wholeAvgNow;
 
-    var avg60 = pred60 ? pred60.avgCloudCover : avgNow;
+    var avgNow = wholeAvgNow;
+    var avg60 = wholeAvg60;
+
+    /* 日落方位扇区加权计算（解决问题 4） */
+    var sectorInfo = null;
+    if (typeof sunsetAzimuthDeg === 'number' && isFinite(sunsetAzimuthDeg) && cloudField.nodes && cloudField.nodes.length) {
+      var wCfg = cfg.sectorWeights || { corridor: 0.60, antiSunset: 0.25, side: 0.15 };
+      var hwCorridor = cfg.corridorHalfWidthDeg || 45;
+      var hwAnti = cfg.antiSunsetHalfWidthDeg || 35;
+      var antiAzimuth = (sunsetAzimuthDeg + 180) % 360;
+
+      function angDiff(a1, a2) {
+        var d = Math.abs(a1 - a2);
+        return Math.min(d, 360 - d);
+      }
+
+      var cNodesNow = [], aNodesNow = [], sNodesNow = [];
+      var cNodes60 = [], aNodes60 = [], sNodes60 = [];
+
+      var predNodeMap = (pred60 && pred60.nodeMap) || {};
+      if (pred60 && pred60.nodes && !pred60.nodeMap) {
+        predNodeMap = {};
+        pred60.nodes.forEach(function (pn) { predNodeMap[pn.key] = pn; });
+      }
+
+      cloudField.nodes.forEach(function (n) {
+        var az = n.azimuth != null ? n.azimuth : 0;
+        var valNow = (n.data && n.data.cloud_cover != null) ? n.data.cloud_cover : wholeAvgNow;
+        var pNode = predNodeMap[n.key];
+        var val60 = (pNode && pNode.data && pNode.data.cloud_cover != null) ? pNode.data.cloud_cover : valNow;
+
+        if (angDiff(az, sunsetAzimuthDeg) <= hwCorridor) {
+          cNodesNow.push(valNow);
+          cNodes60.push(val60);
+        } else if (angDiff(az, antiAzimuth) <= hwAnti) {
+          aNodesNow.push(valNow);
+          aNodes60.push(val60);
+        } else {
+          sNodesNow.push(valNow);
+          sNodes60.push(val60);
+        }
+      });
+
+      function mean(arr, dflt) {
+        if (!arr || !arr.length) return dflt;
+        var s = 0;
+        for (var i = 0; i < arr.length; i++) s += arr[i];
+        return s / arr.length;
+      }
+
+      var cAvgNow = mean(cNodesNow, wholeAvgNow);
+      var aAvgNow = mean(aNodesNow, wholeAvgNow);
+      var sAvgNow = mean(sNodesNow, wholeAvgNow);
+
+      var cAvg60 = mean(cNodes60, cAvgNow);
+      var aAvg60 = mean(aNodes60, aAvgNow);
+      var sAvg60 = mean(sNodes60, sAvgNow);
+
+      avgNow = Math.round(wCfg.corridor * cAvgNow + wCfg.antiSunset * aAvgNow + wCfg.side * sAvgNow);
+      avg60 = Math.round(wCfg.corridor * cAvg60 + wCfg.antiSunset * aAvg60 + wCfg.side * sAvg60);
+
+      sectorInfo = {
+        corridorAvgNow: Math.round(cAvgNow),
+        antiSunsetAvgNow: Math.round(aAvgNow),
+        sideAvgNow: Math.round(sAvgNow),
+        corridorAvg60: Math.round(cAvg60)
+      };
+    }
+
     var cloudDelta60 = avg60 - avgNow;
-
     var state = 'STABLE';
     var factor = 1.0;
 
@@ -88,8 +160,11 @@
         currentCloudCover: avgNow,
         predictedCloudCover60: avg60,
         cloudDelta60: cloudDelta60,
+        wholeSkyCurrentCloudCover: wholeAvgNow,
+        wholeSkyPredictedCloudCover60: wholeAvg60,
         spatialVariance: variance,
-        arrivalRisk60: risk ? risk.risk60m : 0
+        arrivalRisk60: risk ? risk.risk60m : 0,
+        sectorDetails: sectorInfo
       }
     };
   }

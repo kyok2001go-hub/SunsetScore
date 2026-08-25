@@ -114,9 +114,21 @@
   }
 
   /**
-   * 预测未来 deltaMinutes (30/60/120) 时刻的全天空云场（分层大气动力学切变平流）
+   * 预测未来 deltaMinutes (30/60/120) 时刻的全天空云场
+   * 若提供原始采样样本 skySamples，则优先采用 NWP 模型自身更高精度的时序插值预报；
+   * 若无原始样本（单快照回退），则采用分层动力学切变平流位移进行外推。
    */
-  function predictFutureField(cloudField, windSpeedKmH, windFromDeg, deltaMinutes) {
+  function predictFutureField(cloudField, windSpeedKmH, windFromDeg, deltaMinutes, skySamples, baseTimeUtc) {
+    if (skySamples && Array.isArray(skySamples) && skySamples.length) {
+      var baseMs = (baseTimeUtc instanceof Date)
+        ? baseTimeUtc.getTime()
+        : (typeof baseTimeUtc === 'number' ? baseTimeUtc : (cloudField ? cloudField.timestamp : Date.now()));
+      var targetDate = new Date(baseMs + deltaMinutes * 60000);
+      var futureField = SS.cloudField.buildCloudField(skySamples, targetDate);
+      futureField.minutesAhead = deltaMinutes;
+      return futureField;
+    }
+
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
     var futureNodes = [];
     var totalSum = 0, lowSum = 0, midSum = 0, highSum = 0;
@@ -128,13 +140,13 @@
       var currY = n.distanceKm * Math.cos(radAz);
       var nodeLat = n.latitude != null ? n.latitude : centerLat;
 
-      /* 分布式节点风场：结合节点局部地面观测与中心风 */
+      /* 分布式节点风场：结合节点局部观测、高空等压面风与中心风 */
       var nData = n.data || {};
       var localSpeed = (nData.wind_speed_10m != null) ? nData.wind_speed_10m : windSpeedKmH;
       var localDir = (nData.wind_direction_10m != null) ? nData.wind_direction_10m : windFromDeg;
 
-      /* 1. 低云分层平流采样 (LOW) */
-      var offLow = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'LOW', deltaMinutes, nodeLat);
+      /* 1. 低云分层平流采样 (LOW - 850hPa) */
+      var offLow = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'LOW', deltaMinutes, nodeLat, nData);
       var upXLow = currX + offLow.upstreamDx;
       var upYLow = currY + offLow.upstreamDy;
       var upDistLow = Math.sqrt(upXLow * upXLow + upYLow * upYLow);
@@ -142,8 +154,8 @@
       var sampleLow = interpolateCloudAt(cloudField, upDistLow, upAzLow);
       var predLow = sampleLow.cloud_cover_low;
 
-      /* 2. 中云分层平流采样 (MID) */
-      var offMid = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'MID', deltaMinutes, nodeLat);
+      /* 2. 中云分层平流采样 (MID - 700hPa) */
+      var offMid = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'MID', deltaMinutes, nodeLat, nData);
       var upXMid = currX + offMid.upstreamDx;
       var upYMid = currY + offMid.upstreamDy;
       var upDistMid = Math.sqrt(upXMid * upXMid + upYMid * upYMid);
@@ -151,8 +163,8 @@
       var sampleMid = interpolateCloudAt(cloudField, upDistMid, upAzMid);
       var predMid = sampleMid.cloud_cover_mid;
 
-      /* 3. 高云分层平流采样 (HIGH) */
-      var offHigh = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'HIGH', deltaMinutes, nodeLat);
+      /* 3. 高云分层平流采样 (HIGH - 500hPa) */
+      var offHigh = SS.wind.calculateLayerAdvectionOffset(localSpeed, localDir, 'HIGH', deltaMinutes, nodeLat, nData);
       var upXHigh = currX + offHigh.upstreamDx;
       var upYHigh = currY + offHigh.upstreamDy;
       var upDistHigh = Math.sqrt(upXHigh * upXHigh + upYHigh * upYHigh);
@@ -189,9 +201,10 @@
     });
 
     /* 中心点分层未来云量预测 */
-    var cOffLow = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'LOW', deltaMinutes, centerLat);
-    var cOffMid = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'MID', deltaMinutes, centerLat);
-    var cOffHigh = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'HIGH', deltaMinutes, centerLat);
+    var cData = (cloudField.center && cloudField.center.data) || {};
+    var cOffLow = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'LOW', deltaMinutes, centerLat, cData);
+    var cOffMid = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'MID', deltaMinutes, centerLat, cData);
+    var cOffHigh = SS.wind.calculateLayerAdvectionOffset(windSpeedKmH, windFromDeg, 'HIGH', deltaMinutes, centerLat, cData);
 
     var cLow = interpolateCloudAt(cloudField, cOffLow.distanceKm, cOffLow.upstreamHeadingDeg).cloud_cover_low;
     var cMid = interpolateCloudAt(cloudField, cOffMid.distanceKm, cOffMid.upstreamHeadingDeg).cloud_cover_mid;
@@ -222,15 +235,16 @@
   /**
    * 评估上游浓云进入指定方位（如日落走廊）的到达时间与遮挡风险（分层动力学）
    */
-  function evaluateArrivalRisk(cloudField, targetAzimuthDeg, windSpeedKmH, windFromDeg) {
+  function evaluateArrivalRisk(cloudField, targetAzimuthDeg, windSpeedKmH, windFromDeg, upperWindData) {
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
+    var cData = upperWindData || (cloudField.center && cloudField.center.data) || {};
     var cfg = (SS.config && SS.config.windMotionV21 && SS.config.windMotionV21.arrivalRisk) || {};
     var denseThreshold = cfg.denseCloudCoverMin || 65;
     var maxHorizonMin = cfg.maxArrivalHorizonMin || 180; /* 日落演化有效时效上限（180 分钟） */
 
-    /* 低云与中云层分层风向风速 */
-    var lowWind = SS.wind.getLayerWind(windSpeedKmH, windFromDeg, 'LOW', centerLat);
-    var midWind = SS.wind.getLayerWind(windSpeedKmH, windFromDeg, 'MID', centerLat);
+    /* 低云与中云层分层风向风速（优先使用 850hPa/700hPa 真实等压面风） */
+    var lowWind = SS.wind.getLayerWind(windSpeedKmH, windFromDeg, 'LOW', centerLat, cData);
+    var midWind = SS.wind.getLayerWind(windSpeedKmH, windFromDeg, 'MID', centerLat, cData);
 
     /* 寻找沿低云风向吹向目标走廊的上游区域 */
     var upstreamNodes = cloudField.getCorridorSlice(lowWind.fromDeg, cfg.upstreamSectorHalfWidthDeg || 35);
@@ -293,6 +307,8 @@
       effectiveSpeedKmH: effSpeed,
       windSpeedKmH: windSpeedKmH,
       windFromDeg: windFromDeg,
+      lowLayerWind: lowWind,
+      midLayerWind: midWind,
       risk30m: calcRisk(30),
       risk60m: calcRisk(60),
       risk120m: calcRisk(120),
@@ -303,23 +319,23 @@
   /**
    * 运行完整的未来云场平流预测流水线 (30 / 60 / 120 分钟)
    */
-  function forecast(cloudField, targetAzimuthDeg) {
+  function forecast(cloudField, targetAzimuthDeg, skySamples, nowUtc) {
     var cData = (cloudField.center && cloudField.center.data) || {};
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
     var windSpd = (cData.wind_speed_10m != null) ? cData.wind_speed_10m : 15;
     var windGust = (cData.wind_gusts_10m != null) ? cData.wind_gusts_10m : null;
     var windDir = (cData.wind_direction_10m != null) ? cData.wind_direction_10m : 270;
 
-    /* 分层动力学切变风 */
-    var lowWind = SS.wind.getLayerWind(windSpd, windDir, 'LOW', centerLat);
-    var midWind = SS.wind.getLayerWind(windSpd, windDir, 'MID', centerLat);
-    var highWind = SS.wind.getLayerWind(windSpd, windDir, 'HIGH', centerLat);
+    /* 分层动力学风场（优先接入 850/700/500hPa 真实等压面风） */
+    var lowWind = SS.wind.getLayerWind(windSpd, windDir, 'LOW', centerLat, cData);
+    var midWind = SS.wind.getLayerWind(windSpd, windDir, 'MID', centerLat, cData);
+    var highWind = SS.wind.getLayerWind(windSpd, windDir, 'HIGH', centerLat, cData);
 
-    var f30 = predictFutureField(cloudField, windSpd, windDir, 30);
-    var f60 = predictFutureField(cloudField, windSpd, windDir, 60);
-    var f120 = predictFutureField(cloudField, windSpd, windDir, 120);
+    var f30 = predictFutureField(cloudField, windSpd, windDir, 30, skySamples, nowUtc);
+    var f60 = predictFutureField(cloudField, windSpd, windDir, 60, skySamples, nowUtc);
+    var f120 = predictFutureField(cloudField, windSpd, windDir, 120, skySamples, nowUtc);
 
-    var arrivalRisk = evaluateArrivalRisk(cloudField, targetAzimuthDeg, windSpd, windDir);
+    var arrivalRisk = evaluateArrivalRisk(cloudField, targetAzimuthDeg, windSpd, windDir, cData);
     var dirInfo = SS.wind.formatDirection(windDir);
     var beaufortInfo = SS.wind.formatBeaufort ? SS.wind.formatBeaufort(windSpd) : { level: 1, name: '软风' };
 

@@ -554,32 +554,58 @@
         cached('precip', function () {
           return fetchMinutePrecip(ctx.lat, ctx.lon).then(function (series) {
             var a = analyzePrecip(series, ctx.nowUtc.valueOf());
-            return a && { analysis: a };
+            return { analysis: a, status: a ? 'OK' : 'NO_DATA', error: a ? null : '无分钟级降水' };
+          }).catch(function (err) {
+            return { analysis: null, status: 'FAILED', error: err.message || '降水接口异常' };
           });
         }),
         cached('radar', function () {
-          /* 瓦片分析依赖 canvas：非浏览器环境与全瓦片失败均静默降级；
+          /* 瓦片分析依赖 canvas：非浏览器环境与全瓦片失败记录诊断信息；
              失败也缓存空结果（TTL 内负缓存），避免对不可用源反复重试 */
-          if (typeof document === 'undefined') return Promise.resolve({ analysis: null });
+          if (typeof document === 'undefined') {
+            return Promise.resolve({ analysis: null, status: 'UNAVAILABLE', error: '非浏览器环境' });
+          }
           return analyzeRadar(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg)
-            .then(function (a) { return { analysis: a }; })
-            .catch(function () { return { analysis: null }; });
+            .then(function (a) {
+              return { analysis: a, status: a ? 'OK' : 'EMPTY', error: a ? null : '区域无雷达回波覆盖' };
+            })
+            .catch(function (err) {
+              return { analysis: null, status: 'FAILED', error: err && err.message ? err.message : '雷达瓦片获取失败' };
+            });
         }),
         cached('satellite', function () {
-          if (typeof document === 'undefined') return Promise.resolve({ analysis: null });
+          if (typeof document === 'undefined') {
+            return Promise.resolve({ analysis: null, status: 'UNAVAILABLE', error: '非浏览器环境' });
+          }
           return analyzeSatellite(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg)
-            .then(function (a) { return { analysis: a }; })
-            .catch(function () { return { analysis: null }; });
+            .then(function (a) {
+              return { analysis: a, status: a ? 'OK' : 'EMPTY', error: a ? null : '区域无卫星有效数据' };
+            })
+            .catch(function (err) {
+              return { analysis: null, status: 'FAILED', error: err && err.message ? err.message : '卫星瓦片获取失败' };
+            });
         })
       ]).then(function (res) {
-        var precip = res[0] && res[0].analysis ? res[0].analysis : null;
-        var radar = res[1] && res[1].analysis ? res[1].analysis : null;
-        var satellite = res[2] && res[2].analysis ? res[2].analysis : null;
+        var precipRes = res[0] || {};
+        var radarRes = res[1] || {};
+        var satRes = res[2] || {};
+
+        var precip = precipRes.analysis || null;
+        var radar = radarRes.analysis || null;
+        var satellite = satRes.analysis || null;
+
         var fusion = fuse({
           forecastTrend: ctx.forecastTrend,
           precip: precip, radar: radar, satellite: satellite
         });
         if (!fusion) return null;
+
+        fusion.sourcesStatus = {
+          precip: { available: !!precip, status: precipRes.status || (precip ? 'OK' : 'FAILED'), error: precipRes.error || null },
+          radar: { available: !!radar, status: radarRes.status || (radar ? 'OK' : 'FAILED'), error: radarRes.error || null },
+          satellite: { available: !!satellite, status: satRes.status || (satellite ? 'OK' : 'FAILED'), error: satRes.error || null }
+        };
+
         fusion.detail = {
           precip: precip ? {
             source: precip.source,
@@ -591,6 +617,7 @@
           } : null,
           radar: radar,
           satellite: satellite,
+          sourcesStatus: fusion.sourcesStatus,
           offsetSeconds: ctx.utcOffsetSeconds
         };
         return fusion;

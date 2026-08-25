@@ -733,3 +733,15 @@ body {
     margin: 16px 0;
   }
 }
+
+/* ---------- 实况反馈与基线对照 ---------- */
+.feedback-section { margin-top: 4px; }
+.feedback-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.baseline-tag { font-size: 0.8rem; padding: 3px 10px; border-radius: 20px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #d3adf7; font-family: ui-monospace, Consolas, monospace; }
+.feedback-subtext { font-size: 0.84rem; color: var(--text-dim); margin-bottom: 12px; }
+.feedback-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.fb-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.05); color: var(--text); font-size: 0.88rem; cursor: pointer; transition: all 0.2s; }
+.fb-btn:hover { background: rgba(255, 255, 255, 0.15); border-color: var(--accent); transform: translateY(-1px); }
+.fb-btn.active { background: rgba(255, 122, 69, 0.25); border-color: var(--accent); color: #fff; font-weight: 600; }
+.feedback-msg { margin-top: 10px; font-size: 0.84rem; color: #95de64; padding: 6px 12px; border-radius: 6px; background: rgba(149, 222, 100, 0.1); border: 1px solid rgba(149, 222, 100, 0.25); }
+

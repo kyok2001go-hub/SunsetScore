@@ -54,29 +54,56 @@
   }
 
   /**
-   * 计算指定高度层（LOW/MID/HIGH）的物理切变风速与地转偏向风向 (Ekman Veering)
+   * 计算指定高度层（LOW/MID/HIGH）的分层物理风向与风速
+   * 优先采用 Open-Meteo 真实等压面探空风 (850hPa / 700hPa / 500hPa)，
+   * 若数据缺失则平滑回退到大气边界层 (ABL) 动力学切变与 Ekman 地转偏转经验模型。
+   *
    * @param {number} surfaceSpeedKmH 10m 地面风速 (km/h)
    * @param {number} fromDeg 地面风向 (度)
    * @param {string} layer 'LOW' | 'MID' | 'HIGH'
    * @param {number} [lat] 纬度（用于判定南北半球地转偏向方向）
+   * @param {object} [upperWindData] 包含等压面风场的数据对象 (node.data)
    */
-  function getLayerWind(surfaceSpeedKmH, fromDeg, layer, lat) {
+  function getLayerWind(surfaceSpeedKmH, fromDeg, layer, lat, upperWindData) {
     var lKey = (layer || 'mid').toLowerCase();
-    var cfg = (SS.config && SS.config.windMotionV21 && SS.config.windMotionV21.stratifiedLayers) || {
-      low:  { multiplier: 1.8, minSpeedKmH: 8.0,  veeringDeg: 15 },
-      mid:  { multiplier: 2.5, minSpeedKmH: 18.0, veeringDeg: 30 },
-      high: { multiplier: 4.0, minSpeedKmH: 35.0, veeringDeg: 45 }
-    };
-    var lCfg = cfg[lKey] || cfg.mid;
-    var spd = Math.max(0, surfaceSpeedKmH || 0);
-    var layerSpeed = Math.max(lCfg.minSpeedKmH, spd * lCfg.multiplier);
+    var pressureMap = { low: '850hPa', mid: '700hPa', high: '500hPa' };
+    var plevel = pressureMap[lKey] || '700hPa';
 
-    /* 地转偏向：北半球顺时针(+), 南半球逆时针(-) */
-    var sign = (lat != null && lat < 0) ? -1 : 1;
-    var layerFromDeg = (((fromDeg || 0) + sign * (lCfg.veeringDeg || 0)) % 360 + 360) % 360;
+    var realSpeedKey = 'wind_speed_' + plevel;
+    var realDirKey = 'wind_direction_' + plevel;
+
+    var hasRealWind = upperWindData &&
+      typeof upperWindData[realSpeedKey] === 'number' && isFinite(upperWindData[realSpeedKey]) &&
+      typeof upperWindData[realDirKey] === 'number' && isFinite(upperWindData[realDirKey]);
+
+    var layerSpeed = 0;
+    var layerFromDeg = 0;
+    var isRealSounding = false;
+
+    if (hasRealWind) {
+      layerSpeed = Math.max(0, upperWindData[realSpeedKey]);
+      layerFromDeg = ((upperWindData[realDirKey] % 360) + 360) % 360;
+      isRealSounding = true;
+    } else {
+      /* 回退：大气边界层 (ABL) 经验切变与 Ekman Veering */
+      var cfg = (SS.config && SS.config.windMotionV21 && SS.config.windMotionV21.stratifiedLayers) || {
+        low:  { multiplier: 1.8, minSpeedKmH: 8.0,  veeringDeg: 15 },
+        mid:  { multiplier: 2.5, minSpeedKmH: 18.0, veeringDeg: 30 },
+        high: { multiplier: 4.0, minSpeedKmH: 35.0, veeringDeg: 45 }
+      };
+      var lCfg = cfg[lKey] || cfg.mid;
+      var spd = Math.max(0, surfaceSpeedKmH || 0);
+      layerSpeed = Math.max(lCfg.minSpeedKmH, spd * lCfg.multiplier);
+
+      /* 地转偏向：北半球顺时针(+), 南半球逆时针(-) */
+      var sign = (lat != null && lat < 0) ? -1 : 1;
+      layerFromDeg = (((fromDeg || 0) + sign * (lCfg.veeringDeg || 0)) % 360 + 360) % 360;
+    }
 
     var decomp = decompose(layerSpeed, layerFromDeg);
     decomp.layer = lKey.toUpperCase();
+    decomp.pressureLevel = plevel;
+    decomp.isRealSounding = isRealSounding;
     decomp.label = formatDirection(layerFromDeg).label;
     return decomp;
   }
@@ -84,8 +111,8 @@
   /**
    * 计算指定高度层在 Δt (分钟) 内的沿风向下游位移量与逆风上游回溯偏移量
    */
-  function calculateLayerAdvectionOffset(surfaceSpeedKmH, fromDeg, layer, deltaMinutes, lat) {
-    var lw = getLayerWind(surfaceSpeedKmH, fromDeg, layer, lat);
+  function calculateLayerAdvectionOffset(surfaceSpeedKmH, fromDeg, layer, deltaMinutes, lat, upperWindData) {
+    var lw = getLayerWind(surfaceSpeedKmH, fromDeg, layer, lat, upperWindData);
     var hours = deltaMinutes / 60;
     var distKm = lw.speedKmH * hours;
     var flowHeading = lw.flowHeadingDeg;
@@ -93,6 +120,8 @@
 
     return {
       layer: lw.layer,
+      pressureLevel: lw.pressureLevel,
+      isRealSounding: lw.isRealSounding,
       speedKmH: lw.speedKmH,
       fromDeg: lw.fromDeg,
       distanceKm: distKm,

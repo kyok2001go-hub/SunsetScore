@@ -427,9 +427,10 @@
     if (sf61.antiSunset.enabled) {
       var antiW = sf61.antiSunset.weights;
       var antiHigh = ls.high != null ? ls.high : 0;
-      if (input.cloudField && typeof input.cloudField.getByRay === 'function') {
+      var sunsetField = input.cloudFieldSunset || input.cloudField;
+      if (sunsetField && typeof sunsetField.getByRay === 'function') {
         var antiAzimuth = (input.solar.sunsetAzimuthDeg + 180) % 360;
-        var antiRayNodes = input.cloudField.getByRay(antiAzimuth);
+        var antiRayNodes = sunsetField.getByRay(antiAzimuth);
         if (antiRayNodes && antiRayNodes.length) {
           var validHighs = [], validTotals = [];
           antiRayNodes.forEach(function (n) {

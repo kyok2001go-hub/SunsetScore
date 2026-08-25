@@ -43,34 +43,58 @@
   }
 
   /* 加载一组瓦片并合成到离屏 canvas。
-     单瓦片失败视为空白（边缘地区常见）；全部失败则拒绝（触发源降级）；
-     canvas 被污染（CORS）同样拒绝 */
+     支持双重容错：优先直连，当遇到 CORS 阻断或瓦片拉取失败时，自动平滑回退至 Pages 边缘代理 /api/proxy */
   function loadTileCanvas(tiles, w, h, urlFn) {
-    return new Promise(function (resolve, reject) {
-      var canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      var ctx = canvas.getContext('2d');
-      var pending = tiles.length;
-      var failed = 0;
-      if (!pending) { reject(new Error('无瓦片')); return; }
-      function done() {
-        if (--pending !== 0) return;
-        if (failed === tiles.length) { reject(new Error('全部瓦片加载失败')); return; }
-        try {
-          var data = ctx.getImageData(0, 0, w, h); /* 触发污染检查 */
-          resolve({ canvas: canvas, data: data });
-        } catch (e) { reject(new Error('canvas 污染（CORS 不可用）')); }
-      }
-      tiles.forEach(function (t) {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function () {
-          try { ctx.drawImage(img, t.dx, t.dy); } catch (e) { /* 忽略单瓦片绘制异常 */ }
-          done();
-        };
-        img.onerror = function () { failed++; done(); };
-        img.src = urlFn(t.x, t.y);
+    function tryLoad(useProxy) {
+      return new Promise(function (resolve, reject) {
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        var pending = tiles.length;
+        var failed = 0;
+        if (!pending) { reject(new Error('无瓦片')); return; }
+
+        function done() {
+          if (--pending !== 0) return;
+          if (failed === tiles.length) {
+            reject(new Error(useProxy ? '全部瓦片代理拉取失败' : '全部瓦片直连失败'));
+            return;
+          }
+          try {
+            var data = ctx.getImageData(0, 0, w, h); /* 触发污染检查 */
+            resolve({ canvas: canvas, data: data, isProxied: useProxy });
+          } catch (e) {
+            reject(new Error('canvas 污染（CORS 不可用）'));
+          }
+        }
+
+        tiles.forEach(function (t) {
+          var originalUrl = urlFn(t.x, t.y);
+          var finalUrl = (useProxy && typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0)
+            ? '/api/proxy?url=' + encodeURIComponent(originalUrl)
+            : originalUrl;
+
+          var img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = function () {
+            try { ctx.drawImage(img, t.dx, t.dy); } catch (e) { /* 忽略单瓦片绘制异常 */ }
+            done();
+          };
+          img.onerror = function () {
+            failed++;
+            done();
+          };
+          img.src = finalUrl;
+        });
       });
+    }
+
+    /* 优先直连，若失败（如 CORS 报错或瓦片 CDN 拦截）且处于 HTTP(S) 环境，自动尝试 /api/proxy 兜底 */
+    return tryLoad(false).catch(function (err) {
+      if (typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0) {
+        return tryLoad(true);
+      }
+      throw err;
     });
   }
 

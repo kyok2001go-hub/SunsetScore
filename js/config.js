@@ -16,7 +16,7 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.config = {
-    version: '2.1.2',
+    version: '2.2.0',
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -200,7 +200,7 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v213_',
+    cachePrefix: 'sunsetscore_v220_',
 
     /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
     samplingV18: {
@@ -359,7 +359,7 @@
       enabled: true,
       /* 预测时距（分钟） */
       forecastHorizonsMin: [30, 60, 120],
-      /* 大气边界层（ABL）分层动力学切变与地转偏转配置 */
+      /* 大气边界层（ABL）分层动力学切变与地转偏转配置（回退与参考） */
       stratifiedLayers: {
         low:  { multiplier: 1.8, minSpeedKmH: 8.0,  veeringDeg: 15 },
         mid:  { multiplier: 2.5, minSpeedKmH: 18.0, veeringDeg: 30 },
@@ -386,6 +386,10 @@
       openingDropRateMin: 5,        /* 每小时云量下降 5% 以上 */
       closingGrowthRateMin: 5,      /* 每小时云量上升 5% 以上 */
       cloudArrivingRiskThreshold: 0.35,
+      /* 日落扇区加权：日落走廊 60%，反日落 25%，侧向 15% */
+      sectorWeights: { corridor: 0.60, antiSunset: 0.25, side: 0.15 },
+      corridorHalfWidthDeg: 45,
+      antiSunsetHalfWidthDeg: 35,
       /* SkyEvolutionFactor 限幅区间 [0.65, 1.15] */
       factorRange: [0.65, 1.15]
     },
@@ -406,7 +410,9 @@
     hourlyVariables: [
       'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high',
       'visibility', 'relative_humidity_2m', 'precipitation', 'precipitation_probability',
-      'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'surface_pressure'
+      'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'surface_pressure',
+      'wind_speed_850hPa', 'wind_direction_850hPa', 'wind_speed_700hPa', 'wind_direction_700hPa',
+      'wind_speed_500hPa', 'wind_direction_500hPa'
     ].join(',')
   };
 })(typeof window !== 'undefined' ? window : globalThis);

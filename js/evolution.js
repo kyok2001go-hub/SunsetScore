@@ -100,9 +100,9 @@
       } else if (motionForecast && motionForecast.predictions && (motionForecast.predictions['m' + h] || motionForecast.predictions['m60'])) {
         var pred = motionForecast.predictions['m' + h] || motionForecast.predictions['m60'];
         var cPred = pred.avgCloudCover;
-        var rPred = motionForecast.arrivalRisk ? (motionForecast.arrivalRisk['risk' + h + 'm'] || motionForecast.arrivalRisk.risk60m || 0) : 0;
-        var pOpenBase = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
-        p = pOpenBase * (1 - rPred * 0.8);
+        /* 注意：SkyEvolutionFactor 已经在天空状态机中处理了 CLOUD_ARRIVING 宏观风险。
+           在无雷达/卫星覆盖的回退中，走廊开放概率直接由 NWP 未来云量决定，避免重复惩罚 */
+        p = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
       }
       if (p == null) p = 0.5;
       p = p * rainStopConfidence(precip, h);
@@ -246,11 +246,19 @@
       evo.gwFactor = Math.round((floor + (1 - floor) * pSunset) * 1000) / 1000;
     }
 
+    var degradedSources = [];
+    if (!radarEvo) degradedSources.push('雷达瓦片');
+    if (!satEvo) degradedSources.push('卫星云图');
+    evo.degradedSources = degradedSources;
+    evo.hasRealTiles = !!(radarEvo || satEvo);
+    evo.sourcesStatus = sources.sourcesStatus || null;
+
     /* 详情透传：卫星未来覆盖率与到达风险、雷达演化原始输出、风场平流外推 */
     evo.detail = {
       radar: radarEvo,
       satellite: satEvo,
       motion: sources.motionForecast,
+      sourcesStatus: sources.sourcesStatus || null,
       precip: precip ? {
         source: precip.source,
         rainingNow: precip.rainingNow,
