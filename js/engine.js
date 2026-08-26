@@ -121,6 +121,24 @@
     };
   }
 
+  /* UTC 连续时间插值是核心评分唯一时刻采样策略。 */
+  function interpolateAt(forecast, utcTime) {
+    var d = SS.cloudField.extractInterpolatedAt(forecast, utcTime);
+    if (!d) return null;
+    return {
+      cloud: d.cloud_cover,
+      low: d.cloud_cover_low,
+      mid: d.cloud_cover_mid,
+      high: d.cloud_cover_high,
+      visM: d.visibility,
+      rh: d.relative_humidity_2m,
+      precip: d.precipitation,
+      precipProb: d.precipitation_probability,
+      wind: d.wind_speed_10m,
+      pressure: d.surface_pressure
+    };
+  }
+
   /* ---------- 各组件评分 ---------- */
 
   function cloudScores(v, cfg) {
@@ -142,7 +160,7 @@
    *   cacheStatus('FRESH'|'STALE'|'MISS'), dataAgeMinutes, escalated, escalationReason
    * } */
   function compute(input) {
-    var cfg = SS.config;
+    var cfg = SS.modelConfig.scoring;
 
     /* ===== 定位分析时刻 ===== */
     var localSample = null;
@@ -157,18 +175,19 @@
     var offsetSec = input.utcOffsetSeconds != null ? input.utcOffsetSeconds : (input.offset || 0);
     var nowIdx = hourIndex(times, SS.data.toLocalShifted(nowUtc, offsetSec));
 
-    var lv = sampleAt(localSample.forecast, idx);
+    var lv = interpolateAt(localSample.forecast, input.solar.sunset);
+    if (!lv) throw new Error('SUNSET_WEATHER_DATA_MISSING');
     var ls = cloudScores(lv, cfg);
 
     function valueAt(sample, key) {
       if (!sample.forecast) return null;
-      var j = hourIndex(sample.forecast.hourly.time, input.sunsetLocal);
-      return sampleAt(sample.forecast, j)[key];
+      var interpolated = interpolateAt(sample.forecast, input.solar.sunset);
+      return interpolated ? interpolated[key] : null;
     }
     function scoresAt(sample) {
       if (!sample.forecast) return null;
-      var j = hourIndex(sample.forecast.hourly.time, input.sunsetLocal);
-      return cloudScores(sampleAt(sample.forecast, j), cfg);
+      var interpolated = interpolateAt(sample.forecast, input.solar.sunset);
+      return interpolated ? cloudScores(interpolated, cfg) : null;
     }
 
     /* ===== 9. Sky Canvas ===== */
@@ -765,6 +784,7 @@
     var Q = cfg.atmosphereQuality.base + cfg.atmosphereQuality.scale * (atmosphere / 100);
     var score = clamp(P * Q * gate + bonus - pWeather, 0, 100);
     if (hardGates.length) score = Math.min(score, cfg.hardGate.scoreCap);
+    if (!valid(score)) throw new Error('INVALID_CORE_SCORE');
     score = Math.round(score);
 
     /* ===== 19. 等级 ===== */
@@ -955,6 +975,7 @@
   SS.engine = {
     compute: compute,
     hourIndex: hourIndex,
+    interpolateAt: interpolateAt,
     /* 供 app.js 生成最佳观赏时间 */
     bestViewing: function (solar, cfg) {
       var w = cfg.viewingWindow;

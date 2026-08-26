@@ -1,0 +1,34 @@
+/* ============================================================
+ * SunsetScore V2.3 - 调试视图
+ * ============================================================ */
+(function (root) {
+  'use strict';
+  var SS = root.SunsetScore = root.SunsetScore || {};
+  function enabled() { return /[?&]debug=1/.test(root.location && root.location.search || ''); }
+  function render(result) {
+    if (!enabled() || !root.document || !result) return;
+    var old = root.document.getElementById('debug-panel');
+    if (old) old.remove();
+    var panel = root.document.createElement('section');
+    panel.id = 'debug-panel';
+    panel.className = 'card debug-panel';
+    var title = root.document.createElement('h3');
+    title.textContent = 'V2.3 Debug Snapshot';
+    var pre = root.document.createElement('pre');
+    pre.textContent = JSON.stringify({
+      versions: { app: result.app_version, model: result.model_version, schema: result.schema_version },
+      sampling: result.sampling_mode,
+      cache: result.cache_status,
+      score: result.score,
+      components: result.components,
+      regime: result.regime_state,
+      skyState: result.all_day_sky_state,
+      evolution: result.sky_evolution
+    }, null, 2);
+    panel.appendChild(title);
+    panel.appendChild(pre);
+    var resultHost = root.document.getElementById('result');
+    if (resultHost) resultHost.appendChild(panel);
+  }
+  SS.debugView = { enabled: enabled, render: render };
+})(typeof window !== 'undefined' ? window : globalThis);

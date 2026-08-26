@@ -9,7 +9,7 @@
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};
 
-  var STORAGE_KEY = 'sunsetscore_feedback_v22';
+  var STORAGE_KEY = 'sunsetscore_feedback_v23';
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -38,30 +38,22 @@
     }
 
     var h = localSample.forecast.hourly;
-    var idx = SS.engine.hourIndex(h.time, ectx.sunsetLocal);
-    if (idx < 0) idx = 0;
-
-    function at(key, dflt) {
-      return (h[key] && h[key][idx] != null) ? h[key][idx] : dflt;
-    }
-
-    var low = at('cloud_cover_low', 0);
-    var mid = at('cloud_cover_mid', 0);
-    var high = at('cloud_cover_high', 0);
-    var visM = at('visibility', 10000);
-    var precip = at('precipitation', 0);
+    var localAtSunset = SS.cloudField.extractInterpolatedAt(localSample.forecast, ectx.solar.sunset) || {};
+    var low = localAtSunset.cloud_cover_low || 0;
+    var mid = localAtSunset.cloud_cover_mid || 0;
+    var high = localAtSunset.cloud_cover_high || 0;
+    var visM = localAtSunset.visibility == null ? 10000 : localAtSunset.visibility;
+    var precip = localAtSunset.precipitation || 0;
 
     /* 走廊远端 (50~100km) 中高云与低云辅助均值 */
     var farHighs = [], farMids = [], farLows = [];
     samples.forEach(function (s) {
       if (s.forecast && s.forecast.hourly && s.point && s.point.distanceKm > 0 && s.point.distanceKm <= 100) {
-        var fh = s.forecast.hourly;
-        var j = SS.engine.hourIndex(fh.time, ectx.sunsetLocal);
-        if (j >= 0) {
-          if (fh.cloud_cover_high && fh.cloud_cover_high[j] != null) farHighs.push(fh.cloud_cover_high[j]);
-          if (fh.cloud_cover_mid && fh.cloud_cover_mid[j] != null) farMids.push(fh.cloud_cover_mid[j]);
-          if (fh.cloud_cover_low && fh.cloud_cover_low[j] != null) farLows.push(fh.cloud_cover_low[j]);
-        }
+        var atSunset = SS.cloudField.extractInterpolatedAt(s.forecast, ectx.solar.sunset);
+        if (!atSunset) return;
+        farHighs.push(atSunset.cloud_cover_high);
+        farMids.push(atSunset.cloud_cover_mid);
+        farLows.push(atSunset.cloud_cover_low);
       }
     });
 
@@ -95,7 +87,7 @@
     var finalScore = Math.round(clamp(rawScore, 5, 95));
 
     var level = '一般';
-    var levels = SS.config.levels || [];
+    var levels = SS.modelConfig.scoring.levels || [];
     for (var l = 0; l < levels.length; l++) {
       if (finalScore >= levels[l].min) { level = levels[l].label; break; }
     }
@@ -178,7 +170,13 @@
       }).then(function (res) {
         if (!res.ok) {
           return res.json().catch(function () { return {}; }).then(function (errJson) {
-            return { local: true, remote: false, id: localId, error: errJson.error || ('HTTP ' + res.status) };
+            return {
+              local: true,
+              remote: false,
+              id: localId,
+              cooldown: !!errJson.cooldown,
+              error: errJson.error || ('HTTP ' + res.status)
+            };
           });
         }
         return res.json().then(function (data) {
@@ -203,4 +201,3 @@
     exportFeedbackJson: exportFeedbackJson
   };
 })(typeof window !== 'undefined' ? window : globalThis);
-

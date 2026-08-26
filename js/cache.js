@@ -27,7 +27,8 @@
       var raw = hasStorage ? root.localStorage.getItem(SS.config.cachePrefix + key) : memCache[key];
       if (!raw) return null;
       var item = JSON.parse(raw);
-      if (!item || typeof item.expires !== 'number') return null;
+      if (!item || typeof item.expiresAt !== 'number') return null;
+      if (item.schemaVersion !== SS.version.schema) return null;
       return item;
     } catch (e) {
       return null;
@@ -63,11 +64,11 @@
     get: function (key) {
       var item = readRaw(key);
       if (!item) return null;
-      if (Date.now() > item.expires) {
+      if (Date.now() > item.expiresAt) {
         this.remove(key);
         return null;
       }
-      return item.value;
+      return item.data;
     },
 
     /**
@@ -84,19 +85,17 @@
 
       var now = Date.now();
       /* 兼容 V1.7 旧条目（无 savedAt）：按默认 TTL 反推写入时刻 */
-      var savedAt = typeof item.savedAt === 'number'
-        ? item.savedAt
-        : item.expires - SS.config.cacheTtlMinutes * 60000;
+      var savedAt = item.createdAt;
       var ageMinutes = Math.max(0, Math.round((now - savedAt) / 60000));
 
-      if (now <= item.expires) {
-        return { value: item.value, status: 'FRESH', ageMinutes: ageMinutes };
+      if (now <= item.expiresAt) {
+        return { value: item.data, status: 'FRESH', ageMinutes: ageMinutes };
       }
       var staleLimitHours = staleMaxHours != null
         ? staleMaxHours
         : (SS.config.cacheV18 ? SS.config.cacheV18.staleMaxAgeHours : 24);
       if (now - savedAt <= staleLimitHours * 3600000) {
-        return { value: item.value, status: 'STALE', ageMinutes: ageMinutes };
+        return { value: item.data, status: 'STALE', ageMinutes: ageMinutes };
       }
       this.remove(key);
       return miss;
@@ -110,7 +109,13 @@
      */
     set: function (key, value, ttlMinutes) {
       var ttl = (ttlMinutes || SS.config.cacheTtlMinutes) * 60000;
-      var item = JSON.stringify({ savedAt: Date.now(), expires: Date.now() + ttl, value: value });
+      var now = Date.now();
+      var item = JSON.stringify({
+        schemaVersion: SS.version.schema,
+        createdAt: now,
+        expiresAt: now + ttl,
+        data: value
+      });
       try {
         if (hasStorage) {
           root.localStorage.setItem(SS.config.cachePrefix + key, item);

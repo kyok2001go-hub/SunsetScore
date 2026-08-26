@@ -16,7 +16,7 @@
    * 生成全天空 33 节点空间采样网格（1 中心点 + 8 方向 × 4 距离）
    */
   function generateGridNodes(lat, lon) {
-    var cfg = (SS.config && SS.config.cloudFieldV21) || {};
+    var cfg = (SS.modelConfig && SS.modelConfig.cloudField) || {};
     var dirs = cfg.directions || DIRECTIONS;
     var azs = cfg.azimuths || AZIMUTHS;
     var dists = cfg.distancesKm || DISTANCES_KM;
@@ -61,15 +61,13 @@
       return null;
     }
     var h = forecast.hourly;
-    var offsetMs = (forecast.utc_offset_seconds || 0) * 1000;
     var targetUtcMs = (timeUtc instanceof Date) ? timeUtc.getTime() : (typeof timeUtc === 'number' ? timeUtc : Date.now());
 
     var times = h.time;
     var n = times.length;
     var tUtcList = [];
     for (var i = 0; i < n; i++) {
-      var tStr = times[i].indexOf('Z') === -1 ? times[i] + 'Z' : times[i];
-      tUtcList.push(Date.parse(tStr) - offsetMs);
+      tUtcList.push(SS.time.fromOpenMeteoLocal(times[i], forecast.utc_offset_seconds || 0));
     }
 
     /* 边界处理：早于第一条或晚于最后一条 */
@@ -242,7 +240,7 @@
     });
     var spatialVariance = Math.round(Math.sqrt(varianceSum / (count || 1)));
 
-    return {
+    var field = SS.domain.normalizeCloudField({
       timestamp: (timeUtc instanceof Date) ? timeUtc.getTime() : (typeof timeUtc === 'number' ? timeUtc : Date.now()),
       center: centerNode || {
         data: { cloud_cover: avgTotal, cloud_cover_low: avgLow, cloud_cover_mid: avgMid, cloud_cover_high: avgHigh, wind_speed_10m: 0, wind_direction_10m: 0 }
@@ -257,50 +255,43 @@
         spatialVariance: spatialVariance,
         nodeCount: nodeList.length + 1,
         validCount: validCount
-      },
+      }
+    });
 
-      /**
-       * 沿指定方位射线获取节点（按距离升序排列）
-       */
-      getByRay: function (dirOrAzimuth) {
-        return nodeList.filter(function (n) {
+    /** 沿指定方位射线获取节点（按距离升序排列） */
+    field.getByRay = function (dirOrAzimuth) {
+        return field.nodes.filter(function (n) {
           if (typeof dirOrAzimuth === 'string') {
             return n.direction === dirOrAzimuth;
           }
           var diff = Math.abs(n.azimuth - dirOrAzimuth);
           return Math.min(diff, 360 - diff) < 22.5;
         }).sort(function (a, b) { return a.distanceKm - b.distanceKm; });
-      },
+      };
 
-      /**
-       * 获取指定方位角扇形（走廊切片）内的节点
-       */
-      getCorridorSlice: function (azimuthDeg, halfWidthDeg) {
+    /** 获取指定方位角扇形（走廊切片）内的节点 */
+    field.getCorridorSlice = function (azimuthDeg, halfWidthDeg) {
         var hw = halfWidthDeg || 35;
-        return nodeList.filter(function (n) {
+        return field.nodes.filter(function (n) {
           var diff = Math.abs(n.azimuth - azimuthDeg);
           var ang = Math.min(diff, 360 - diff);
           return ang <= hw;
         });
-      },
+      };
 
-      /**
-       * 获取指定同心距离环上的全部 8 个节点
-       */
-      getDistanceRing: function (distanceKm) {
-        return nodeList.filter(function (n) {
+    /** 获取指定同心距离环上的全部 8 个节点 */
+    field.getDistanceRing = function (distanceKm) {
+        return field.nodes.filter(function (n) {
           return Math.abs(n.distanceKm - distanceKm) < 25;
         });
-      },
+      };
 
-      /**
-       * 提取 96 状态数组 [8方向 × 4距离 × 3高度]
-       */
-      extractStateMatrix: function () {
+    /** 提取 96 状态数组 [8方向 × 4距离 × 3高度] */
+    field.extractStateMatrix = function () {
         var matrix = [];
         DIRECTIONS.forEach(function (dir) {
           DISTANCES_KM.forEach(function (dist) {
-            var n = nodeMap[dir + '_' + dist];
+            var n = field.nodeMap[dir + '_' + dist];
             var d = (n && n.data) ? n.data : { cloud_cover_low: 0, cloud_cover_mid: 0, cloud_cover_high: 0 };
             matrix.push({ direction: dir, distanceKm: dist, level: 'LOW', value: d.cloud_cover_low });
             matrix.push({ direction: dir, distanceKm: dist, level: 'MID', value: d.cloud_cover_mid });
@@ -308,8 +299,9 @@
           });
         });
         return matrix;
-      }
-    };
+      };
+
+    return field;
   }
 
   /**

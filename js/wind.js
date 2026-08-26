@@ -86,7 +86,7 @@
       isRealSounding = true;
     } else {
       /* 回退：大气边界层 (ABL) 经验切变与 Ekman Veering */
-      var cfg = (SS.config && SS.config.windMotionV21 && SS.config.windMotionV21.stratifiedLayers) || {
+      var cfg = (SS.modelConfig && SS.modelConfig.wind && SS.modelConfig.wind.stratifiedLayers) || {
         low:  { multiplier: 1.8, minSpeedKmH: 8.0,  veeringDeg: 15 },
         mid:  { multiplier: 2.5, minSpeedKmH: 18.0, veeringDeg: 30 },
         high: { multiplier: 4.0, minSpeedKmH: 35.0, veeringDeg: 45 }

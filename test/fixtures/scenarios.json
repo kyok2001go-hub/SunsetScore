@@ -1,0 +1,10 @@
+[
+  { "name": "Clear", "cloud": 8, "low": 4, "mid": 8, "high": 12, "visibility": 30000, "precipitation": 0 },
+  { "name": "Ideal High Cloud", "cloud": 55, "low": 8, "mid": 38, "high": 62, "visibility": 25000, "precipitation": 0 },
+  { "name": "Low Overcast", "cloud": 96, "low": 94, "mid": 55, "high": 30, "visibility": 5000, "precipitation": 0.2 },
+  { "name": "Rain Clearing", "cloud": [90, 75, 55, 38, 28], "low": [85, 70, 45, 25, 18], "mid": 45, "high": 55, "precipitation": [2, 0.8, 0, 0, 0] },
+  { "name": "Cloud Arriving", "cloud": [25, 35, 50, 70, 82], "low": [15, 25, 45, 65, 75], "mid": 45, "high": 50, "precipitation": 0 },
+  { "name": "Mixed Clouds", "cloud": 58, "low": 35, "mid": 60, "high": 48, "visibility": 15000, "precipitation": 0 },
+  { "name": "Radar Missing", "cloud": 48, "low": 18, "mid": 50, "high": 60, "visibility": 22000, "precipitation": 0 },
+  { "name": "All Nowcast Missing", "cloud": 62, "low": 30, "mid": 55, "high": 65, "visibility": 18000, "precipitation": 0 }
+]

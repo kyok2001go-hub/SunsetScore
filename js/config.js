@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.2.2 - 可调参数集中配置
+ * SunsetScore V2.3.0 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * V1.6：新增 Spatial Cloud Field 空间语义参数（SPATIAL_FIELD_V16）
  * V1.61：新增空间演化能力参数（SPATIAL_FIELD_V161）
@@ -18,8 +18,16 @@
   'use strict';
   root.SunsetScore = root.SunsetScore || {};
 
+  root.SunsetScore.version = Object.freeze({
+    app: '2.3.0',
+    model: '2.3.0',
+    schema: 3,
+    cache: 'v230',
+    feedbackSchema: 2
+  });
+
   root.SunsetScore.config = {
-    version: '2.2.2',
+    version: root.SunsetScore.version.model,
 
     /* ---------- 空间云场采样（第 8 章） ---------- */
     distancesKm: [50, 100, 200, 300],
@@ -203,7 +211,7 @@
 
     /* ---------- 缓存（第 28 章） ---------- */
     cacheTtlMinutes: 15,
-    cachePrefix: 'sunsetscore_v220_',
+    cachePrefix: 'sunsetscore_' + root.SunsetScore.version.cache + '_',
 
     /* ---------- V1.8 自适应采样（技术方案 7-9、17、20 章） ---------- */
     samplingV18: {
@@ -303,12 +311,12 @@
       /* 缓存 TTL（分钟，方案 9 章） */
       ttlMinutes: { precip: 10, radar: 10, satellite: 15 },
       /* QWeather 分钟级降水（Phase 1 首选数据源，覆盖中国区）：
-         host 填你的 API Host（QWeather 控制台查看，如 devapi.qweather.com），
-         key 填你的 API KEY；两者任一为空或请求失败 → 自动回退 Open-Meteo minutely_15。
-         注意：纯前端无后端，API Key 内嵌代码会被公开可见，请自行控制配额 */
+         浏览器只调用同源 /api/qweather，不保存 API Key。
+         Cloudflare Pages Function 从 QWEATHER_API_KEY Secret 读取；本地 npm run dev
+         则由开发服务器读取根目录 QweatherKey.txt。请求失败时回退 Open-Meteo。 */
       qweather: {
         host: 'nn33jrmyy9.re.qweatherapi.com',
-        key: '0a18c207fe044a7483c8a73568ecf468'
+        endpoint: '/api/qweather'
       }
     },
 

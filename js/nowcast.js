@@ -43,11 +43,10 @@
      两者统一归一化为 series {times, precip, stepMs, source} */
 
   function fetchQWeatherMinutePrecip(lat, lon) {
-    var qw = SS.config.nowcastV19.qweather;
-    if (!qw || !qw.key) return Promise.resolve(null);
-    var url = 'https://' + (qw.host || 'devapi.qweather.com') +
-      '/v7/minutely/5m?location=' + lon.toFixed(2) + ',' + lat.toFixed(2);
-    return fetch(url, { headers: { 'X-QW-Api-Key': qw.key } }).then(function (r) {
+    var qw = SS.modelConfig.nowcast.qweather;
+    if (!qw || !qw.endpoint || typeof location === 'undefined' || location.protocol === 'file:') return Promise.resolve(null);
+    var url = qw.endpoint + '?lat=' + encodeURIComponent(lat.toFixed(4)) + '&lon=' + encodeURIComponent(lon.toFixed(4));
+    return fetch(url).then(function (r) {
       if (!r.ok) throw new Error('QWeather 请求失败（HTTP ' + r.status + '）');
       return r.json();
     }).then(function (json) {
@@ -68,7 +67,7 @@
   }
 
   function fetchOpenMeteoMinutePrecip(lat, lon) {
-    var url = SS.config.endpoints.forecast +
+    var url = SS.modelConfig.api.forecast +
       '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
       '&minutely_15=precipitation&forecast_minutely_15=120&timezone=auto';
     return fetchJson(url).then(function (json) {
@@ -101,7 +100,7 @@
     if (!series || !series.times || !series.precip || series.times.length < 8) return null;
     var times = series.times, p = series.precip;
     var stepMs = series.stepMs || 300000;
-    var rc = SS.config.nowcastV19.rainClear;
+    var rc = SS.modelConfig.nowcast.rainClear;
 
     /* 起点：第一个不早于当前时刻的时次 */
     var start = 0;
@@ -176,7 +175,7 @@
   }
 
   function fetchRadarFrames() {
-    return fetchJson(SS.config.nowcastV19.radar.endpoint).then(function (json) {
+    return fetchJson(SS.modelConfig.nowcast.radar.endpoint).then(function (json) {
       var host = (json && json.host) || 'https://tilecache.rainviewer.com';
       var past = (json && json.radar && json.radar.past) || [];
       var frames = past.filter(function (f) { return f && f.path && f.time; });
@@ -205,9 +204,9 @@
   }
 
   function analyzeRadar(lat, lon, sunsetAzimuthDeg) {
-    var rc = SS.config.nowcastV19.radar;
+    var rc = SS.modelConfig.nowcast.radar;
     var cor = SS.corridor;
-    var evo = SS.config.evolutionV20;
+    var evo = SS.modelConfig.evolution;
     return fetchRadarFrames().then(function (frameInfo) {
       var frames = frameInfo.frames;
       var plan = cor.tilePlan(lat, lon, rc.coverRadiusKm, rc.zoom, rc.tileSize);
@@ -318,7 +317,7 @@
 
   /* 按观测点经度选静止卫星候选图层列表（V1.9.1：图层名随 GIBS 产品变动，逐个探测） */
   function pickSatelliteCandidates(lon) {
-    var layers = SS.config.nowcastV19.satellite.layers;
+    var layers = SS.modelConfig.nowcast.satellite.layers;
     var keys = ['himawari', 'goesEast', 'goesWest'];
     for (var i = 0; i < keys.length; i++) {
       var l = layers[keys[i]];
@@ -363,7 +362,7 @@
   /* 从候选图层中找到第一个在 Capabilities 中存在且有 ≥3 个时刻的（V2.0 三帧演化），
      同时解析该图层的 TileMatrixSet（修复 V1.9 硬编码 Level9 导致 400 的问题） */
   function fetchSatelliteTimes(candidates) {
-    return fetch(SS.config.nowcastV19.satellite.capabilities).then(function (r) {
+    return fetch(SS.modelConfig.nowcast.satellite.capabilities).then(function (r) {
       if (!r.ok) throw new Error('GIBS Capabilities 请求失败');
       return r.text();
     }).then(function (xml) {
@@ -387,9 +386,9 @@
   }
 
   function analyzeSatellite(lat, lon, sunsetAzimuthDeg) {
-    var sc = SS.config.nowcastV19.satellite;
+    var sc = SS.modelConfig.nowcast.satellite;
     var cor = SS.corridor;
-    var evo = SS.config.evolutionV20;
+    var evo = SS.modelConfig.evolution;
     return fetchSatelliteTimes(pickSatelliteCandidates(lon)).then(function (pair) {
       var plan = cor.tilePlan(lat, lon, sc.coverRadiusKm, sc.zoom, sc.tileSize);
       if (!plan) return null;
@@ -474,8 +473,8 @@
    * @returns 融合结果；全部源缺失时返回 null（调用方按 V1.8 处理）
    */
   function fuse(sources) {
-    var w = SS.config.nowcastV19.weights;
-    var limit = SS.config.nowcastV19.modifierLimit;
+    var w = SS.modelConfig.nowcast.weights;
+    var limit = SS.modelConfig.nowcast.modifierLimit;
     var parts = [], wsum = 0;
 
     if (valid(sources.forecastTrend)) {
@@ -537,7 +536,7 @@
      */
     run: function (ctx) {
       /* ctx: {lat, lon, dateStr, nowUtc, sunsetAzimuthDeg, forecastTrend, utcOffsetSeconds} */
-      var nc19 = SS.config.nowcastV19;
+      var nc19 = SS.modelConfig.nowcast;
       var ttl = nc19.ttlMinutes;
 
       function cached(type, fetcher) {

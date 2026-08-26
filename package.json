@@ -1,0 +1,11 @@
+{
+  "name": "sunsetscore",
+  "version": "2.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node --test test/*.test.cjs",
+    "check": "node scripts/check-js.cjs && npm test"
+  }
+}

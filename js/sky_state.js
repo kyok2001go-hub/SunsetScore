@@ -29,12 +29,14 @@
       return { state: 'UNCERTAIN', factor: 1.0, confidence: 0.5 };
     }
 
-    var cfg = (SS.config && SS.config.skyStateV21) || {};
+    var cfg = (SS.modelConfig && SS.modelConfig.skyState) || {};
     var wholeAvgNow = cloudField.summary.avgCloudCover;
     var variance = cloudField.summary.spatialVariance;
     var risk = motionForecast ? motionForecast.arrivalRisk : null;
     var pred60 = (motionForecast && motionForecast.predictions && motionForecast.predictions.m60) || null;
-    var wholeAvg60 = pred60 ? pred60.avgCloudCover : wholeAvgNow;
+    var wholeAvg60 = pred60 && pred60.summary
+      ? pred60.summary.avgCloudCover
+      : wholeAvgNow;
 
     var avgNow = wholeAvgNow;
     var avg60 = wholeAvg60;

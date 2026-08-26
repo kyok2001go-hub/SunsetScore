@@ -23,6 +23,14 @@
   }
   function logistic(x) { return 1 / (1 + Math.exp(-x)); }
 
+  function safeProbability(value, fallback) {
+    return SS.domain ? SS.domain.safeProbability(value, fallback) : clamp(valid(value) ? value : fallback, 0, 1);
+  }
+
+  function fallbackGoldenWindow() {
+    return { sunsetOpenProbability: 0.5, gwFactor: 1.0, degraded: true };
+  }
+
   var HORIZONS = [30, 60, 90, 120];
 
   /* ---------- 概率模型（方案 6.3 节） ---------- */
@@ -55,7 +63,7 @@
 
   /* 开放概率：覆盖率低于 openThreshold 视为开放，σ(t) 随时间增大 */
   function openProbabilityAt(c0, trend, tMin, threshold) {
-    var cfg = SS.config.evolutionV20;
+    var cfg = SS.modelConfig.evolution;
     var fc = futureCoverageAt(c0, trend, tMin);
     var sigma = cfg.sigma0 + cfg.sigmaPerMin * tMin;
     var p = logistic((threshold - fc) / sigma);
@@ -77,7 +85,7 @@
   /* QWeather 雨停置信度曲线（方案 7 章）：有雨时随"距雨停时刻"变化，
      无雨时 = 1（不存在雨停问题）；无降水信息时中性 0.5 */
   function rainStopConfidence(precip, tMin) {
-    var rc = SS.config.evolutionV20.rainStopConfidence;
+    var rc = SS.modelConfig.evolution.rainStopConfidence;
     if (!precip || !precip.available) return rc.noInfo;
     if (!precip.rainingNow) return 1;
     if (precip.stopMin == null) return precip.intensifying ? rc.intensifying : rc.persisting;
@@ -89,7 +97,7 @@
      CorridorOpenProbability(t) = P_radar(t) × RainStopConfidence(t)。
      雷达缺失时以卫星覆盖率演化替代（无降雨场景），再缺失则仅雨停置信度 */
   function corridorOpenProbability(radarEvo, satelliteEvo, precip, motionForecast) {
-    var cfg = SS.config.evolutionV20;
+    var cfg = SS.modelConfig.evolution;
     var out = {};
     HORIZONS.forEach(function (h) {
       var p = null;
@@ -99,15 +107,17 @@
         p = satelliteEvo.openProbability[h + 'm'];
       } else if (motionForecast && motionForecast.predictions && (motionForecast.predictions['m' + h] || motionForecast.predictions['m60'])) {
         var pred = motionForecast.predictions['m' + h] || motionForecast.predictions['m60'];
-        var cPred = pred.avgCloudCover;
+        var cPred = pred && pred.summary ? pred.summary.avgCloudCover : null;
         /* 注意：SkyEvolutionFactor 已经在天空状态机中处理了 CLOUD_ARRIVING 宏观风险。
            在无雷达/卫星覆盖的回退中，走廊开放概率直接由 NWP 未来云量决定，避免重复惩罚 */
-        p = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
+        if (valid(cPred)) {
+          p = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
+        }
       }
       if (p == null) p = 0.5;
-      p = p * rainStopConfidence(precip, h);
+      p = safeProbability(p, 0.5) * safeProbability(rainStopConfidence(precip, h), 0.5);
       if (radarEvo == null && satelliteEvo == null && motionForecast == null) p = rainStopConfidence(precip, h);
-      out[h + 'm'] = Math.round(clamp(p, cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
+      out[h + 'm'] = Math.round(clamp(safeProbability(p, 0.5), cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
     });
     return out;
   }
@@ -115,7 +125,7 @@
   /* ---------- 卫星云覆盖演化（方案 8 章） ---------- */
 
   function satelliteEvolution(series) {
-    var cfg = SS.config.evolutionV20;
+    var cfg = SS.modelConfig.evolution;
     var trend = fitTrend(series);
     if (trend == null) return null;
     var c0 = series[series.length - 1].pct;
@@ -153,7 +163,7 @@
   /* ---------- 状态机（方案 9 章） ---------- */
 
   function stateMachine(evo) {
-    var sm = SS.config.evolutionV20.stateMachine;
+    var sm = SS.modelConfig.evolution.stateMachine;
     var cov = evo.coverageNow;
     var p60 = evo.openProbability['60m'];
     var trend = evo.trend;
@@ -176,7 +186,7 @@
    * @returns {skyEvolutionState} 或 null（无任何演化源时）
    */
   function fuseEvolution(sources) {
-    var cfg = SS.config.evolutionV20;
+    var cfg = SS.modelConfig.evolution;
     var radar = sources.radar, satellite = sources.satellite, precip = sources.precip;
 
     var radarEvo = radar && radar.available && radar.coverageSeries
@@ -198,12 +208,16 @@
     var wBg = cfg.fusionWeights.background;
     var fused = {};
     HORIZONS.forEach(function (h) {
-      var p = openProb[h + 'm'];
+      var p = safeProbability(openProb[h + 'm'], 0.5);
       fused[h + 'm'] = Math.round((wBg * bgP + (1 - wBg) * p) * 100) / 100;
     });
 
     /* 观测修正权重（方案 12 章 observation）：当前覆盖率与开放阈值的即时距离 */
-    var coverageNow = radarEvo ? radarEvo.coverageNow : (satEvo ? satEvo.coverageNow : (sources.motionForecast ? sources.motionForecast.predictions.m30.avgCloudCover : null));
+    var fallbackField = sources.motionForecast && sources.motionForecast.predictions
+      ? sources.motionForecast.predictions.m30 : null;
+    var coverageNow = radarEvo ? radarEvo.coverageNow
+      : (satEvo ? satEvo.coverageNow
+        : (fallbackField && fallbackField.summary ? fallbackField.summary.avgCloudCover : null));
     var trend = radarEvo ? radarEvo.trend : (satEvo ? satEvo.trend : null);
 
     /* 置信度：源可用性加权 × (1 − 归一化 σ(60)) */
@@ -240,10 +254,12 @@
       else if (tSunset <= 60) pSunset = fused['60m'];
       else if (tSunset <= 90) pSunset = fused['90m'];
       else pSunset = fused['120m'];
+      pSunset = safeProbability(pSunset, 0.5);
       evo.sunsetOpenProbability = pSunset;
       evo.sunsetMinutesAway = Math.round(tSunset);
       var floor = cfg.gwFactor.floor;
-      evo.gwFactor = Math.round((floor + (1 - floor) * pSunset) * 1000) / 1000;
+      var gwFactor = floor + (1 - floor) * pSunset;
+      evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, floor, 1.0) * 1000) / 1000;
     }
 
     var degradedSources = [];
@@ -269,6 +285,26 @@
     return evo;
   }
 
+  function isGoldenWindowActive(ctx) {
+    var minutesToSunset = ctx && ctx.time ? ctx.time.minutesToSunset : null;
+    if (!valid(minutesToSunset)) return false;
+    var activation = (SS.modelConfig.goldenWindow.model && SS.modelConfig.goldenWindow.model.activationWindowMin) || 180;
+    return minutesToSunset >= -30 && minutesToSunset <= activation;
+  }
+
+  function evaluate(context) {
+    var sources = context && context.evolutionSources ? context.evolutionSources : context;
+    var result = fuseEvolution(sources || {});
+    if (!result) return null;
+    if (!valid(result.gwFactor)) {
+      var fallback = fallbackGoldenWindow();
+      result.sunsetOpenProbability = fallback.sunsetOpenProbability;
+      result.gwFactor = fallback.gwFactor;
+      result.degraded = true;
+    }
+    return result;
+  }
+
   SS.evolution = {
     HORIZONS: HORIZONS,
     fitTrend: fitTrend,
@@ -277,6 +313,16 @@
     radarOpenProbability: radarOpenProbability,
     rainStopConfidence: rainStopConfidence,
     satelliteEvolution: satelliteEvolution,
+    calculateOpenProbability: corridorOpenProbability,
+    calculateRainStopConfidence: rainStopConfidence,
+    calculateEvolutionProbability: fuseEvolution,
+    calculateGoldenWindowFactor: function (probability) {
+      var floor = SS.modelConfig.evolution.gwFactor.floor;
+      return clamp(floor + (1 - floor) * safeProbability(probability, 0.5), floor, 1.0);
+    },
+    fallbackGoldenWindow: fallbackGoldenWindow,
+    isGoldenWindowActive: isGoldenWindowActive,
+    evaluate: evaluate,
     fuseEvolution: fuseEvolution
   };
 })(typeof window !== 'undefined' ? window : globalThis);

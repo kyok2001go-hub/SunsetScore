@@ -29,7 +29,7 @@
 
   /* V1.8 指数退避重试（方案 14.1 节）：针对 429 / 网络错误 */
   function fetchBatchForecastWithRetry(nodes) {
-    var rc = SS.config.samplingV18.batchRetry;
+    var rc = SS.modelConfig.sampling.batchRetry;
     function attempt(n, delayMs) {
       return SS.data.fetchBatchForecast(nodes).catch(function (err) {
         if (n >= rc.maxAttempts) throw err;
@@ -64,7 +64,7 @@
    * V1.8 起仅供回退/兼容使用，正常链路由 SS.sampling.selectNodes 选点
    */
   function buildSamplePoints(lat, lon, sunsetAzimuthDeg) {
-    var cfg = SS.config;
+    var cfg = SS.modelConfig.scoring;
     var points = [{ distanceKm: 0, azimuthOffset: 0, latitude: lat, longitude: lon }];
     cfg.azimuthOffsets.forEach(function (offset) {
       var bearing = (sunsetAzimuthDeg + offset + 360) % 360;
@@ -94,9 +94,9 @@
       }
       var lats = nodes.map(function (n) { return n.latitude.toFixed(4); }).join(',');
       var lons = nodes.map(function (n) { return n.longitude.toFixed(4); }).join(',');
-      var url = SS.config.endpoints.forecast +
+      var url = SS.modelConfig.api.forecast +
         '?latitude=' + lats + '&longitude=' + lons +
-        '&hourly=' + SS.config.hourlyVariables +
+        '&hourly=' + SS.modelConfig.scoring.hourlyVariables +
         '&forecast_days=2&timezone=auto';
       return fetchJson(url).then(function (json) {
         var arr = Array.isArray(json) ? json : [json];
@@ -111,15 +111,14 @@
        [min(日落-lookback, 当前-nowLookback), max(日落+lookahead, 当前+nowLookahead)] 的小时。
        hourly.time 为当地 ISO 字符串，需用各节点自身 utc_offset_seconds 换算成 UTC 比较 */
     trimForecastWindow: function (forecast, nowUtcMs, sunsetUtcMs) {
-      var w = SS.config.forecastWindowV18;
+      var w = SS.modelConfig.scoring.forecastWindowV18;
       if (!forecast || !forecast.hourly || !forecast.hourly.time) return forecast;
-      var offsetMs = (forecast.utc_offset_seconds || 0) * 1000;
       var startUtc = Math.min(sunsetUtcMs - w.lookbackHours * 3600000, nowUtcMs - w.nowLookbackHours * 3600000);
       var endUtc = Math.max(sunsetUtcMs + w.lookaheadHours * 3600000, nowUtcMs + w.nowLookaheadHours * 3600000);
       var times = forecast.hourly.time;
       var keep = [];
       for (var i = 0; i < times.length; i++) {
-        var tUtc = Date.parse(times[i]) - offsetMs;
+        var tUtc = SS.time.fromOpenMeteoLocal(times[i], forecast.utc_offset_seconds || 0);
         if (tUtc >= startUtc && tUtc <= endUtc) keep.push(i);
       }
       if (!keep.length || keep.length === times.length) return forecast;
@@ -140,7 +139,7 @@
 
     /* 城市名 → 经纬度 + 时区（Open-Meteo Geocoding） */
     geocode: function (name) {
-      var url = SS.config.endpoints.geocoding +
+      var url = SS.modelConfig.api.geocoding +
         '?name=' + encodeURIComponent(name) + '&count=1&language=zh&format=json';
       return fetchJson(url).then(function (json) {
         if (!json.results || !json.results.length) {
@@ -160,16 +159,16 @@
 
     /* 单点天气预报（含时区偏移），forecast_days=2 保证覆盖日落时刻 */
     fetchForecast: function (lat, lon) {
-      var url = SS.config.endpoints.forecast +
+      var url = SS.modelConfig.api.forecast +
         '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
-        '&hourly=' + SS.config.hourlyVariables +
+        '&hourly=' + SS.modelConfig.scoring.hourlyVariables +
         '&forecast_days=2&timezone=auto';
       return fetchJson(url);
     },
 
     /* 空气质量（AOD + PM2.5，用于 Atmosphere Score） */
     fetchAirQuality: function (lat, lon) {
-      var url = SS.config.endpoints.airQuality +
+      var url = SS.modelConfig.api.airQuality +
         '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
         '&hourly=aerosol_optical_depth,pm2_5&forecast_days=2&timezone=auto';
       return fetchJson(url);
@@ -203,7 +202,7 @@
      * 其 getUTC* 方法返回的正是当地时间的年月日时分。
      */
     toLocalShifted: function (utcDate, utcOffsetSeconds) {
-      return new Date(utcDate.getTime() + utcOffsetSeconds * 1000);
+      return SS.time.toLocalShifted(utcDate, utcOffsetSeconds);
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

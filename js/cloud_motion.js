@@ -125,8 +125,13 @@
         : (typeof baseTimeUtc === 'number' ? baseTimeUtc : (cloudField ? cloudField.timestamp : Date.now()));
       var targetDate = new Date(baseMs + deltaMinutes * 60000);
       var futureField = SS.cloudField.buildCloudField(skySamples, targetDate);
-      futureField.minutesAhead = deltaMinutes;
-      return futureField;
+      return SS.domain.normalizeCloudField(futureField, {
+        horizonMinutes: deltaMinutes,
+        method: 'nwp',
+        source: 'nwp',
+        confidence: 0.85,
+        windAdjusted: false
+      });
     }
 
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
@@ -214,9 +219,17 @@
     cTotal = Math.max(cTotal, Math.max(cLow, Math.max(cMid, cHigh)));
 
     var count = futureNodes.length || 1;
-    return {
-      minutesAhead: deltaMinutes,
+    var nodeMap = {};
+    futureNodes.forEach(function (node) { nodeMap[node.key] = node; });
+    return SS.domain.normalizeCloudField({
+      timestamp: (cloudField.timestamp || Date.now()) + deltaMinutes * 60000,
       center: {
+        key: 'CENTER_0',
+        direction: 'CENTER',
+        azimuth: 0,
+        distanceKm: 0,
+        latitude: cloudField.center && cloudField.center.latitude,
+        longitude: cloudField.center && cloudField.center.longitude,
         data: {
           cloud_cover: cTotal,
           cloud_cover_low: cLow,
@@ -225,11 +238,20 @@
         }
       },
       nodes: futureNodes,
-      avgCloudCover: Math.round(totalSum / count),
-      avgCloudLow: Math.round(lowSum / count),
-      avgCloudMid: Math.round(midSum / count),
-      avgCloudHigh: Math.round(highSum / count)
-    };
+      nodeMap: nodeMap,
+      summary: {
+        avgCloudCover: Math.round(totalSum / count),
+        avgCloudLow: Math.round(lowSum / count),
+        avgCloudMid: Math.round(midSum / count),
+        avgCloudHigh: Math.round(highSum / count)
+      }
+    }, {
+      horizonMinutes: deltaMinutes,
+      method: 'advection',
+      source: 'advection',
+      confidence: 0.6,
+      windAdjusted: true
+    });
   }
 
   /**
@@ -238,7 +260,7 @@
   function evaluateArrivalRisk(cloudField, targetAzimuthDeg, windSpeedKmH, windFromDeg, upperWindData) {
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
     var cData = upperWindData || (cloudField.center && cloudField.center.data) || {};
-    var cfg = (SS.config && SS.config.windMotionV21 && SS.config.windMotionV21.arrivalRisk) || {};
+    var cfg = (SS.modelConfig && SS.modelConfig.wind && SS.modelConfig.wind.arrivalRisk) || {};
     var denseThreshold = cfg.denseCloudCoverMin || 65;
     var maxHorizonMin = cfg.maxArrivalHorizonMin || 180; /* 日落演化有效时效上限（180 分钟） */
 
@@ -320,6 +342,13 @@
    * 运行完整的未来云场平流预测流水线 (30 / 60 / 120 分钟)
    */
   function forecast(cloudField, targetAzimuthDeg, skySamples, nowUtc) {
+    if (cloudField && cloudField.currentField) {
+      var input = cloudField;
+      cloudField = input.currentField;
+      targetAzimuthDeg = input.targetAzimuthDeg;
+      skySamples = input.samples;
+      nowUtc = input.nowUtcMs;
+    }
     var cData = (cloudField.center && cloudField.center.data) || {};
     var centerLat = (cloudField.center && cloudField.center.latitude) || 30;
     var windSpd = (cData.wind_speed_10m != null) ? cData.wind_speed_10m : 15;
@@ -360,7 +389,8 @@
         m30: f30,
         m60: f60,
         m120: f120
-      }
+      },
+      confidence: 0.8
     };
   }
 

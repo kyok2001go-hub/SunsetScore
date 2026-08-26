@@ -1,0 +1,9 @@
+# Local secrets. Never commit or upload these files.
+QweatherKey.txt
+.dev.vars*
+.env*
+
+# Local Cloudflare/runtime state.
+.wrangler/
+node_modules/
+

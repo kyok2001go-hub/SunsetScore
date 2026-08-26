@@ -29,7 +29,7 @@
    * @returns {{regime, cloud, visKm, precip}}
    */
   function estimateLocalRegime(ctx) {
-    var cfg = SS.config;
+    var cfg = SS.modelConfig.scoring;
     var h = ctx.localForecast.hourly;
     var nowLocal = SS.data.toLocalShifted(ctx.nowUtc, ctx.utcOffsetSeconds);
     var idx = SS.engine.hourIndex(h.time, nowLocal);
@@ -111,7 +111,7 @@
    * @returns {'LOCAL_ONLY'|'STANDARD'|'FULL'}
    */
   function decideSamplingMode(reg) {
-    var lo = SS.config.samplingV18.localOnly;
+    var lo = SS.modelConfig.sampling.localOnly;
     /* 浓厚阴天：空间差异基本不存在，空间采样价值低 */
     if (reg.regime === 'OVERCAST' && valid(reg.cloud) && reg.cloud >= lo.cloudCoverMin &&
         ((reg.visKm != null && reg.visKm <= lo.visibilityMaxKm) ||
@@ -127,7 +127,7 @@
   }
 
   function nodeWeight(role) {
-    var w = SS.config.samplingV18.nodeWeights;
+    var w = SS.modelConfig.sampling.nodeWeights;
     return w[role] != null ? w[role] : 0.5;
   }
 
@@ -139,7 +139,7 @@
    * 节点携带 role/weight，供加权完整度使用。
    */
   function selectNodes(mode, lat, lon, sunsetAzimuthDeg) {
-    var cfg = SS.config;
+    var cfg = SS.modelConfig.scoring;
     var cfg18 = cfg.samplingV18;
     var nodes = [{
       latitude: lat, longitude: lon, distanceKm: 0, azimuthOffset: 0,
@@ -177,7 +177,7 @@
    * @returns {{escalate: boolean, reason: string|null}}
    */
   function shouldEscalate(result) {
-    var es = SS.config.samplingV18.escalation;
+    var es = SS.modelConfig.sampling.escalation;
     if (result.confidence < es.scoreConfidenceThreshold) {
       return { escalate: true, reason: 'LOW_CONFIDENCE' };
     }

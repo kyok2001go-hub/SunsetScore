@@ -11,6 +11,8 @@ const EXPORT_COLUMNS = [
   'query_id',
   'created_at',
   'created_at_local',
+  'created_at_epoch',
+  'created_at_utc',
 
   // 2. 地理与日落天文信息
   'city',
@@ -25,7 +27,9 @@ const EXPORT_COLUMNS = [
   'best_viewing_window',
 
   // 3. 预测总分与天况状态
+  'app_version',
   'model_version',
+  'schema_version',
   'predicted_score',
   'predicted_level',
   'baseline_score',
@@ -126,7 +130,7 @@ export async function onRequestGet(context) {
     const columnSql = EXPORT_COLUMNS.join(', ');
     const query = await env.DB.prepare(`
       SELECT ${columnSql} FROM sunset_feedback 
-      ORDER BY created_at DESC 
+      ORDER BY created_at_epoch DESC
       LIMIT ?
     `).bind(limit).all();
 
