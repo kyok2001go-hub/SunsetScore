@@ -4,6 +4,7 @@
  * 绑定变量：env.DB (D1 数据库)
  * 可选鉴权：env.ADMIN_SECRET (若配置则校验 Authorization: Bearer <SECRET>)
  */
+import { feedbackColumns, feedbackEpochSql, feedbackSelectSql } from '../../server/feedback-db.js';
 
 const EXPORT_COLUMNS = [
   // 1. 主键与时间
@@ -124,13 +125,15 @@ export async function onRequestGet(context) {
 
   const url = new URL(request.url);
   const format = (url.searchParams.get('format') || 'json').toLowerCase();
-  const limit = Math.min(5000, Math.max(1, parseInt(url.searchParams.get('limit') || '2000', 10)));
+  const requestedLimit = parseInt(url.searchParams.get('limit') || '2000', 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(5000, Math.max(1, requestedLimit)) : 2000;
 
   try {
-    const columnSql = EXPORT_COLUMNS.join(', ');
+    const columns = await feedbackColumns(env.DB);
+    const columnSql = EXPORT_COLUMNS.map((name) => feedbackSelectSql(name, columns)).join(', ');
     const query = await env.DB.prepare(`
       SELECT ${columnSql} FROM sunset_feedback 
-      ORDER BY created_at_epoch DESC
+      ORDER BY ${feedbackEpochSql(columns)} DESC
       LIMIT ?
     `).bind(limit).all();
 

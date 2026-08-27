@@ -74,15 +74,6 @@
     setText('sky-corridor-val', open != null ? '开放概率 ' + Math.round(open * 100) + '% · ' + (evolutionLabels[evolution.state] || '稳定') : '日落走廊通畅 · 背景支持良好');
     setText('sky-arrival-val', motion && motion.arrivalRisk ? motion.arrivalRisk.summaryText : '上游无密集浓云');
   }
-  function closestPrecip(series, timeMs) {
-    if (!series || !series.times) return null;
-    var index = null, best = Infinity;
-    for (var i = series.start || 0; i < series.times.length; i++) {
-      var diff = Math.abs(Date.parse(series.times[i]) - timeMs);
-      if (diff < best) { best = diff; index = i; }
-    }
-    return index != null && best <= 15 * 60000 ? series.precip[index] : null;
-  }
   function renderNowcast(result) {
     var block = $('nowcast-block');
     var nowcast = result.nowcast;
@@ -102,18 +93,17 @@
     var timeline = $('n-timeline');
     if (!timeline) return;
     timeline.textContent = '';
-    var series = nowcast.detail && nowcast.detail.precip && nowcast.detail.precip.series;
-    var now = Date.now();
-    for (var i = 0; i < 5; i++) {
-      var time = now + i * 30 * 60000;
-      var rain = closestPrecip(series, time);
+    var items = nowcast.timeline || SS.nowcast.buildTimeline(nowcast.detail && nowcast.detail.precip, null, Date.now());
+    items.forEach(function (weather) {
       var item = root.document.createElement('div');
       item.className = 'timeline-item';
-      var label = root.document.createElement('span'); label.className = 'timeline-time'; label.textContent = SS.time.formatHM(time, timezone);
+      item.title = weather.label + ' · ' + weather.source;
+      var label = root.document.createElement('span'); label.className = 'timeline-time'; label.textContent = SS.time.formatHM(weather.timeMs, timezone);
       var icon = root.document.createElement('span'); icon.className = 'timeline-icon';
-      icon.textContent = rain != null && rain >= 0.3 ? '🌧️' : (rain != null && rain > 0 ? '🌦️' : (nowcast.trend === 'OPENING' ? '🌤️' : '⛅'));
+      icon.textContent = weather.icon;
+      icon.setAttribute('role', 'img'); icon.setAttribute('aria-label', item.title);
       item.appendChild(label); item.appendChild(icon); timeline.appendChild(item);
-    }
+    });
   }
   function renderBars(result) {
     var host = $('r-bars');
@@ -280,7 +270,7 @@
       ['民用昏影时长', d.twilight_minutes != null ? d.twilight_minutes + ' 分钟' : '—']
     ]);
     addDetailGroup(host, '📡 采样与数据可信度', [
-      ['采样模式（V2.3）', result.sampling_mode || '—'],
+      ['采样模式（V' + SS.version.app + '）', result.sampling_mode || '—'],
       ['全天空动力学网格', '8方位 × 4距离 × 3高度层（96 状态网格）'],
       ['空间采样点', (d.samples_fetched || 0) + ' / ' + (d.samples_expected || 0)],
       ['空间完整度 / 全天空方差', valueOrDash(result.spatial_completeness) + ' / ' + valueOrDash(result.spatial_variance) + '（360° 标准差）'],

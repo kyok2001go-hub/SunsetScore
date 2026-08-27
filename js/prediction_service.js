@@ -226,6 +226,10 @@
     };
     var fusion = null;
     try { fusion = await SS.nowcast.run(nowcastContext); } catch (error) { fusion = null; }
+    if (fusion) {
+      fusion.timeline = SS.nowcast.buildTimeline(fusion.detail && fusion.detail.precip,
+        context.weather.localForecast, context.time.nowUtcMs);
+    }
     var evo = SS.evolution.evaluate({
       forecastTrend: nowcastContext.forecastTrend,
       precip: fusion && fusion.detail ? fusion.detail.precip : null,
@@ -293,7 +297,8 @@
 
     var resultCacheKey = normalizedQuery.toLowerCase().replace(/\s+/g, '_') + '_' + localDate;
     var cachedResult = SS.cache.get(resultCacheKey);
-    if (cachedResult) return cachedResult;
+    if (cachedResult && cachedResult.app_version === SS.version.app &&
+        cachedResult.model_version === SS.version.model) return cachedResult;
 
     progress(options, '正在获取空气质量…');
     var airQuality = null;

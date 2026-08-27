@@ -158,7 +158,7 @@
     if (!payload.query_id) {
       payload.query_id = generateQueryId();
     }
-    var localRecord = saveFeedback(payload);
+    var localRecord = saveFeedback(Object.assign({}, payload));
     var localId = localRecord ? localRecord.id : ('fb_' + Date.now());
 
     /* 异步向 Cloudflare Pages Functions /api/feedback 发送入库请求 */
@@ -171,7 +171,7 @@
         if (!res.ok) {
           return res.json().catch(function () { return {}; }).then(function (errJson) {
             return {
-              local: true,
+              local: !!localRecord,
               remote: false,
               id: localId,
               cooldown: !!errJson.cooldown,
@@ -180,15 +180,18 @@
           });
         }
         return res.json().then(function (data) {
-          return { local: true, remote: true, id: data.id || localId, message: data.message };
+          if (!data || data.success !== true) {
+            return { local: !!localRecord, remote: false, id: localId, cooldown: !!(data && data.cooldown), error: data && data.error || '服务器未确认反馈已保存' };
+          }
+          return { local: !!localRecord, remote: true, id: data.id || localId, message: data.message };
         });
       }).catch(function (netErr) {
         /* 网络离线或静态环境（如 file:// 本地预览），保持本地有效 */
-        return { local: true, remote: false, id: localId, error: netErr.message || '网络请求失败' };
+        return { local: !!localRecord, remote: false, id: localId, error: '无法连接反馈服务，请稍后重试' };
       });
     }
 
-    return Promise.resolve({ local: true, remote: false, id: localId });
+    return Promise.resolve({ local: !!localRecord, remote: false, id: localId, error: '当前环境无法连接反馈服务' });
   }
 
   SS.baseline = {

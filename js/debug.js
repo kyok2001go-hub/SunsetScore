@@ -13,7 +13,7 @@
     panel.id = 'debug-panel';
     panel.className = 'card debug-panel';
     var title = root.document.createElement('h3');
-    title.textContent = 'V2.3 Debug Snapshot';
+    title.textContent = 'V' + SS.version.app + ' Debug Snapshot';
     var pre = root.document.createElement('pre');
     pre.textContent = JSON.stringify({
       versions: { app: result.app_version, model: result.model_version, schema: result.schema_version },

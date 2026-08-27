@@ -7,7 +7,8 @@
   var COOLDOWN_MS = 30 * 60 * 1000;
 
   function cooldownKey(city) {
-    return 'ss_fb_last_ts_' + String(city || 'default').trim().toLowerCase();
+    // Ignore old cooldowns that were incorrectly set after failed remote submissions.
+    return 'ss_fb_remote_last_ts_' + String(city || 'default').trim().toLowerCase();
   }
 
   function remainingCooldownMinutes(city, nowMs) {
@@ -27,6 +28,7 @@
     if (!result) throw new Error('MISSING_PREDICTION_RESULT');
     var f = feedback || {};
     if (!f.rating) throw new Error('MISSING_FEEDBACK_RATING');
+    if (['great', 'good', 'fair', 'poor'].indexOf(f.rating) < 0) throw new Error('请选择实际晚霞等级');
     var d = result.data || {};
     var cs = result.cloud_structure || {};
     var state = result.all_day_sky_state || {};
@@ -143,7 +145,7 @@
     if (remaining > 0) return { local: false, remote: false, cooldown: true, remainingMinutes: remaining, error: '30 分钟内限提交一次反馈' };
     var payload = buildPayload(result, feedback);
     var response = await SS.baseline.submitFeedback(payload);
-    if (!response.cooldown) markSubmitted(result.city);
+    if (response.remote) markSubmitted(result.city);
     return response;
   }
 

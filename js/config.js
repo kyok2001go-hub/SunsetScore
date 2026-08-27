@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.0 - 当前生产参数配置
+ * SunsetScore V2.3.1 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * V1.6：新增 Spatial Cloud Field 空间语义参数（SPATIAL_FIELD_V16）
  * V1.61：新增空间演化能力参数（SPATIAL_FIELD_V161）
@@ -19,10 +19,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.3.0',
-    model: '2.3.0',
+    app: '2.3.1',
+    model: '2.3.1',
     schema: 3,
-    cache: 'v230',
+    cache: 'v231',
     feedbackSchema: 2
   });
 

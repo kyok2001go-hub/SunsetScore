@@ -94,6 +94,51 @@
     });
   }
 
+  // Read the interval containing the requested time. Never extend a stale series
+  // by selecting a nearby value outside its actual coverage (5m or 15m).
+  function precipAtSeries(series, timeMs) {
+    if (!series || !series.times || !series.precip) return null;
+    var step = series.stepMs;
+    if (!valid(step) || step <= 0) {
+      step = series.times.length > 1 ? Date.parse(series.times[1]) - Date.parse(series.times[0]) : 0;
+    }
+    if (!valid(step) || step <= 0) return null;
+    for (var i = 0; i < series.times.length; i++) {
+      var start = Date.parse(series.times[i]);
+      if (timeMs >= start && timeMs < start + step) {
+        var value = series.precip[i];
+        return valid(value) && value >= 0 ? value : null;
+      }
+    }
+    return null;
+  }
+
+  function buildTimeline(precip, forecast, nowMs) {
+    var items = [];
+    var h = forecast && forecast.hourly;
+    var times = h && h.time ? h.time.map(function (t) {
+      return SS.time.fromOpenMeteoLocal(t, forecast.utc_offset_seconds || 0);
+    }) : [];
+    for (var i = 0; i < 5; i++) {
+      var time = nowMs + i * 30 * 60000;
+      var rain = precipAtSeries(precip && precip.series, time);
+      var source = rain != null ? '分钟降水' : '小时预报';
+      var hourly = times.length && time >= times[0] && time <= times[times.length - 1]
+        ? SS.cloudField.extractInterpolatedAt(forecast, time) : null;
+      if (rain == null && hourly && h.precipitation) rain = hourly.precipitation;
+      var cloud = hourly && h.cloud_cover ? hourly.cloud_cover : null;
+      var icon, label;
+      if (!valid(rain)) { icon = '❔'; label = '暂无此时段降水数据'; source = '无数据'; }
+      else if (rain > 0) { icon = '🌧️'; label = '降水'; }
+      else if (!valid(cloud)) { icon = '🌂'; label = '无降水（云况未知）'; }
+      else if (cloud >= 80) { icon = '☁️'; label = '阴天，无降水'; }
+      else if (cloud >= 30) { icon = '⛅'; label = '多云，无降水'; }
+      else { icon = '☀️'; label = '晴朗，无降水'; }
+      items.push({ timeMs: time, icon: icon, label: label, source: source });
+    }
+    return items;
+  }
+
   /* 雨停分析（方案 4.4 节）：stopTime / nextRainTime / RainClearScore。
      时间基准逻辑，兼容 5 分钟（QWeather）与 15 分钟（Open-Meteo）两种粒度 */
   function analyzePrecip(series, nowMs) {
@@ -525,6 +570,8 @@
 
   SS.nowcast = {
     fetchMinutePrecip: fetchMinutePrecip,
+    precipAtSeries: precipAtSeries,
+    buildTimeline: buildTimeline,
     analyzePrecip: analyzePrecip,
     analyzeRadar: analyzeRadar,
     analyzeSatellite: analyzeSatellite,
@@ -606,14 +653,8 @@
         };
 
         fusion.detail = {
-          precip: precip ? {
-            source: precip.source,
-            summary: precip.summary,
-            rainingNow: precip.rainingNow,
-            stopMin: precip.stopMin,
-            rainClearScore: precip.rainClearScore,
-            intensifying: precip.intensifying
-          } : null,
+          // Preserve the analysis contract, including available, series and stop/next-rain times.
+          precip: precip,
           radar: radar,
           satellite: satellite,
           sourcesStatus: fusion.sourcesStatus,

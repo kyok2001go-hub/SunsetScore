@@ -3,6 +3,7 @@
  * 路由：POST /api/feedback；绑定：env.DB (D1)
  * 数据库结构由 migrations 管理，本处理器不执行 DDL。
  */
+import { feedbackColumns, feedbackEpochSql } from '../../server/feedback-db.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -83,8 +84,8 @@ const PAYLOAD_FIELDS = [
   ['sunset_azimuth', (p) => numberOrNull(p.sunset_azimuth)],
   ['twilight_minutes', (p) => integerOrNull(p.twilight_minutes)],
   ['best_viewing_window', (p) => textOrNull(p.best_viewing_window, 120)],
-  ['app_version', (p) => textOrNull(p.app_version, 30) || '2.3.0'],
-  ['model_version', (p) => textOrNull(p.model_version, 30) || '2.3.0'],
+  ['app_version', (p) => textOrNull(p.app_version, 30) || '2.3.1'],
+  ['model_version', (p) => textOrNull(p.model_version, 30) || '2.3.1'],
   ['schema_version', (p) => integerOrNull(p.schema_version) ?? 3],
   ['predicted_score', (p) => integerOrNull(p.predicted_score) ?? 0],
   ['predicted_level', (p) => textOrNull(p.predicted_level, 30) || '一般'],
@@ -166,6 +167,9 @@ export async function onRequestPost(context) {
   if (!payload || !payload.user_rating || !payload.city) {
     return jsonResponse({ success: false, error: '缺少必填字段：city 与 user_rating 为必填项' }, 400);
   }
+  if (!['great', 'good', 'fair', 'poor'].includes(payload.user_rating)) {
+    return jsonResponse({ success: false, error: '请选择实际晚霞等级：极佳彩霞、普通有霞、仅微霞或完全无霞' }, 400);
+  }
 
   const rawIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1';
   const userIpHash = await sha256(rawIp + '_ss_salt');
@@ -178,26 +182,31 @@ export async function onRequestPost(context) {
   const createdAtCompatibility = formatDateTimeZone(now, 'Asia/Shanghai');
   const recordId = 'fb_' + nowEpoch + '_' + crypto.randomUUID();
 
+  let availableColumns;
   try {
+    availableColumns = await feedbackColumns(env.DB);
+    const epochSql = feedbackEpochSql(availableColumns);
     const rateCheck = await env.DB.prepare(`
-      SELECT created_at_epoch FROM sunset_feedback
-      WHERE user_ip_hash = ? AND city = ? AND created_at_epoch > ?
-      ORDER BY created_at_epoch DESC LIMIT 1
+      SELECT ${epochSql} AS created_at_epoch FROM sunset_feedback
+      WHERE user_ip_hash = ? AND city = ? AND (${epochSql}) > ?
+      ORDER BY ${epochSql} DESC LIMIT 1
     `).bind(userIpHash, String(payload.city), nowEpoch - 30 * 60 * 1000).first();
     if (rateCheck) {
       return jsonResponse({ success: false, cooldown: true, error: '为保证数据质量，30 分钟内限提交一次实况反馈，请稍后再试。' }, 429);
     }
   } catch (error) {
     console.error(JSON.stringify({ message: 'feedback rate limit query failed', error: error instanceof Error ? error.message : String(error) }));
-    return jsonResponse({ success: false, error: '反馈数据库尚未完成 V2.3 migration' }, 503);
+    return jsonResponse({ success: false, error: '反馈数据库暂不可用，请检查 DB 绑定及 sunset_feedback 表后重试' }, 503);
   }
 
   const systemColumns = ['id', 'created_at', 'created_at_local', 'created_at_epoch', 'created_at_utc', 'timezone', 'user_ip_hash', 'client_ua'];
   const systemValues = [recordId, createdAtCompatibility, createdAtLocal, nowEpoch, createdAtUtc, timezone, userIpHash, clientUa];
   const payloadColumns = PAYLOAD_FIELDS.map(([name]) => name);
   const payloadValues = PAYLOAD_FIELDS.map(([, convert]) => convert(payload));
-  const columns = systemColumns.concat(payloadColumns);
-  const values = systemValues.concat(payloadValues);
+  const allColumns = systemColumns.concat(payloadColumns);
+  const allValues = systemValues.concat(payloadValues);
+  const columns = allColumns.filter((name) => availableColumns.has(name));
+  const values = allValues.filter((value, index) => availableColumns.has(allColumns[index]));
   const placeholders = columns.map(() => '?').join(', ');
 
   try {

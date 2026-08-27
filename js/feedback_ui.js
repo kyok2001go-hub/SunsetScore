@@ -42,7 +42,12 @@
         toast(response.error || '提交过于频繁，请稍后再试', true);
         return;
       }
-      close(); toast(response.remote ? '感谢反馈，已同步至云端' : '感谢反馈，已保存并将在网络恢复后继续使用', false);
+      if (!response.remote) {
+        toast('提交未成功：' + (response.error || '服务器未确认保存') +
+          (response.local ? '（已在本机备份，请稍后重试）' : ''), true);
+        return;
+      }
+      close(); toast('感谢反馈~我们会努力做得更好', false);
     } catch (error) {
       toast(error && error.message ? error.message : '反馈提交失败', true);
     } finally {
