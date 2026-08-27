@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('edge deadline covers slow headers and propagates timeout/cancellation through streamed bodies',async()=>{
+test('local server deadline covers slow headers and propagates timeout/cancellation through streamed bodies',async()=>{
   const {fetchWithDeadline}=await import('../server/network.js');
   const original=global.fetch;
   try {
@@ -25,7 +25,7 @@ test('edge deadline covers slow headers and propagates timeout/cancellation thro
   } finally {global.fetch=original;}
 });
 
-test('edge streaming success and downstream cancel release upstream resources',async()=>{
+test('local server streaming success and downstream cancel release upstream resources',async()=>{
   const {fetchWithDeadline}=await import('../server/network.js');
   const original=global.fetch;
   try {
@@ -41,7 +41,7 @@ test('edge streaming success and downstream cancel release upstream resources',a
   } finally {global.fetch=original;}
 });
 
-test('Pages adapters return 504 on upstream header timeout and never disclose the secret',async()=>{
+test('Pages adapters map a transport TimeoutError to 504 and never disclose the secret',async()=>{
   const qw=await import('../functions/api/qweather.js'),proxy=await import('../functions/api/proxy.js');
   const original=global.fetch;
   try {

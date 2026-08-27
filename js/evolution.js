@@ -264,7 +264,9 @@
 
     var degradedSources = [];
     if (!radarEvo && !(sources.sourcesStatus && sources.sourcesStatus.radar && sources.sourcesStatus.radar.status === 'DISABLED')) degradedSources.push('雷达瓦片');
-    if (!satEvo && !(sources.sourcesStatus && sources.sourcesStatus.satellite && sources.sourcesStatus.satellite.status === 'DISABLED')) degradedSources.push('卫星云图');
+    // Available satellite data deliberately excluded in rain is not an outage.
+    if (!satEvo && !(satellite && satellite.available && precip && precip.available && precip.rainingNow) &&
+        !(sources.sourcesStatus && sources.sourcesStatus.satellite && sources.sourcesStatus.satellite.status === 'DISABLED')) degradedSources.push('卫星云图');
     evo.degradedSources = degradedSources;
     evo.hasRealTiles = !!(radarEvo || satEvo);
     evo.sourcesStatus = sources.sourcesStatus || null;
@@ -290,6 +292,17 @@
     if (!valid(minutesToSunset)) return false;
     var cfg = SS.modelConfig.goldenWindow;
     return cfg.enabled && minutesToSunset >= -cfg.afterSunsetMinutes && minutesToSunset <= cfg.beforeSunsetMinutes;
+  }
+
+  function constrainGoldenWindow(windowInfo, nowMs, sunsetMs) {
+    var cfg = SS.modelConfig.goldenWindow;
+    if (!cfg.enabled || !windowInfo || !valid(windowInfo.stopTimeMs) ||
+        !valid(windowInfo.durationMin) || !valid(nowMs) || !valid(sunsetMs)) return null;
+    var start = Math.max(windowInfo.stopTimeMs, nowMs, sunsetMs - cfg.beforeSunsetMinutes * 60000);
+    var end = Math.min(windowInfo.stopTimeMs + windowInfo.durationMin * 60000,
+      sunsetMs + cfg.afterSunsetMinutes * 60000);
+    if (end <= start) return null;
+    return { stopTimeMs: start, durationMin: Math.floor((end - start) / 60000) };
   }
 
   function evaluate(context) {
@@ -322,6 +335,7 @@
     },
     fallbackGoldenWindow: fallbackGoldenWindow,
     isGoldenWindowActive: isGoldenWindowActive,
+    constrainGoldenWindow: constrainGoldenWindow,
     evaluate: evaluate,
     fuseEvolution: fuseEvolution
   };

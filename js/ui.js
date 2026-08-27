@@ -89,7 +89,8 @@
     setText('n-duration', windowInfo ? windowInfo.durationMin + ' 分钟' : '—');
     setText('n-trend', (trendLabels[nowcast.trend] || '—') + (nowcast.appliedModifier ? '（修正 ' + (nowcast.appliedModifier > 0 ? '+' : '') + nowcast.appliedModifier + '）' : ''));
     setText('n-risk', riskLabels[nowcast.cloudRisk] || '—');
-    setText('n-summary', nowcast.detail && nowcast.detail.precip && nowcast.detail.precip.summary || '—');
+    setText('n-summary', nowcast.detail && nowcast.detail.precip && nowcast.detail.precip.summary ||
+      '分钟降水暂不可用；天气时间线按可用小时预报展示');
     var timeline = $('n-timeline');
     if (!timeline) return;
     timeline.textContent = '';
@@ -189,6 +190,19 @@
     if (detail.radar && detail.radar.risk && detail.radar.risk !== 'NONE') parts.push('雷达风险 ' + (riskLabels[detail.radar.risk] || detail.radar.risk));
     return parts.join(' · ') || '—';
   }
+  function tileSourceText(result, key) {
+    var nowcast = result.nowcast;
+    var status = nowcast && nowcast.sourcesStatus && nowcast.sourcesStatus[key];
+    var detail = result.sky_evolution && result.sky_evolution.detail;
+    if (status && status.status === 'DISABLED') return '已关闭';
+    if (status && status.available) {
+      return detail && detail[key] ? '🟢 可用，参与演化' : '🟢 可用，本次未参与演化';
+    }
+    if (detail && detail[key]) return '🟢 参与演化';
+    if (status && status.status === 'TIMEOUT') return '⚪ 请求超时';
+    if (status && status.status === 'FAILED') return '⚪ 请求或解析失败';
+    return nowcast ? '⚪ 暂无有效数据' : '未请求';
+  }
   function renderDetails(result) {
     var host = $('details'); if (!host) return;
     host.textContent = '';
@@ -245,10 +259,7 @@
           '% / 120m: ' + Math.round(arrival.risk120m * 100) + '%'
         : '—'],
       ['日落走廊演化', evolutionDetailText(result)],
-      ['实况瓦片信号源', evolution.detail
-        ? '雷达: ' + (evolution.detail.radar ? '🟢 3帧回波' : '⚪ 未覆盖/NWP平滑回退') +
-          ' · 卫星: ' + (evolution.detail.satellite ? '🟢 正常' : '⚪ 未覆盖/NWP平滑回退')
-        : '—'],
+      ['实况瓦片信号源', '雷达: ' + tileSourceText(result, 'radar') + ' · 卫星: ' + tileSourceText(result, 'satellite')],
       ['Nowcasting 修正', nowcastDetailText(result)]
     ]);
     addDetailGroup(host, '☁️ 日落走廊云场结构', [

@@ -18,4 +18,8 @@ test('all static resource cache-busters match the app version and asset revision
   const versions = [...html.matchAll(/\?v=([^"']+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 20);
   assert.ok(versions.every((version) => version === SS.version.app + '-' + SS.version.assetRevision));
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.equal(pkg.version, SS.version.app);
+  assert.equal(SS.version.model, SS.version.app);
+  assert.ok(html.includes('sunset-score-v' + SS.version.model));
 });

@@ -239,6 +239,8 @@
       fusion = null;
     }
     if (fusion) {
+      fusion.goldenWindow = SS.evolution.constrainGoldenWindow(fusion.goldenWindow,
+        context.time.nowUtcMs, context.time.sunsetUtcMs);
       fusion.timeline = SS.nowcast.buildTimeline(fusion.detail && fusion.detail.precip,
         context.weather.localForecast, context.time.nowUtcMs);
     }
@@ -258,7 +260,14 @@
     result.score = Math.round(SS.domain.clamp(result.score * factor * gwFactor, 0, 100));
     result.level = levelOf(result.score);
     if (evo && evo.degradedSources && evo.degradedSources.length) {
-      result.warnings.push('实况' + evo.degradedSources.join('与') + '暂时未覆盖/离线（已平滑切换至 NWP 动力学时序推演）');
+      evo.degradedSources.forEach(function (label) {
+        var key = label === '雷达瓦片' ? 'radar' : 'satellite';
+        var source = fusion && fusion.sourcesStatus && fusion.sourcesStatus[key];
+        var reason = source && source.status === 'TIMEOUT' ? '请求超时'
+          : source && source.status === 'FAILED' ? '请求或解析失败'
+          : source && source.available ? '演化数据不足' : '暂无可用数据';
+        result.warnings.push('实况' + label + reason + '（预测继续使用其余可用来源，缺失部分由 NWP 补充）');
+      });
     }
     return result;
   }

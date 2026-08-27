@@ -1,4 +1,3 @@
-import { fetchWithDeadline } from '../../server/network.js';
 /**
  * Cloudflare Pages Functions - 跨域瓦片与气象接口安全边缘反向代理
  * 路由：GET /api/proxy?url=<ENCODED_URL>
@@ -69,12 +68,13 @@ export async function onRequestGet(context) {
 
   /* 转发请求至上游源 */
   try {
-    const upstreamRes = await fetchWithDeadline(parsedTarget.toString(), {
+    // Match the proven V2.3.1 native stream path; retain HTTPS/redirect restrictions.
+    const upstreamRes = await fetch(parsedTarget.toString(), {
       redirect: 'error',
       headers: {
-        'User-Agent': 'SunsetScore-Proxy/2.3.1 (Cloudflare Edge)'
+        'User-Agent': 'SunsetScore-Proxy/2.3.2 (Cloudflare Edge)'
       }
-    }, { signal: request.signal });
+    });
 
     if (!upstreamRes.ok) {
       return new Response(upstreamRes.body, {

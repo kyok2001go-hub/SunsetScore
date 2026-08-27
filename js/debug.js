@@ -28,6 +28,7 @@
       },
       regime: result.regime_state,
       skyState: result.all_day_sky_state,
+      observation_sources: result.nowcast ? result.nowcast.sourcesStatus : null,
       evolution: result.sky_evolution
     }, null, 2);
     panel.appendChild(title);

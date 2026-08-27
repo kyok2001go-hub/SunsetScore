@@ -50,7 +50,7 @@
       json.minutely.forEach(function (m) {
         var p = parseFloat(m.precip);
         times.push(m.fxTime);
-        precip.push(isFinite(p) ? p : 0);
+        precip.push(isFinite(p) && p >= 0 ? p : null);
       });
       var stepMs = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 300000;
       return {
@@ -67,9 +67,8 @@
     return fetchJson(url, options).then(function (json) {
       var m15 = json && json.minutely_15;
       if (!m15 || !m15.time || !m15.precipitation || m15.time.length < 8) return null;
-      var offsetMs = (json.utc_offset_seconds || 0) * 1000;
       var times = m15.time.map(function (tStr) {
-        return new Date(Date.parse(tStr) - offsetMs).toISOString();
+        return new Date(SS.time.fromOpenMeteoLocal(tStr, json.utc_offset_seconds || 0)).toISOString();
       });
       var stepMs = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 900000;
       return {
@@ -145,23 +144,35 @@
     if (!series || !series.times || !series.precip || series.times.length < 8) return null;
     var times = series.times, p = series.precip;
     var stepMs = series.stepMs || 300000;
+    if (!valid(stepMs) || stepMs <= 0) return null;
     var rc = SS.modelConfig.nowcast.rainClear;
 
-    /* 起点：第一个不早于当前时刻的时次 */
+    /* 优先取包含当前时刻的区间；允许来源从下一个时次开始，但拒绝过期数据。 */
     var start = 0;
-    while (start < times.length - 1 && Date.parse(times[start]) < nowMs) start++;
+    while (start < times.length && Date.parse(times[start]) + stepMs <= nowMs) start++;
+    if (start >= times.length || !valid(Date.parse(times[start])) ||
+        Date.parse(times[start]) > nowMs + stepMs || !valid(p[start]) || p[start] < 0) return null;
 
-    function isDry(v) { return !valid(v) || v < rc.dryThresholdMm; }
+    // Open-Meteo returns 120 *steps*, not 120 minutes. Analyse only the next two
+    // hours of contiguous known data, never infer a rain stop across a data gap.
+    var end = start;
+    while (end < times.length && Date.parse(times[end]) < nowMs + 120 * 60000 &&
+        valid(p[end]) && p[end] >= 0 &&
+        (end === start || Date.parse(times[end]) === Date.parse(times[end - 1]) + stepMs)) end++;
+    var coverageEndMs = Math.min(nowMs + 120 * 60000, Date.parse(times[end - 1]) + stepMs);
+
+    function isDry(v) { return valid(v) && v >= 0 && v < rc.dryThresholdMm; }
 
     /* stopTime：首个"连续 ≥dryStreakMinutes 无雨"的起点（按粒度折算所需步数） */
     var reqSteps = Math.max(2, Math.ceil(rc.dryStreakMinutes * 60000 / stepMs));
     var stopMs = null, i, j;
-    for (i = start; i <= times.length - reqSteps; i++) {
+    for (i = start; i <= end - reqSteps; i++) {
+      if (Date.parse(times[i + reqSteps - 1]) + stepMs > coverageEndMs) break;
       var allDry = true;
       for (j = 0; j < reqSteps; j++) {
         if (!isDry(p[i + j])) { allDry = false; break; }
       }
-      if (allDry) { stopMs = Date.parse(times[i]); break; }
+      if (allDry) { stopMs = Math.max(nowMs, Date.parse(times[i])); break; }
     }
 
     var rainingNow = !isDry(p[start]);
@@ -170,14 +181,14 @@
     /* nextRainTime：雨停之后再次下雨的时次；若现在无雨，则未来第一次下雨 */
     var nextRainMs = null;
     var scanFrom = stopMs != null ? i + reqSteps : start;
-    for (j = scanFrom; j < times.length; j++) {
+    for (j = scanFrom; j < end; j++) {
       if (!isDry(p[j])) { nextRainMs = Date.parse(times[j]); break; }
     }
 
     /* 强度趋势：当前 30 分钟均值 vs 其后 30 分钟均值 */
     var winSteps = Math.max(1, Math.round(30 * 60000 / stepMs));
-    var head = avg(p.slice(start, start + winSteps).filter(valid));
-    var tail = avg(p.slice(start + winSteps, start + 2 * winSteps).filter(valid));
+    var head = avg(p.slice(start, Math.min(end, start + winSteps)).filter(valid));
+    var tail = avg(p.slice(start + winSteps, Math.min(end, start + 2 * winSteps)).filter(valid));
     var intensifying = valid(head) && valid(tail) && tail - head >= 0.2;
 
     var score;
@@ -193,10 +204,20 @@
     if (stopMin != null) trend = clamp(1 - stopMin / 90, -1, 1);
     else if (rainingNow) trend = intensifying ? -1 : -0.5;
 
+    var coverageMinutes = Math.max(0, Math.floor((coverageEndMs - Math.max(nowMs, Date.parse(times[start]))) / 60000));
+    var summary = series.summary;
+    if (!summary) {
+      if (rainingNow && stopMin != null) summary = '预计约 ' + Math.ceil(stopMin) + ' 分钟后持续停雨';
+      else if (rainingNow) summary = '未来约 ' + coverageMinutes + ' 分钟内未识别持续停雨时段';
+      else if (nextRainMs != null) summary = '当前无明显降水，预计约 ' + Math.max(0, Math.ceil((nextRainMs - nowMs) / 60000)) + ' 分钟后有降水';
+      else summary = '未来约 ' + coverageMinutes + ' 分钟无明显降水';
+      summary += series.source === 'openmeteo' ? '（Open-Meteo 15分钟预报）' : '（分钟预报）';
+    }
     return {
       available: true,
       source: series.source || 'unknown',
-      summary: series.summary || null,
+      summary: summary,
+      coverageEndMs: coverageEndMs,
       rainingNow: rainingNow,
       stopTimeMs: stopMs,
       stopMin: stopMin != null ? Math.round(stopMin) : null,
@@ -552,7 +573,7 @@
     if (pr && pr.available && pr.rainingNow && pr.stopTimeMs != null) {
       var durMin = pr.nextRainMs != null
         ? Math.round((pr.nextRainMs - pr.stopTimeMs) / 60000)
-        : 120;
+        : (valid(pr.coverageEndMs) ? Math.floor((pr.coverageEndMs - pr.stopTimeMs) / 60000) : 120);
       goldenWindow = { stopTimeMs: pr.stopTimeMs, durationMin: Math.max(0, durMin) };
     }
 

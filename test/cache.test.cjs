@@ -15,14 +15,22 @@ test('cache writes and reads schema-versioned envelopes', () => {
   assert.equal(SS.cache.get('sample'), null);
 });
 
-test('feedback hotfix isolates old V2.3.1 cached predictions without changing the model version', () => {
+test('V2.3.2 isolates V2.3.1 and reliability patch cached predictions', () => {
   const runtime = createRuntime();
   const SS = load(runtime, ['js/config.js', 'js/cache.js']);
   runtime.storage.set('sunsetscore_v231_sample', JSON.stringify({
     schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: false }
   }));
-  assert.equal(SS.version.model, '2.3.1');
-  assert.equal(SS.config.cachePrefix, 'sunsetscore_v231_reliability1_');
+  assert.equal(SS.version.model, '2.3.2');
+  runtime.storage.set('sunsetscore_v231_reliability1_sample', JSON.stringify({
+    schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
+    data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: true }
+  }));
+  runtime.storage.set('sunsetscore_v231_reliability2_sample', JSON.stringify({
+    schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
+    data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: true }
+  }));
+  assert.equal(SS.config.cachePrefix, 'sunsetscore_v232_');
   assert.equal(SS.cache.get('sample'), null);
 });

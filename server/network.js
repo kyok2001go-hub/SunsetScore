@@ -1,4 +1,5 @@
-// Shared by Pages Functions and the local server. No request state lives at module scope.
+// Local development server only. Pages proxies use V2.3.1 native body forwarding
+// pending edge-runtime validation of deadline-wrapped response streams.
 export async function fetchWithDeadline(input, init = {}, options = {}) {
   const timeoutMs = options.timeoutMs ?? 8000;
   const parent = options.signal ?? init.signal;
