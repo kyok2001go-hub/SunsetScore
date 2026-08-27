@@ -4,7 +4,6 @@
  *   1. 仅凭本地预报预判 Weather Regime（estimateLocalRegime）
  *   2. 决定采样模式 LOCAL_ONLY / STANDARD(7点) / FULL(13点)
  *   3. 生成带角色与重要性权重的空间节点（selectNodes）
- *   4. 初算后决定是否升级 7 → 13（shouldEscalate）
  *   5. 按节点权重的加权空间完整度（weightedCompleteness）
  * 本模块只做数据获取层决策，不参与评分。
  * ============================================================ */
@@ -140,7 +139,7 @@
    */
   function selectNodes(mode, lat, lon, sunsetAzimuthDeg) {
     var cfg = SS.modelConfig.scoring;
-    var cfg18 = cfg.samplingV18;
+    var samplingConfig = cfg.sampling;
     var nodes = [{
       latitude: lat, longitude: lon, distanceKm: 0, azimuthOffset: 0,
       role: 'local', weight: nodeWeight('local')
@@ -164,34 +163,11 @@
         addRay(offset, cfg.distancesKm, offset === 0 ? 'corridor' : 'bank');
       });
     } else { /* STANDARD */
-      addRay(0, cfg18.standardCorridorDistancesKm, 'corridor');
-      addRay(-30, cfg18.standardBankDistancesKm, 'bank');
-      addRay(30, cfg18.standardBankDistancesKm, 'bank');
+      addRay(0, samplingConfig.standardCorridorDistancesKm, 'corridor');
+      addRay(-30, samplingConfig.standardBankDistancesKm, 'bank');
+      addRay(30, samplingConfig.standardBankDistancesKm, 'bank');
     }
     return nodes;
-  }
-
-  /**
-   * 初算后是否升级 7 → 13（方案 9、20 章）
-   * @param result engine.compute 的初步结果
-   * @returns {{escalate: boolean, reason: string|null}}
-   */
-  function shouldEscalate(result) {
-    var es = SS.modelConfig.sampling.escalation;
-    if (result.confidence < es.scoreConfidenceThreshold) {
-      return { escalate: true, reason: 'LOW_CONFIDENCE' };
-    }
-    if (result.spatial_variance != null && result.spatial_variance > es.spatialVarianceThreshold) {
-      return { escalate: true, reason: 'SPATIAL_VARIANCE' };
-    }
-    var rs = result.regime_state;
-    if (rs && rs.type === 'RAIN_TO_CLEAR') {
-      return { escalate: true, reason: 'RAIN_TO_CLEAR' };
-    }
-    if (rs && rs.transition === 'IMPROVING' && rs.transitionScore > es.transitionScoreThreshold) {
-      return { escalate: true, reason: 'TRANSITION' };
-    }
-    return { escalate: false, reason: null };
   }
 
   /**
@@ -213,7 +189,6 @@
     estimateLocalRegime: estimateLocalRegime,
     decideSamplingMode: decideSamplingMode,
     selectNodes: selectNodes,
-    shouldEscalate: shouldEscalate,
     weightedCompleteness: weightedCompleteness
   };
 })(typeof window !== 'undefined' ? window : globalThis);

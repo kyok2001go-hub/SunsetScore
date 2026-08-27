@@ -136,26 +136,6 @@
     };
   }
 
-  /**
-   * 基础位移计算（兼容保留）
-   */
-  function calculateAdvectionOffset(speedKmH, fromDeg, deltaMinutes) {
-    var hours = deltaMinutes / 60;
-    var distKm = (speedKmH || 0) * hours;
-    var flowHeading = ((fromDeg || 0) + 180) % 360;
-    var upstreamHeading = ((fromDeg || 0) % 360 + 360) % 360;
-
-    return {
-      distanceKm: distKm,
-      flowHeadingDeg: flowHeading,
-      upstreamHeadingDeg: upstreamHeading,
-      dx: distKm * Math.sin(flowHeading * rad),
-      dy: distKm * Math.cos(flowHeading * rad),
-      upstreamDx: distKm * Math.sin(upstreamHeading * rad),
-      upstreamDy: distKm * Math.cos(upstreamHeading * rad)
-    };
-  }
-
   var BEAUFORT_SCALE = [
     { maxKmH: 1, level: 0, name: '0级 · 无风' },
     { maxKmH: 5.5, level: 1, name: '1级 · 软风' },
@@ -187,7 +167,6 @@
     formatBeaufort: formatBeaufort,
     decompose: decompose,
     getLayerWind: getLayerWind,
-    calculateAdvectionOffset: calculateAdvectionOffset,
     calculateLayerAdvectionOffset: calculateLayerAdvectionOffset
   };
 })(typeof window !== 'undefined' ? window : globalThis);

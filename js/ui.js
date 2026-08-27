@@ -274,7 +274,8 @@
       ['全天空动力学网格', '8方位 × 4距离 × 3高度层（96 状态网格）'],
       ['空间采样点', (d.samples_fetched || 0) + ' / ' + (d.samples_expected || 0)],
       ['空间完整度 / 全天空方差', valueOrDash(result.spatial_completeness) + ' / ' + valueOrDash(result.spatial_variance) + '（360° 标准差）'],
-      ['距离预报可信度', valueOrDash(result.distance_confidence)],
+      ['距离可靠性（经验诊断）', valueOrDash(result.distance_reliability == null ? null : result.distance_reliability.toFixed(3))],
+      ['有效距离带覆盖', valueOrDash(result.distance_band_coverage == null ? null : Math.round(result.distance_band_coverage * 100) + '%')],
       ['数据新鲜度 / 缓存', (result.data_freshness || 0) + ' min / ' + (result.cache_status || '—')]
     ]);
   }

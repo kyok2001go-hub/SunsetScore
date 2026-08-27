@@ -163,13 +163,19 @@
 
     /* 异步向 Cloudflare Pages Functions /api/feedback 发送入库请求 */
     if (typeof fetch === 'function') {
-      return fetch('/api/feedback', {
+      return SS.network.request('/api/feedback', {
+        timeoutMs: SS.modelConfig.network.feedbackTimeoutMs,
+        allowHttpError: true,
+        init: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }).then(function (res) {
+        }
+      }).then(function (reply) {
+        var res = reply.response;
+        var data = reply.data;
         if (!res.ok) {
-          return res.json().catch(function () { return {}; }).then(function (errJson) {
+          return Promise.resolve(data || {}).then(function (errJson) {
             return {
               local: !!localRecord,
               remote: false,
@@ -179,7 +185,7 @@
             };
           });
         }
-        return res.json().then(function (data) {
+        return Promise.resolve(data).then(function (data) {
           if (!data || data.success !== true) {
             return { local: !!localRecord, remote: false, id: localId, cooldown: !!(data && data.cooldown), error: data && data.error || '服务器未确认反馈已保存' };
           }
@@ -187,7 +193,7 @@
         });
       }).catch(function (netErr) {
         /* 网络离线或静态环境（如 file:// 本地预览），保持本地有效 */
-        return { local: !!localRecord, remote: false, id: localId, error: '无法连接反馈服务，请稍后重试' };
+        return { local: !!localRecord, remote: false, id: localId, error: netErr && netErr.name === 'TimeoutError' ? '提交超时，服务器是否保存尚未确认；请稍后核实再重试（不会自动重复提交）' : '无法连接反馈服务，请稍后重试' };
       });
     }
 

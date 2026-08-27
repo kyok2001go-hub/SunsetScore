@@ -44,58 +44,37 @@
 
   /* 加载一组瓦片并合成到离屏 canvas。
      支持双重容错：优先直连，当遇到 CORS 阻断或瓦片拉取失败时，自动平滑回退至 Pages 边缘代理 /api/proxy */
-  function loadTileCanvas(tiles, w, h, urlFn) {
-    function tryLoad(useProxy) {
-      return new Promise(function (resolve, reject) {
-        var canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        var ctx = canvas.getContext('2d');
-        var pending = tiles.length;
-        var failed = 0;
-        if (!pending) { reject(new Error('无瓦片')); return; }
-
-        function done() {
-          if (--pending !== 0) return;
-          if (failed === tiles.length) {
-            reject(new Error(useProxy ? '全部瓦片代理拉取失败' : '全部瓦片直连失败'));
-            return;
-          }
-          try {
-            var data = ctx.getImageData(0, 0, w, h); /* 触发污染检查 */
-            resolve({ canvas: canvas, data: data, isProxied: useProxy });
-          } catch (e) {
-            reject(new Error('canvas 污染（CORS 不可用）'));
-          }
+  async function loadTileCanvas(tiles, w, h, urlFn, options) {
+    options = options || {};
+    async function tryLoad(useProxy) {
+      SS.network.throwIfAborted(options.signal);
+      if (!tiles.length) throw new Error('无瓦片');
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      var loaded = await Promise.all(tiles.map(async function (tile) {
+        var url = urlFn(tile.x, tile.y);
+        if (useProxy) url = '/api/proxy?url=' + encodeURIComponent(url);
+        try {
+          var img = await SS.network.loadImage(url, options);
+          SS.network.throwIfAborted(options.signal);
+          ctx.drawImage(img, tile.dx, tile.dy);
+          return true;
+        } catch (error) {
+          SS.network.throwIfAborted(options.signal);
+          return false;
         }
-
-        tiles.forEach(function (t) {
-          var originalUrl = urlFn(t.x, t.y);
-          var finalUrl = (useProxy && typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0)
-            ? '/api/proxy?url=' + encodeURIComponent(originalUrl)
-            : originalUrl;
-
-          var img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = function () {
-            try { ctx.drawImage(img, t.dx, t.dy); } catch (e) { /* 忽略单瓦片绘制异常 */ }
-            done();
-          };
-          img.onerror = function () {
-            failed++;
-            done();
-          };
-          img.src = finalUrl;
-        });
-      });
+      }));
+      SS.network.throwIfAborted(options.signal);
+      if (!loaded.some(Boolean)) throw new Error(useProxy ? '全部瓦片代理拉取失败' : '全部瓦片直连失败');
+      return { canvas: canvas, data: ctx.getImageData(0, 0, w, h), isProxied: useProxy };
     }
-
-    /* 优先直连，若失败（如 CORS 报错或瓦片 CDN 拦截）且处于 HTTP(S) 环境，自动尝试 /api/proxy 兜底 */
-    return tryLoad(false).catch(function (err) {
-      if (typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.indexOf('http') === 0) {
-        return tryLoad(true);
-      }
-      throw err;
-    });
+    try { return await tryLoad(false); }
+    catch (error) {
+      SS.network.throwIfAborted(options.signal);
+      if (root.location && /^https?:$/.test(root.location.protocol)) return tryLoad(true);
+      throw error;
+    }
   }
 
   /* 计算覆盖半径内的瓦片集合与画布几何 */

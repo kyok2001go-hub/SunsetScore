@@ -5,7 +5,7 @@ const { database, request } = require('./d1-helper.cjs');
 
 function setup() {
   return load(createRuntime(), [
-    'js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+    'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
     'js/baseline.js', 'js/evolution.js', 'js/feedback_service.js'
   ]);
 }

@@ -21,6 +21,11 @@
       cache: result.cache_status,
       score: result.score,
       components: result.components,
+      distance_diagnostics: {
+        reliability: result.distance_reliability,
+        band_coverage: result.distance_band_coverage,
+        illumination_data_factor: result.illumination_data_factor
+      },
       regime: result.regime_state,
       skyState: result.all_day_sky_state,
       evolution: result.sky_evolution

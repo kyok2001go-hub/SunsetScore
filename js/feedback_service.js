@@ -99,6 +99,11 @@
       sunset: { local: result.sunset_local, azimuth: result.sunset_azimuth, twilight_minutes: result.twilight_minutes },
       score: { final: result.score, level: result.level, baseline: result.baseline_score, baseline_level: result.baseline_level },
       components: components,
+      distance_diagnostics: {
+        reliability: Number.isFinite(result.distance_reliability) ? result.distance_reliability : null,
+        band_coverage: Number.isFinite(result.distance_band_coverage) ? result.distance_band_coverage : null,
+        illumination_data_factor: Number.isFinite(result.illumination_data_factor) ? result.illumination_data_factor : null
+      },
       dynamic_weights: weights,
       regime: { label: result.regime_label, strength: regime.strength, transition: regime.transition },
       weather_data: d,
@@ -109,7 +114,11 @@
         minutes_to_sunset: Number.isFinite(result.hours_to_sunset) ? result.hours_to_sunset * 60 : null,
         probability_status: hasProbabilities ? 'READY'
           : (result.nowcast_active === false ? 'NOT_ACTIVE' : 'NO_VALID_PROBABILITY'),
-        sources_status: { radar: radarStatus, satellite: satelliteStatus },
+        sources_status: {
+          radar: radarStatus, satellite: satelliteStatus,
+          precip: result.nowcast && result.nowcast.sourcesStatus ? result.nowcast.sourcesStatus.precip : null,
+          qweather: result.nowcast && result.nowcast.sourcesStatus ? result.nowcast.sourcesStatus.qweather : null
+        },
         macro_state: state.state,
         macro_factor: result.sky_evolution_factor,
         gw_factor: evolution.gwFactor,

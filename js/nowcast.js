@@ -5,7 +5,7 @@
  *   2. radar     RainViewer 雷达瓦片三帧 → 走廊回波覆盖率序列 / 运动 / 到达风险
  *   3. satellite NASA GIBS 静止卫星三帧 → 走廊云覆盖率序列 / 距离分层
  * V2.0：几何/瓦片/走廊工具已抽到 corridor.js；覆盖率序列供 evolution.js
- *       做概率演化（指数衰减 + 不确定度）；V1.9 的 score/modifier 输出保留供回退。
+ *       做概率演化（指数衰减 + 不确定度）；score 只用于趋势诊断，不叠加到最终评分。
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -25,11 +25,8 @@
     for (var i = 0; i < arr.length; i++) s += arr[i];
     return s / arr.length;
   }
-  function fetchJson(url) {
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('请求失败（HTTP ' + r.status + '）');
-      return r.json();
-    });
+  function fetchJson(url, options) {
+    return SS.network.json(url, Object.assign({ timeoutMs: SS.modelConfig.network.observationTimeoutMs }, options));
   }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   function fmtHM(utcMs, offsetSeconds) {
@@ -42,14 +39,11 @@
      未配置/失败时回退 Open-Meteo minutely_15（15 分钟粒度、全球无 Key）。
      两者统一归一化为 series {times, precip, stepMs, source} */
 
-  function fetchQWeatherMinutePrecip(lat, lon) {
+  function fetchQWeatherMinutePrecip(lat, lon, options) {
     var qw = SS.modelConfig.nowcast.qweather;
-    if (!qw || !qw.endpoint || typeof location === 'undefined' || location.protocol === 'file:') return Promise.resolve(null);
+    if (!SS.modelConfig.nowcast.enabled || !qw || !qw.enabled || !qw.endpoint || typeof location === 'undefined' || location.protocol === 'file:') return Promise.resolve(null);
     var url = qw.endpoint + '?lat=' + encodeURIComponent(lat.toFixed(4)) + '&lon=' + encodeURIComponent(lon.toFixed(4));
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('QWeather 请求失败（HTTP ' + r.status + '）');
-      return r.json();
-    }).then(function (json) {
+    return fetchJson(url, options).then(function (json) {
       /* 注意：QWeather 业务错误也返回 HTTP 200，需检查业务状态码 */
       if (!json || json.code !== '200' || !json.minutely || json.minutely.length < 8) return null;
       var times = [], precip = [];
@@ -66,11 +60,11 @@
     });
   }
 
-  function fetchOpenMeteoMinutePrecip(lat, lon) {
+  function fetchOpenMeteoMinutePrecip(lat, lon, options) {
     var url = SS.modelConfig.api.forecast +
       '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
       '&minutely_15=precipitation&forecast_minutely_15=120&timezone=auto';
-    return fetchJson(url).then(function (json) {
+    return fetchJson(url, options).then(function (json) {
       var m15 = json && json.minutely_15;
       if (!m15 || !m15.time || !m15.precipitation || m15.time.length < 8) return null;
       var offsetMs = (json.utc_offset_seconds || 0) * 1000;
@@ -86,12 +80,18 @@
   }
 
   /* 统一入口：QWeather → Open-Meteo 逐级回退 */
-  function fetchMinutePrecip(lat, lon) {
-    return fetchQWeatherMinutePrecip(lat, lon).then(function (series) {
-      return series || fetchOpenMeteoMinutePrecip(lat, lon);
-    }).catch(function () {
-      return fetchOpenMeteoMinutePrecip(lat, lon);
-    });
+  async function fetchMinutePrecip(lat, lon, options) {
+    options = options || {};
+    SS.network.throwIfAborted(options.signal);
+    if (!SS.modelConfig.nowcast.enabled) return null;
+    try {
+      var series = await fetchQWeatherMinutePrecip(lat, lon, options);
+      if (series) return series;
+    } catch (error) {
+      SS.network.throwIfAborted(options.signal);
+    }
+    // Disabling QWeather keeps the independent Open-Meteo minute fallback available.
+    return fetchOpenMeteoMinutePrecip(lat, lon, options);
   }
 
   // Read the interval containing the requested time. Never extend a stale series
@@ -211,7 +211,7 @@
   /* ---------- Source 2：雷达雨系运动（RainViewer Weather Maps API，Phase 2） ----------
      免费公开端点（无需注册/密钥，仅个人与教育用途）：
      三帧雷达瓦片 → 日落走廊回波覆盖率序列（V2.0 演化输入）、质心运动向量 →
-     ClearingVelocity 与 RainArrivalRisk（V1.9 回退字段保留）。v2 API 最大 zoom=7 */
+     ClearingVelocity 与 RainArrivalRisk（趋势诊断字段保留）。v2 API 最大 zoom=7 */
 
   /* 瓦片像素 → 回波：RainViewer 色斑图，RGB 任一通道非黑即视为回波 */
   function echoAt(data, off, thr) {
@@ -219,8 +219,8 @@
       (data[off] >= thr || data[off + 1] >= thr || data[off + 2] >= thr);
   }
 
-  function fetchRadarFrames() {
-    return fetchJson(SS.modelConfig.nowcast.radar.endpoint).then(function (json) {
+  function fetchRadarFrames(options) {
+    return fetchJson(SS.modelConfig.nowcast.radar.endpoint, options).then(function (json) {
       var host = (json && json.host) || 'https://tilecache.rainviewer.com';
       var past = (json && json.radar && json.radar.past) || [];
       var frames = past.filter(function (f) { return f && f.path && f.time; });
@@ -248,11 +248,13 @@
     return false;
   }
 
-  function analyzeRadar(lat, lon, sunsetAzimuthDeg) {
+  function analyzeRadar(lat, lon, sunsetAzimuthDeg, options) {
+    SS.network.throwIfAborted(options && options.signal);
+    if (!SS.modelConfig.nowcast.enabled || !SS.modelConfig.nowcast.radar.enabled) return Promise.resolve(null);
     var rc = SS.modelConfig.nowcast.radar;
     var cor = SS.corridor;
     var evo = SS.modelConfig.evolution;
-    return fetchRadarFrames().then(function (frameInfo) {
+    return fetchRadarFrames(options).then(function (frameInfo) {
       var frames = frameInfo.frames;
       var plan = cor.tilePlan(lat, lon, rc.coverRadiusKm, rc.zoom, rc.tileSize);
       if (!plan) return null;
@@ -263,7 +265,7 @@
         };
       };
       return Promise.all(frames.map(function (f) {
-        return cor.loadTileCanvas(plan.tiles, plan.w, plan.h, urlFn(f));
+        return cor.loadTileCanvas(plan.tiles, plan.w, plan.h, urlFn(f), options);
       })).then(function (imgs) {
         var mask = cor.sectorSample(plan, lat, lon, sunsetAzimuthDeg,
           evo.corridor.maxDistanceKm, evo.corridor.azimuthHalfWidth, rc.zoom, rc.tileSize, 3);
@@ -332,7 +334,7 @@
           }
         }
 
-        /* 雷达评分（−100~100）：V1.9 回退字段，V2.0 演化引擎不使用 */
+        /* 雷达评分（−100~100）：趋势诊断字段，V2.0 演化引擎不使用 */
         var trendScore = clamp(clearingVelocity * 20, -50, 50); /* [TUNE] */
         var riskScore = risk === 'HIGH' ? -50 : risk === 'MEDIUM' ? -25 : risk === 'LOW' ? -10 : 0;
         if (covPctT < 5 && risk === 'NONE') riskScore = 20; /* 走廊无回波 */
@@ -406,11 +408,9 @@
 
   /* 从候选图层中找到第一个在 Capabilities 中存在且有 ≥3 个时刻的（V2.0 三帧演化），
      同时解析该图层的 TileMatrixSet（修复 V1.9 硬编码 Level9 导致 400 的问题） */
-  function fetchSatelliteTimes(candidates) {
-    return fetch(SS.modelConfig.nowcast.satellite.capabilities).then(function (r) {
-      if (!r.ok) throw new Error('GIBS Capabilities 请求失败');
-      return r.text();
-    }).then(function (xml) {
+  function fetchSatelliteTimes(candidates, options) {
+    return SS.network.text(SS.modelConfig.nowcast.satellite.capabilities,
+      Object.assign({ timeoutMs: SS.modelConfig.network.observationTimeoutMs }, options)).then(function (xml) {
       for (var ci = 0; ci < candidates.length; ci++) {
         var li = xml.indexOf('>' + candidates[ci] + '<');
         if (li < 0) li = xml.indexOf('"' + candidates[ci] + '"');
@@ -430,11 +430,13 @@
     });
   }
 
-  function analyzeSatellite(lat, lon, sunsetAzimuthDeg) {
+  function analyzeSatellite(lat, lon, sunsetAzimuthDeg, options) {
+    SS.network.throwIfAborted(options && options.signal);
+    if (!SS.modelConfig.nowcast.enabled || !SS.modelConfig.nowcast.satellite.enabled) return Promise.resolve(null);
     var sc = SS.modelConfig.nowcast.satellite;
     var cor = SS.corridor;
     var evo = SS.modelConfig.evolution;
-    return fetchSatelliteTimes(pickSatelliteCandidates(lon)).then(function (pair) {
+    return fetchSatelliteTimes(pickSatelliteCandidates(lon), options).then(function (pair) {
       var plan = cor.tilePlan(lat, lon, sc.coverRadiusKm, sc.zoom, sc.tileSize);
       if (!plan) return null;
       var urlFn = function (time, ext) {
@@ -447,10 +449,10 @@
       /* 瓦片格式随图层而异：先试 jpg，失败回退 png */
       function loadFrames(ext) {
         return Promise.all(pair.times.map(function (t) {
-          return cor.loadTileCanvas(plan.tiles, plan.w, plan.h, urlFn(t, ext));
+          return cor.loadTileCanvas(plan.tiles, plan.w, plan.h, urlFn(t, ext), options);
         }));
       }
-      return loadFrames('jpg').catch(function () { return loadFrames('png'); }).then(function (imgs) {
+      return loadFrames('jpg').catch(function () { SS.network.throwIfAborted(options && options.signal); return loadFrames('png'); }).then(function (imgs) {
         var mask = cor.sectorSample(plan, lat, lon, sunsetAzimuthDeg,
           evo.corridor.maxDistanceKm, evo.corridor.azimuthHalfWidth, sc.zoom, sc.tileSize, 4);
         if (!mask.idx.length) return null;
@@ -482,9 +484,9 @@
         if (!(dtMin > 0)) return null;
         var trendPctPerMin = (covPctPrev - covPctT) / dtMin; /* 正 = 走廊云正在减少 */
 
-        /* HighCloudPotential：走廊薄云覆盖率接近最佳中心时高分 [TUNE]（V1.9 回退字段） */
+        /* HighCloudPotential：走廊薄云覆盖率接近最佳中心时高分 [TUNE]（趋势诊断字段） */
         var highCloudPotential = gauss(covPctT, sc.highCloudCenter, sc.highCloudWidth);
-        /* CloudArrivalRisk：覆盖率正在上升且速度偏快 → 云正在进入走廊（V1.9 回退字段） */
+        /* CloudArrivalRisk：覆盖率正在上升且速度偏快 → 云正在进入走廊（趋势诊断字段） */
         var cloudRisk = trendPctPerMin <= -0.5 ? 'HIGH' : trendPctPerMin <= -0.1 ? 'MEDIUM' : 'LOW';
 
         var trendScore = clamp(trendPctPerMin * 8, -40, 40); /* [TUNE] */
@@ -519,7 +521,7 @@
    */
   function fuse(sources) {
     var w = SS.modelConfig.nowcast.weights;
-    var limit = SS.modelConfig.nowcast.modifierLimit;
+    var limit = SS.modelConfig.nowcast.trendScale;
     var parts = [], wsum = 0;
 
     if (valid(sources.forecastTrend)) {
@@ -556,7 +558,6 @@
 
     return {
       nowcastScore: nowcastScore,
-      goldenWindowModifier: modifier,
       trend: trend,
       goldenWindow: goldenWindow,
       sources: parts.map(function (p) { return p.key; }),
@@ -581,54 +582,68 @@
      * 汇总执行：任一源失败静默降级。forecastTrend 由 app.js 从小时预报计算传入。
      * @returns {Promise<Object|null>}
      */
-    run: function (ctx) {
+    run: function (ctx, options) {
+      options = options || {};
+      SS.network.throwIfAborted(options.signal);
       /* ctx: {lat, lon, dateStr, nowUtc, sunsetAzimuthDeg, forecastTrend, utcOffsetSeconds} */
-      var nc19 = SS.modelConfig.nowcast;
-      var ttl = nc19.ttlMinutes;
+      var nowcastConfig = SS.modelConfig.nowcast;
+      var ttl = nowcastConfig.ttlMinutes;
 
       function cached(type, fetcher) {
+        if (!nowcastConfig.enabled || (type !== 'precip' && !nowcastConfig[type].enabled)) {
+          return Promise.resolve({ analysis: null, status: 'DISABLED', error: null });
+        }
         var key = SS.cacheKeys.nowcast(type, ctx.dateStr, ctx.lat, ctx.lon);
         var fresh = SS.cache.get(key);
         if (fresh) return Promise.resolve(fresh);
-        return fetcher().then(function (v) {
+        return SS.network.run(function (signal) {
+          return fetcher({ signal: signal });
+        }, { signal: options.signal, timeoutMs: SS.modelConfig.network.sourceTimeoutMs }).then(function (v) {
+          SS.network.throwIfAborted(options.signal);
           if (v) SS.cache.set(key, v, ttl[type]);
           return v;
-        }).catch(function () { return null; });
+        }).catch(function (error) {
+          SS.network.throwIfAborted(options.signal);
+          return { analysis: null, status: error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: error.message };
+        });
       }
 
       return Promise.all([
-        cached('precip', function () {
-          return fetchMinutePrecip(ctx.lat, ctx.lon).then(function (series) {
+        cached('precip', function (sourceOptions) {
+          return fetchMinutePrecip(ctx.lat, ctx.lon, sourceOptions).then(function (series) {
             var a = analyzePrecip(series, ctx.nowUtc.valueOf());
             return { analysis: a, status: a ? 'OK' : 'NO_DATA', error: a ? null : '无分钟级降水' };
           }).catch(function (err) {
-            return { analysis: null, status: 'FAILED', error: err.message || '降水接口异常' };
+            SS.network.throwIfAborted(sourceOptions.signal);
+            return { analysis: null, status: err.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: err.message || '降水接口异常' };
           });
         }),
-        cached('radar', function () {
+        cached('radar', function (sourceOptions) {
           /* 瓦片分析依赖 canvas：非浏览器环境与全瓦片失败记录诊断信息；
              失败也缓存空结果（TTL 内负缓存），避免对不可用源反复重试 */
           if (typeof document === 'undefined') {
             return Promise.resolve({ analysis: null, status: 'UNAVAILABLE', error: '非浏览器环境' });
           }
-          return analyzeRadar(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg)
+          return analyzeRadar(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg, sourceOptions)
             .then(function (a) {
               return { analysis: a, status: a ? 'OK' : 'EMPTY', error: a ? null : '区域无雷达回波覆盖' };
             })
             .catch(function (err) {
-              return { analysis: null, status: 'FAILED', error: err && err.message ? err.message : '雷达瓦片获取失败' };
+              SS.network.throwIfAborted(sourceOptions.signal);
+              return { analysis: null, status: err.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: err && err.message ? err.message : '雷达瓦片获取失败' };
             });
         }),
-        cached('satellite', function () {
+        cached('satellite', function (sourceOptions) {
           if (typeof document === 'undefined') {
             return Promise.resolve({ analysis: null, status: 'UNAVAILABLE', error: '非浏览器环境' });
           }
-          return analyzeSatellite(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg)
+          return analyzeSatellite(ctx.lat, ctx.lon, ctx.sunsetAzimuthDeg, sourceOptions)
             .then(function (a) {
               return { analysis: a, status: a ? 'OK' : 'EMPTY', error: a ? null : '区域无卫星有效数据' };
             })
             .catch(function (err) {
-              return { analysis: null, status: 'FAILED', error: err && err.message ? err.message : '卫星瓦片获取失败' };
+            SS.network.throwIfAborted(sourceOptions.signal);
+              return { analysis: null, status: err.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: err && err.message ? err.message : '卫星瓦片获取失败' };
             });
         })
       ]).then(function (res) {
@@ -644,9 +659,12 @@
           forecastTrend: ctx.forecastTrend,
           precip: precip, radar: radar, satellite: satellite
         });
-        if (!fusion) return null;
+        if (!fusion) fusion = { sources: [], trend: 'STABLE', nowcastScore: null, goldenWindow: null, clearTimeMs: null, cloudRisk: 'NONE' };
 
         fusion.sourcesStatus = {
+          qweather: { available: !!precip && precip.source === 'qweather',
+            status: !nowcastConfig.enabled || !nowcastConfig.qweather.enabled ? 'DISABLED'
+              : (precip && precip.source === 'qweather' ? 'OK' : 'FALLBACK_OR_UNAVAILABLE'), error: null },
           precip: { available: !!precip, status: precipRes.status || (precip ? 'OK' : 'FAILED'), error: precipRes.error || null },
           radar: { available: !!radar, status: radarRes.status || (radar ? 'OK' : 'FAILED'), error: radarRes.error || null },
           satellite: { available: !!satellite, status: satRes.status || (satellite ? 'OK' : 'FAILED'), error: satRes.error || null }

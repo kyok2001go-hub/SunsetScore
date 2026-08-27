@@ -4,15 +4,9 @@
  * V1.8：数据层优化（Batch/采样/缓存），Engine 仅新增采样与缓存
  *   元信息输出（sampling_mode / spatial_completeness / data_freshness 等），
  *   评分公式、权重与 Regime 逻辑保持不变。
- * V1.7 公式（weatherRegimeV17.enabled=true）：
+ * 当前生产公式：
  *   Score = Clamp[ (Σ component_i × DynamicWeight_i) × Q × G_H
  *                  + B_structure + B_transition − P_weather, 0, 100 ]
- * V1.61 原公式（enabled=false 回退）：
- *   Score = Clamp[ P × Q × G_H + B_regime − P_weather, 0, 100 ]
- *   P = 0.30·SkyCanvas + 0.20·Horizon + 0.20·Illumination
- *       + 0.20·Atmosphere + 0.10·Weather
- *   Q = 0.70 + 0.30·(Atmosphere/100)
- *
  * V1.7 Weather Regime 动态权重升级：
  *   - Regime 强度检测（RegimeStrength）与 WeatherScore 重构
  *   - Dynamic Weight Controller：FinalWeight = BaseWeight × RegimeMultiplier
@@ -103,24 +97,6 @@
     return best;
   }
 
-  /* 读取某采样点某小时的变量 */
-  function sampleAt(forecast, idx) {
-    var h = forecast.hourly;
-    function at(key) { return h[key] ? h[key][idx] : null; }
-    return {
-      cloud: at('cloud_cover'),
-      low: at('cloud_cover_low'),
-      mid: at('cloud_cover_mid'),
-      high: at('cloud_cover_high'),
-      visM: at('visibility'),
-      rh: at('relative_humidity_2m'),
-      precip: at('precipitation'),
-      precipProb: at('precipitation_probability'),
-      wind: at('wind_speed_10m'),
-      pressure: at('surface_pressure')
-    };
-  }
-
   /* UTC 连续时间插值是核心评分唯一时刻采样策略。 */
   function interpolateAt(forecast, utcTime) {
     var d = SS.cloudField.extractInterpolatedAt(forecast, utcTime);
@@ -205,15 +181,10 @@
       .filter(valid);
     var farCloud = farVals.length ? avg(farVals) : canvas;
 
-    var localCompat = (ls.high != null && ls.lowGood != null)
-      ? 0.5 * ls.high + 0.5 * ls.lowGood : canvas;
-
-    var skyCanvas = cfg.skyCanvasWeights.canvas * canvas +
-      cfg.skyCanvasWeights.far * farCloud +
-      cfg.skyCanvasWeights.localCompat * localCompat;
+    var skyCanvas;
 
     /* ===== 10-11. Horizon + Gate（V1.6：分区加权 + 角权重） ===== */
-    var sf = cfg.spatialFieldV16;
+    var sf = cfg.spatialField;
     var bySector = { corridor: [], cloudBank: [], side: [] };
     input.samples.forEach(function (s) {
       var sc = scoresAt(s);
@@ -263,7 +234,7 @@
     /* 太阳角度因子：民用昏影越长，低角度照射云层的时间越充分 */
     var solarAngleScore = 30 + 70 * clamp(input.solar.twilightMinutes / 35, 0, 1);
 
-    var spatialSum = 0, spatialW = 0, confSum = 0;
+    var spatialSum = 0, spatialW = 0, bandWeightSum = 0;
     Object.keys(sf.distanceBands).forEach(function (bandName) {
       var inBand = input.samples.filter(function (s) {
         return getDistanceBand(s.point.distanceKm) === bandName;
@@ -279,14 +250,17 @@
         var w = sf.distanceBands[bandName] * conf;
         spatialSum += w * avg(vals);
         spatialW += w;
-        confSum += sf.distanceBands[bandName] * conf;
+        bandWeightSum += sf.distanceBands[bandName];
       }
     });
     var spatialCompat = spatialW > 0 ? spatialSum / spatialW : canvas;
-    /* DistanceConfidence：按实际贡献归一后的分带预报可信度 */
-    var distanceConfidence = confSum > 0
-      ? spatialW / confSum
-      : (sf.forecastConfidence.far || 0.75);
+    // Diagnostic only: weighted reliability of available distance bands, not a calibrated probability.
+    var distanceReliability = bandWeightSum > 0 ? spatialW / bandWeightSum : null;
+    var totalBandWeight = Object.keys(sf.distanceBands).reduce(function (sum, key) {
+      return sum + sf.distanceBands[key];
+    }, 0);
+    // Preserve the production illumination behavior (1 with data; existing fallback without data).
+    var illuminationDataFactor = spatialW > 0 ? 1 : (sf.forecastConfidence.far || 0.75);
 
     /* ===== V1.6 Cloud Bank 云幕识别模型（方案五章） ===== */
     /* 高中云"在哪"比"多少"更重要：识别云是否集中在太阳附近且不遮挡核心方向 */
@@ -349,12 +323,12 @@
     /* ===== V1.61 Cloud Continuity（增强方案 4.2 节） ===== */
     /* 沿每个方位角的距离链（50→100→200→300km）计算相邻相似度，
        替换 V1.6 的全扇区 stdDev 版本（文档给出正式定义） */
-    var sf61 = cfg.spatialFieldV161;
+    var spatialEvolution = cfg.spatialEvolution;
     function cloudPotentialAt(sample) {
       var hm = valueAt(sample, 'high');
       var md = valueAt(sample, 'mid');
       if (!valid(hm) || !valid(md)) return null;
-      return sf61.continuity.midWeight * md + sf61.continuity.highWeight * hm;
+      return spatialEvolution.continuity.midWeight * md + spatialEvolution.continuity.highWeight * hm;
     }
     var chainContinuities = [];
     cfg.azimuthOffsets.forEach(function (offset) {
@@ -392,32 +366,32 @@
     var gradientVal = (nearCloud != null && farCloudG != null) ? farCloudG - nearCloud : null;
     var gradientType = 'neutral';
     if (gradientVal != null) {
-      if (gradientVal > sf61.gradient.farType) gradientType = 'far_cloud_bank';
-      else if (gradientVal < sf61.gradient.nearType) gradientType = 'approaching_cloud';
+      if (gradientVal > spatialEvolution.gradient.farType) gradientType = 'far_cloud_bank';
+      else if (gradientVal < spatialEvolution.gradient.nearType) gradientType = 'approaching_cloud';
     }
 
     /* CloudStructureScore = 0.6×Continuity + 0.4×GradientScore */
-    var cloudStructureScore = sf61.structure.continuityWeight * continuity +
-      sf61.structure.gradientWeight * clamp(gradientVal != null ? gradientVal : 0, 0, 100);
+    var cloudStructureScore = spatialEvolution.structure.continuityWeight * continuity +
+      spatialEvolution.structure.gradientWeight * clamp(gradientVal != null ? gradientVal : 0, 0, 100);
 
     /* SkyCanvas V1.61 = 0.30×Local + 0.30×CloudBank + 0.15×FarField
-       + 0.15×CloudStructure + 0.10×AntiSunset（antiSunset 待 Sprint 3 替换兜底项） */
-    var w161 = sf61.skyCanvasWeightsV161;
+       + 0.15×CloudStructure + 0.10×AntiSunset（有反向云场时使用反向指标，否则保留本地近似） */
+    var canvasWeights = spatialEvolution.skyCanvasWeights;
     var antiSunsetScore = canvas;
-    skyCanvas = w161.local * canvas + w161.bank * bankScore +
-      w161.far * farCloud + w161.structure * cloudStructureScore +
-      w161.antiSunset * antiSunsetScore;
+    skyCanvas = canvasWeights.local * canvas + canvasWeights.bank * bankScore +
+      canvasWeights.far * farCloud + canvasWeights.structure * cloudStructureScore +
+      canvasWeights.antiSunset * antiSunsetScore;
 
     /* 结构加分：远方连续云幕形成（方案 4.4 节） */
     var structureBonus = (gradientVal != null &&
-      gradientVal > sf61.structure.bonusGradientMin &&
-      continuity > sf61.structure.bonusContinuityMin)
-      ? sf61.structure.bonusValue : 0;
+      gradientVal > spatialEvolution.structure.bonusGradientMin &&
+      continuity > spatialEvolution.structure.bonusContinuityMin)
+      ? spatialEvolution.structure.bonusValue : 0;
 
-    /* Illumination V1.6 = SolarAngle × CloudBankPotential × DistanceConfidence */
+    /* Illumination = SolarAngle × CloudBankPotential × IlluminationDataFactor */
     var cloudBankPotential = 0.5 * bankScore + 0.5 * spatialCompat;
     var illumination = clamp(
-      solarAngleScore * cloudBankPotential / 100 * distanceConfidence, 0, 100);
+      solarAngleScore * cloudBankPotential / 100 * illuminationDataFactor, 0, 100);
 
     /* ===== 13. Atmosphere ===== */
     var visKm = valid(lv.visM) ? lv.visM / 1000 : null;
@@ -445,8 +419,8 @@
     /* V2.1 升级：若传入 360° CloudField，则提取日落方位反向 (sunsetAzimuth + 180°)
        的真实射线节点计算反日落中高云反射；未传入时回退本地高云兜底 */
     var antiHighVal = null, antiTotalVal = null;
-    if (sf61.antiSunset.enabled) {
-      var antiW = sf61.antiSunset.weights;
+    if (spatialEvolution.antiSunset.enabled) {
+      var antiW = spatialEvolution.antiSunset.weights;
       var antiHigh = ls.high != null ? ls.high : 0;
       var sunsetField = input.cloudFieldSunset || input.cloudField;
       if (sunsetField && typeof sunsetField.getByRay === 'function') {
@@ -474,9 +448,9 @@
         antiW.high * antiHigh + antiW.continuity * continuity + antiW.visibility * antiVis,
         0, 100);
       /* 用真实 antiSunset 项重建 SkyCanvas（完整 V1.61 权重） */
-      skyCanvas = w161.local * canvas + w161.bank * bankScore +
-        w161.far * farCloud + w161.structure * cloudStructureScore +
-        w161.antiSunset * antiSunsetScore;
+      skyCanvas = canvasWeights.local * canvas + canvasWeights.bank * bankScore +
+        canvasWeights.far * farCloud + canvasWeights.structure * cloudStructureScore +
+        canvasWeights.antiSunset * antiSunsetScore;
     }
 
     /* ===== 14-15. Weather Regime ===== */
@@ -560,7 +534,7 @@
     /* ===== V1.61 Spatial Clearing Front（增强方案五章） ===== */
     /* 引入时间维度：各节点 T-3h 与当前的低云对比，识别清空速率与推进方向。
        凌晨时段历史小时不足时按可用长度截断并降低 confidence */
-    var clrCfg = sf61.clearing;
+    var clrCfg = spatialEvolution.clearing;
     var histLen = Math.min(clrCfg.historyHours, Math.max(0, nowIdx));
     var clearingRates = [], clearingValid = 0;
     var nearRates = [], farRates = [];
@@ -612,105 +586,99 @@
 
     /* ===== V1.7 Regime Strength（技术方案 五~六 章） =====
        Regime 从布尔判定升级为连续强度（0-1），驱动动态权重插值；
-       enabled=false 时 strength 保持中性值，动态权重不启用 */
-    var v17 = cfg.weatherRegimeV17;
+       当前生产仅保留这一套强度与动态权重计算 */
+    var regimeConfig = cfg.weatherRegime;
     var strength = 0.5;
-    if (v17.enabled) {
-      /* 低云趋势：正 = 低云正在增加（供 STORM 强度使用） */
-      var lowCloudTrend = (sectorLowEarlier != null && sectorLowLater != null)
-        ? sectorLowLater - sectorLowEarlier : 0;
-      if (regime === 'CLEAR') {
-        strength = valid(lv.cloud) ? clamp(1 - lv.cloud / 20, 0, 1) : 0.5;
-      } else if (regime === 'OVERCAST') {
-        strength = valid(lv.cloud) ? clamp((lv.cloud - 85) / 15, 0, 1) : 0.5;
-      } else if (regime === 'PARTLY_CLOUDY') {
-        /* 总云量越接近 50% 越典型 */
-        strength = valid(lv.cloud) ? clamp(1 - Math.abs(lv.cloud - 50) / 60, 0.3, 1) : 0.5;
-      } else if (regime === 'HAZY') {
-        strength = 0.6 * (visKm != null ? clamp(1 - visKm / 5, 0, 1) : 0.5) +
-          0.4 * (valid(lv.rh) ? clamp((lv.rh - 85) / 15, 0, 1) : 0.5);
-      } else if (regime === 'RAIN_TO_CLEAR') {
-        /* 方案 6.2 节：0.30 RainHistory + 0.30 ClearingFront
-           + 0.20 OpeningTrend + 0.20 CloudStructure，输入均为 V1.61 已有能力 */
-        var rsW = v17.rainToClearStrength;
-        strength = rsW.history * clamp(pastRain / v17.rainHistoryFullMm, 0, 1) +
-          rsW.clearingFront * (clearingScore / 100) +
-          rsW.openingTrend * ((corridorOpening != null ? corridorOpening : 50) / 100) +
-          rsW.cloudStructure * (cloudStructureScore / 100);
-        if (regimeStrong) strength += v17.strongStrengthBoost;
-      } else if (regime === 'FRONT_PASSING') {
-        /* 方案 6.3 节：气压降幅 + 风速为基础，云梯度（云层逼近）增强 */
-        strength = 0.5 * clamp(pressureDrop / 5, 0, 1) + 0.5 * clamp(wind / 60, 0, 1);
-        if (gradientType === 'approaching_cloud') strength += 0.2;
-      } else if (regime === 'STORM_APPROACHING') {
-        /* 方案 6.4 节：Wind + Pressure Trend + Precipitation Increasing + Low Cloud Increasing */
-        strength = 0.35 * clamp(wind / 80, 0, 1) +
-          0.25 * clamp(pressureDrop / 8, 0, 1) +
-          0.25 * clamp(curRain / 8, 0, 1) +
-          0.15 * clamp(lowCloudTrend / 20, 0, 1);
-      }
-      strength = clamp(strength, 0, 1);
+    /* 低云趋势：正 = 低云正在增加（供 STORM 强度使用） */
+    var lowCloudTrend = (sectorLowEarlier != null && sectorLowLater != null)
+      ? sectorLowLater - sectorLowEarlier : 0;
+    if (regime === 'CLEAR') {
+      strength = valid(lv.cloud) ? clamp(1 - lv.cloud / 20, 0, 1) : 0.5;
+    } else if (regime === 'OVERCAST') {
+      strength = valid(lv.cloud) ? clamp((lv.cloud - 85) / 15, 0, 1) : 0.5;
+    } else if (regime === 'PARTLY_CLOUDY') {
+      /* 总云量越接近 50% 越典型 */
+      strength = valid(lv.cloud) ? clamp(1 - Math.abs(lv.cloud - 50) / 60, 0.3, 1) : 0.5;
+    } else if (regime === 'HAZY') {
+      strength = 0.6 * (visKm != null ? clamp(1 - visKm / 5, 0, 1) : 0.5) +
+        0.4 * (valid(lv.rh) ? clamp((lv.rh - 85) / 15, 0, 1) : 0.5);
+    } else if (regime === 'RAIN_TO_CLEAR') {
+      /* 方案 6.2 节：0.30 RainHistory + 0.30 ClearingFront
+         + 0.20 OpeningTrend + 0.20 CloudStructure，输入均为 V1.61 已有能力 */
+      var rsW = regimeConfig.rainToClearStrength;
+      strength = rsW.history * clamp(pastRain / regimeConfig.rainHistoryFullMm, 0, 1) +
+        rsW.clearingFront * (clearingScore / 100) +
+        rsW.openingTrend * ((corridorOpening != null ? corridorOpening : 50) / 100) +
+        rsW.cloudStructure * (cloudStructureScore / 100);
+      if (regimeStrong) strength += regimeConfig.strongStrengthBoost;
+    } else if (regime === 'FRONT_PASSING') {
+      /* 方案 6.3 节：气压降幅 + 风速为基础，云梯度（云层逼近）增强 */
+      strength = 0.5 * clamp(pressureDrop / 5, 0, 1) + 0.5 * clamp(wind / 60, 0, 1);
+      if (gradientType === 'approaching_cloud') strength += 0.2;
+    } else if (regime === 'STORM_APPROACHING') {
+      /* 方案 6.4 节：Wind + Pressure Trend + Precipitation Increasing + Low Cloud Increasing */
+      strength = 0.35 * clamp(wind / 80, 0, 1) +
+        0.25 * clamp(pressureDrop / 8, 0, 1) +
+        0.25 * clamp(curRain / 8, 0, 1) +
+        0.15 * clamp(lowCloudTrend / 20, 0, 1);
     }
+    strength = clamp(strength, 0, 1);
 
     /* ===== V1.7 WeatherScore（技术方案十二章） =====
        WeatherScore = 0.4×CurrentCondition + 0.3×Trend + 0.3×Stability，
        替换 V1.61 的 regimeScore 静态查表 */
     var weatherBreakdown = null;
-    if (v17.enabled) {
-      var wsCfg = v17.weatherScore;
-      /* CurrentCondition：regime 基线分，按当前降水/降水概率折减 */
-      var currentCondition = clamp(cfg.regimeScore[regime] -
-        10 * clamp(curRain / 4, 0, 1) - 15 * (rainProb / 100), 0, 100);
-      /* Trend：清空锋面 + 空间梯度（负梯度 = 云层逼近 → 低分） */
-      var gradientTrend = clamp(50 + (gradientVal != null ? gradientVal : 0) * 0.5, 0, 100);
-      var trendScore = 0.6 * clearingScore + 0.4 * gradientTrend;
-      /* Stability：日落前 stabilityHours 小时云量/降水/风速的恶化程度 */
-      var hourlyLocal = localSample.forecast.hourly;
-      var stabStart = Math.max(0, idx - wsCfg.stabilityHours);
-      function seriesDelta(key) {
-        var s = hourlyLocal[key];
-        if (!s || !valid(s[idx]) || !valid(s[stabStart])) return 0;
-        return s[idx] - s[stabStart];
-      }
-      var deterioration = Math.max(0, seriesDelta('cloud_cover')) * 0.8 +
-        Math.max(0, seriesDelta('precipitation')) * 15 +
-        Math.max(0, seriesDelta('wind_speed_10m')) * 1.0;
-      var stability = clamp(100 - deterioration, 0, 100);
-      weather = wsCfg.current * currentCondition +
-        wsCfg.trend * trendScore + wsCfg.stability * stability;
-      weatherBreakdown = {
-        current: Math.round(currentCondition),
-        trend: Math.round(trendScore),
-        stability: Math.round(stability)
-      };
+    var wsCfg = regimeConfig.weatherScore;
+    /* CurrentCondition：regime 基线分，按当前降水/降水概率折减 */
+    var currentCondition = clamp(cfg.regimeScore[regime] -
+      10 * clamp(curRain / 4, 0, 1) - 15 * (rainProb / 100), 0, 100);
+    /* Trend：清空锋面 + 空间梯度（负梯度 = 云层逼近 → 低分） */
+    var gradientTrend = clamp(50 + (gradientVal != null ? gradientVal : 0) * 0.5, 0, 100);
+    var trendScore = 0.6 * clearingScore + 0.4 * gradientTrend;
+    /* Stability：日落前 stabilityHours 小时云量/降水/风速的恶化程度 */
+    var hourlyLocal = localSample.forecast.hourly;
+    var stabStart = Math.max(0, idx - wsCfg.stabilityHours);
+    function seriesDelta(key) {
+      var s = hourlyLocal[key];
+      if (!s || !valid(s[idx]) || !valid(s[stabStart])) return 0;
+      return s[idx] - s[stabStart];
     }
+    var deterioration = Math.max(0, seriesDelta('cloud_cover')) * 0.8 +
+      Math.max(0, seriesDelta('precipitation')) * 15 +
+      Math.max(0, seriesDelta('wind_speed_10m')) * 1.0;
+    var stability = clamp(100 - deterioration, 0, 100);
+    weather = wsCfg.current * currentCondition +
+      wsCfg.trend * trendScore + wsCfg.stability * stability;
+    weatherBreakdown = {
+      current: Math.round(currentCondition),
+      trend: Math.round(trendScore),
+      stability: Math.round(stability)
+    };
 
     /* ===== V1.7 Dynamic Weight Controller（技术方案 七~九 章） =====
        FinalWeight = BaseWeight × (1 + (RegimeMult − 1) × strength)：
        按 strength 在基础权重与 regime 乘数间插值（strength=0 退化为 V1.61 权重），
        Weather 权重施加下限后整体归一 Σ=1 */
     var dynamicWeights = null;
-    if (v17.enabled) {
-      var mults = v17.weights[regime] ||
-        { skyCanvas: 1, horizon: 1, illumination: 1, atmosphere: 1, weather: 1 };
-      function blendWeight(base, mult) { return base * (1 + (mult - 1) * strength); }
-      dynamicWeights = {
-        skyCanvas: blendWeight(cfg.weights.skyCanvas, mults.skyCanvas),
-        horizon: blendWeight(cfg.weights.horizon, mults.horizon),
-        illumination: blendWeight(cfg.weights.illumination, mults.illumination),
-        atmosphere: blendWeight(cfg.weights.atmosphere, mults.atmosphere),
-        weather: Math.max(blendWeight(cfg.weights.weather, mults.weather), v17.minimumWeatherWeight)
-      };
-      var wSum = dynamicWeights.skyCanvas + dynamicWeights.horizon +
-        dynamicWeights.illumination + dynamicWeights.atmosphere + dynamicWeights.weather;
-      Object.keys(dynamicWeights).forEach(function (k) { dynamicWeights[k] /= wSum; });
-    }
+    var mults = regimeConfig.weights[regime] ||
+      { skyCanvas: 1, horizon: 1, illumination: 1, atmosphere: 1, weather: 1 };
+    function blendWeight(base, mult) { return base * (1 + (mult - 1) * strength); }
+    dynamicWeights = {
+      skyCanvas: blendWeight(cfg.weights.skyCanvas, mults.skyCanvas),
+      horizon: blendWeight(cfg.weights.horizon, mults.horizon),
+      illumination: blendWeight(cfg.weights.illumination, mults.illumination),
+      atmosphere: blendWeight(cfg.weights.atmosphere, mults.atmosphere),
+      weather: Math.max(blendWeight(cfg.weights.weather, mults.weather), regimeConfig.minimumWeatherWeight)
+    };
+    var wSum = dynamicWeights.skyCanvas + dynamicWeights.horizon +
+      dynamicWeights.illumination + dynamicWeights.atmosphere + dynamicWeights.weather;
+    Object.keys(dynamicWeights).forEach(function (k) { dynamicWeights[k] /= wSum; });
 
     /* ===== V1.7 Regime Transition（技术方案十章） =====
        在日落前后各取一个对比时刻估计简化天气型，按"晴朗进度"排序
        判定 IMPROVING / DETERIORATING / STABLE，映射受限的过渡加分 */
     var transition = 'STABLE', transitionScore = 50, transitionBonusVal = 0;
-    if (v17.enabled && v17.transitionEnabled) {
+    if (regimeConfig.transitionEnabled) {
       var progressRank = {
         STORM_APPROACHING: 0, FRONT_PASSING: 1, OVERCAST: 2, HAZY: 2,
         RAIN_TO_CLEAR: 3, PARTLY_CLOUDY: 4, CLEAR: 5
@@ -727,16 +695,16 @@
         if (valid(c) && c < 20) return 'CLEAR';
         return 'PARTLY_CLOUDY';
       }
-      var pastIdx = idx - v17.transitionLookbackHours;
-      var futureIdx = idx + v17.transitionLeadHours;
+      var pastIdx = idx - regimeConfig.transitionLookbackHours;
+      var futureIdx = idx + regimeConfig.transitionLeadHours;
       if (pastIdx >= 0 && futureIdx < times.length) {
         var progressDelta = progressRank[simpleRegimeAt(futureIdx)] -
           progressRank[simpleRegimeAt(pastIdx)];
         if (progressDelta >= 1) transition = 'IMPROVING';
         else if (progressDelta <= -1) transition = 'DETERIORATING';
         transitionScore = clamp(50 + progressDelta * 10, 0, 100);
-        transitionBonusVal = clamp(progressDelta * v17.transitionBonusPerStep,
-          -v17.transitionBonusLimit, v17.transitionBonusLimit);
+        transitionBonusVal = clamp(progressDelta * regimeConfig.transitionBonusPerStep,
+          -regimeConfig.transitionBonusLimit, regimeConfig.transitionBonusLimit);
       }
     }
 
@@ -762,25 +730,13 @@
 
     /* ===== 18. 最终公式（V1.7：天气型动态权重） ===== */
     var P, bonus;
-    if (v17.enabled) {
-      P = dynamicWeights.skyCanvas * skyCanvas +
-        dynamicWeights.horizon * horizon +
-        dynamicWeights.illumination * illumination +
-        dynamicWeights.atmosphere * atmosphere +
-        dynamicWeights.weather * weather;
-      /* 加分拆解：空间结构加分 + regime 过渡加分（天气型直接加分已移除） */
-      bonus = structureBonus + transitionBonusVal;
-    } else {
-      /* A/B 回退：V1.61 原公式 */
-      P = cfg.weights.skyCanvas * skyCanvas +
-        cfg.weights.horizon * horizon +
-        cfg.weights.illumination * illumination +
-        cfg.weights.atmosphere * atmosphere +
-        cfg.weights.weather * weather;
-      var regimeBonusVal = cfg.regimeBonus[regime] || 0;
-      var legacyClearingBonus = regimeStrong ? clrCfg.strongBonus : 0;
-      bonus = regimeBonusVal + structureBonus + legacyClearingBonus;
-    }
+    P = dynamicWeights.skyCanvas * skyCanvas +
+      dynamicWeights.horizon * horizon +
+      dynamicWeights.illumination * illumination +
+      dynamicWeights.atmosphere * atmosphere +
+      dynamicWeights.weather * weather;
+    /* 加分拆解：空间结构加分 + regime 过渡加分（天气型直接加分已移除） */
+    bonus = structureBonus + transitionBonusVal;
     var Q = cfg.atmosphereQuality.base + cfg.atmosphereQuality.scale * (atmosphere / 100);
     var score = clamp(P * Q * gate + bonus - pWeather, 0, 100);
     if (hardGates.length) score = Math.min(score, cfg.hardGate.scoreCap);
@@ -832,16 +788,16 @@
     if (contrastRaw != null && contrastRaw >= 30) reasons.push('云幕集中度好，中心云量显著高于两侧');
     /* V1.61 空间演化解释（增强方案十章） */
     if (continuity >= 85) reasons.push('远方云幕连续');
-    if (gradientVal != null && gradientVal > sf61.structure.bonusGradientMin) reasons.push('云层正在向远方集中');
+    if (gradientVal != null && gradientVal > spatialEvolution.structure.bonusGradientMin) reasons.push('云层正在向远方集中');
     if (gradientType === 'approaching_cloud') warnings.push('云层正在逼近，日落前景可能转差');
     if (clearingDirection === 'far_to_near' && clearingRate != null && clearingRate >= 20) reasons.push('晴空正在从日落方向推进');
     if (regimeStrong) reasons.push('天空打开速度快，雨后晚霞潜力增强');
     /* V1.7 天气型动态权重解释 */
-    if (v17.enabled && strength >= 0.7) reasons.push('天气型信号明确（' +
+    if (strength >= 0.7) reasons.push('天气型信号明确（' +
       (cfg.regimeLabels[regime] || regime) + ' 强度 ' + Math.round(strength * 100) + '%）');
-    if (v17.enabled && transition === 'IMPROVING') reasons.push('天气型正在向有利方向过渡（过渡评分 ' + transitionScore + '）');
-    if (v17.enabled && transition === 'DETERIORATING') warnings.push('天气型正在转差，日落时段天空条件可能恶化');
-    if (sf61.antiSunset.enabled && antiSunsetScore >= 60) reasons.push('反太阳方向存在高云背景');
+    if (transition === 'IMPROVING') reasons.push('天气型正在向有利方向过渡（过渡评分 ' + transitionScore + '）');
+    if (transition === 'DETERIORATING') warnings.push('天气型正在转差，日落时段天空条件可能恶化');
+    if (spatialEvolution.antiSunset.enabled && antiSunsetScore >= 60) reasons.push('反太阳方向存在高云背景');
     if (ls.high != null && ls.high >= 70) reasons.push('中高云条件适合形成云幕');
     else if (ls.high != null && ls.high < 30) warnings.push('缺少足够的中高云作为云幕');
     if (regime === 'RAIN_TO_CLEAR') reasons.push('降雨在日落前黄金窗口内结束，日落方向低云正在减少');
@@ -931,10 +887,12 @@
         bank: bankOpening != null ? Math.round(bankOpening) : null,
         side: sideOpening != null ? Math.round(sideOpening) : null
       },
-      distance_confidence: Math.round(distanceConfidence * 100) / 100,
+      distance_reliability: distanceReliability,
+      distance_band_coverage: totalBandWeight > 0 ? bandWeightSum / totalBandWeight : 0,
+      illumination_data_factor: illuminationDataFactor,
 
       /* V1.7 天气型状态输出（技术方案十三章） */
-      regime_state: v17.enabled ? {
+      regime_state: {
         type: regime,
         strength: Math.round(strength * 100) / 100,
         transition: transition,
@@ -946,7 +904,7 @@
           atmosphere: Math.round(dynamicWeights.atmosphere * 100) / 100,
           weather: Math.round(dynamicWeights.weather * 100) / 100
         }
-      } : null,
+      },
       weather_score: weatherBreakdown,
 
       reasons: reasons,

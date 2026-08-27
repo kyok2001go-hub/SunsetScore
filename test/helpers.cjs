@@ -13,6 +13,11 @@ function createRuntime(extra = {}) {
     Intl,
     JSON,
     Promise,
+    Error,
+    AbortController,
+    AbortSignal,
+    URL,
+    Response,
     Number,
     String,
     Array,
@@ -43,7 +48,7 @@ function load(runtime, files) {
 }
 
 const CORE_FILES = [
-  'js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+  'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
   'js/data.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js',
   'js/sky_state.js', 'js/evolution.js', 'js/engine.js', 'js/baseline.js'
 ];

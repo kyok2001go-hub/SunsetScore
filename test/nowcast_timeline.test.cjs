@@ -5,7 +5,7 @@ const { createRuntime, load, forecast } = require('./helpers.cjs');
 const now = Date.parse('2026-08-26T18:00:00Z');
 function setup() {
   const runtime = createRuntime();
-  return load(runtime, ['js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+  return load(runtime, ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
     'js/cache.js', 'js/cloud_field.js', 'js/nowcast.js', 'js/evolution.js']);
 }
 function series(step = 5, count = 24) {

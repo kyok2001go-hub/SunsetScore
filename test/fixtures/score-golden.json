@@ -1,0 +1,1810 @@
+{
+  "Clear/LOCAL_ONLY": {
+    "score": 60,
+    "components": {
+      "sky_canvas": 32,
+      "horizon": 96,
+      "illumination": 23,
+      "atmosphere": 98,
+      "weather": 67
+    },
+    "regime_state": {
+      "type": "CLEAR",
+      "strength": 0.6,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.32,
+        "horizon": 0.2,
+        "illumination": 0.2,
+        "atmosphere": 0.22,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 69,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 26,
+      "centerCloud": 20,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 42,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 8,
+      "corridorHigh": 12
+    },
+    "baseline_score": 35
+  },
+  "Clear/STANDARD": {
+    "score": 60,
+    "components": {
+      "sky_canvas": 34,
+      "horizon": 96,
+      "illumination": 20,
+      "atmosphere": 98,
+      "weather": 67
+    },
+    "regime_state": {
+      "type": "CLEAR",
+      "strength": 0.6,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.32,
+        "horizon": 0.2,
+        "illumination": 0.2,
+        "atmosphere": 0.22,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 69,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 18,
+      "centerCloud": 20,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 57,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 8,
+      "corridorHigh": 12
+    },
+    "baseline_score": 35
+  },
+  "Clear/FULL": {
+    "score": 60,
+    "components": {
+      "sky_canvas": 34,
+      "horizon": 96,
+      "illumination": 20,
+      "atmosphere": 98,
+      "weather": 67
+    },
+    "regime_state": {
+      "type": "CLEAR",
+      "strength": 0.6,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.32,
+        "horizon": 0.2,
+        "illumination": 0.2,
+        "atmosphere": 0.22,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 69,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 18,
+      "centerCloud": 20,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 57,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 8,
+      "corridorHigh": 12
+    },
+    "baseline_score": 35
+  },
+  "Clear/FULL_SKY_33": {
+    "score": 28,
+    "components": {
+      "sky_canvas": 53,
+      "horizon": 22,
+      "illumination": 44,
+      "atmosphere": 98,
+      "weather": 64
+    },
+    "regime_state": {
+      "type": "CLEAR",
+      "strength": 0.6,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.32,
+        "horizon": 0.2,
+        "illumination": 0.2,
+        "atmosphere": 0.22,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 69,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 40,
+      "centerCloud": 45,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 84,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 8,
+      "corridorMid": 8,
+      "corridorHigh": 90
+    },
+    "baseline_score": 49
+  },
+  "Clear/MISSING_REMOTE": {
+    "score": 60,
+    "components": {
+      "sky_canvas": 32,
+      "horizon": 96,
+      "illumination": 23,
+      "atmosphere": 98,
+      "weather": 67
+    },
+    "regime_state": {
+      "type": "CLEAR",
+      "strength": 0.6,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.32,
+        "horizon": 0.2,
+        "illumination": 0.2,
+        "atmosphere": 0.22,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 69,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 26,
+      "centerCloud": 20,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 42,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 8,
+      "corridorHigh": 12
+    },
+    "baseline_score": 35
+  },
+  "Ideal High Cloud/LOCAL_ONLY": {
+    "score": 88,
+    "components": {
+      "sky_canvas": 87,
+      "horizon": 92,
+      "illumination": 90,
+      "atmosphere": 97,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.92,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 31,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 100,
+      "centerCloud": 100,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 84,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 38,
+      "corridorHigh": 62
+    },
+    "baseline_score": 89
+  },
+  "Ideal High Cloud/STANDARD": {
+    "score": 85,
+    "components": {
+      "sky_canvas": 84,
+      "horizon": 92,
+      "illumination": 76,
+      "atmosphere": 97,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.92,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 31,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 70,
+      "centerCloud": 100,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 99,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 38,
+      "corridorHigh": 62
+    },
+    "baseline_score": 89
+  },
+  "Ideal High Cloud/FULL": {
+    "score": 85,
+    "components": {
+      "sky_canvas": 84,
+      "horizon": 92,
+      "illumination": 76,
+      "atmosphere": 97,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.92,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 31,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 70,
+      "centerCloud": 100,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 99,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 38,
+      "corridorHigh": 62
+    },
+    "baseline_score": 89
+  },
+  "Ideal High Cloud/FULL_SKY_33": {
+    "score": 30,
+    "components": {
+      "sky_canvas": 67,
+      "horizon": 22,
+      "illumination": 59,
+      "atmosphere": 97,
+      "weather": 68
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.92,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 54,
+      "centerCloud": 75,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 83,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 55,
+      "corridorMid": 38,
+      "corridorHigh": 90
+    },
+    "baseline_score": 64
+  },
+  "Ideal High Cloud/MISSING_REMOTE": {
+    "score": 88,
+    "components": {
+      "sky_canvas": 87,
+      "horizon": 92,
+      "illumination": 90,
+      "atmosphere": 97,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.92,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 31,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 100,
+      "centerCloud": 100,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 84,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 38,
+      "corridorHigh": 62
+    },
+    "baseline_score": 89
+  },
+  "Low Overcast/LOCAL_ONLY": {
+    "score": 0,
+    "components": {
+      "sky_canvas": 53,
+      "horizon": 6,
+      "illumination": 55,
+      "atmosphere": 63,
+      "weather": 45
+    },
+    "regime_state": {
+      "type": "OVERCAST",
+      "strength": 0.73,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.24,
+        "horizon": 0.29,
+        "illumination": 0.18,
+        "atmosphere": 0.16,
+        "weather": 0.13
+      }
+    },
+    "weather_score": {
+      "current": 23,
+      "trend": 21,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 13,
+    "horizon_gate": 0.25,
+    "hard_gates": [
+      "地平线严重遮挡（开阔度不足 10%）"
+    ],
+    "cloud_structure": {
+      "bankScore": 61,
+      "centerCloud": 85,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 49,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 30
+    },
+    "baseline_score": 5
+  },
+  "Low Overcast/STANDARD": {
+    "score": 0,
+    "components": {
+      "sky_canvas": 55,
+      "horizon": 6,
+      "illumination": 47,
+      "atmosphere": 63,
+      "weather": 45
+    },
+    "regime_state": {
+      "type": "OVERCAST",
+      "strength": 0.73,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.24,
+        "horizon": 0.29,
+        "illumination": 0.18,
+        "atmosphere": 0.16,
+        "weather": 0.13
+      }
+    },
+    "weather_score": {
+      "current": 23,
+      "trend": 21,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 13,
+    "horizon_gate": 0.25,
+    "hard_gates": [
+      "地平线严重遮挡（开阔度不足 10%）"
+    ],
+    "cloud_structure": {
+      "bankScore": 43,
+      "centerCloud": 85,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 64,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 30
+    },
+    "baseline_score": 5
+  },
+  "Low Overcast/FULL": {
+    "score": 0,
+    "components": {
+      "sky_canvas": 55,
+      "horizon": 6,
+      "illumination": 47,
+      "atmosphere": 63,
+      "weather": 45
+    },
+    "regime_state": {
+      "type": "OVERCAST",
+      "strength": 0.73,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.24,
+        "horizon": 0.29,
+        "illumination": 0.18,
+        "atmosphere": 0.16,
+        "weather": 0.13
+      }
+    },
+    "weather_score": {
+      "current": 23,
+      "trend": 21,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 13,
+    "horizon_gate": 0.25,
+    "hard_gates": [
+      "地平线严重遮挡（开阔度不足 10%）"
+    ],
+    "cloud_structure": {
+      "bankScore": 43,
+      "centerCloud": 85,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 64,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 30
+    },
+    "baseline_score": 5
+  },
+  "Low Overcast/FULL_SKY_33": {
+    "score": 8,
+    "components": {
+      "sky_canvas": 62,
+      "horizon": 22,
+      "illumination": 54,
+      "atmosphere": 63,
+      "weather": 46
+    },
+    "regime_state": {
+      "type": "OVERCAST",
+      "strength": 0.73,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.24,
+        "horizon": 0.29,
+        "illumination": 0.18,
+        "atmosphere": 0.16,
+        "weather": 0.13
+      }
+    },
+    "weather_score": {
+      "current": 23,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 13,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 50,
+      "centerCloud": 92,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 73,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 96,
+      "corridorMid": 55,
+      "corridorHigh": 90
+    },
+    "baseline_score": 14
+  },
+  "Low Overcast/MISSING_REMOTE": {
+    "score": 0,
+    "components": {
+      "sky_canvas": 53,
+      "horizon": 6,
+      "illumination": 55,
+      "atmosphere": 63,
+      "weather": 45
+    },
+    "regime_state": {
+      "type": "OVERCAST",
+      "strength": 0.73,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.24,
+        "horizon": 0.29,
+        "illumination": 0.18,
+        "atmosphere": 0.16,
+        "weather": 0.13
+      }
+    },
+    "weather_score": {
+      "current": 23,
+      "trend": 21,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 13,
+    "horizon_gate": 0.25,
+    "hard_gates": [
+      "地平线严重遮挡（开阔度不足 10%）"
+    ],
+    "cloud_structure": {
+      "bankScore": 61,
+      "centerCloud": 85,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 49,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 30
+    },
+    "baseline_score": 5
+  },
+  "Rain Clearing/LOCAL_ONLY": {
+    "score": 75,
+    "components": {
+      "sky_canvas": 85,
+      "horizon": 65,
+      "illumination": 88,
+      "atmosphere": 93,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.95,
+      "transition": "IMPROVING",
+      "transitionScore": 80,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 3,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 98,
+      "centerCloud": 100,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 55
+    },
+    "baseline_score": 73
+  },
+  "Rain Clearing/STANDARD": {
+    "score": 72,
+    "components": {
+      "sky_canvas": 82,
+      "horizon": 65,
+      "illumination": 75,
+      "atmosphere": 93,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.95,
+      "transition": "IMPROVING",
+      "transitionScore": 80,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 3,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 69,
+      "centerCloud": 100,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 97,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 55
+    },
+    "baseline_score": 73
+  },
+  "Rain Clearing/FULL": {
+    "score": 72,
+    "components": {
+      "sky_canvas": 82,
+      "horizon": 65,
+      "illumination": 75,
+      "atmosphere": 93,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.95,
+      "transition": "IMPROVING",
+      "transitionScore": 80,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 3,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 69,
+      "centerCloud": 100,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 97,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 55
+    },
+    "baseline_score": 73
+  },
+  "Rain Clearing/FULL_SKY_33": {
+    "score": 32,
+    "components": {
+      "sky_canvas": 66,
+      "horizon": 22,
+      "illumination": 58,
+      "atmosphere": 93,
+      "weather": 68
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.95,
+      "transition": "IMPROVING",
+      "transitionScore": 80,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 3,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 53,
+      "centerCloud": 82,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 47,
+      "corridorMid": 45,
+      "corridorHigh": 90
+    },
+    "baseline_score": 64
+  },
+  "Rain Clearing/MISSING_REMOTE": {
+    "score": 75,
+    "components": {
+      "sky_canvas": 85,
+      "horizon": 65,
+      "illumination": 88,
+      "atmosphere": 93,
+      "weather": 71
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.95,
+      "transition": "IMPROVING",
+      "transitionScore": 80,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 32,
+      "stability": 100
+    },
+    "bonus": 3,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 98,
+      "centerCloud": 100,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 55
+    },
+    "baseline_score": 73
+  },
+  "Cloud Arriving/LOCAL_ONLY": {
+    "score": 55,
+    "components": {
+      "sky_canvas": 81,
+      "horizon": 45,
+      "illumination": 85,
+      "atmosphere": 93,
+      "weather": 63
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.83,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 25,
+      "stability": 80
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.75,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 94,
+      "centerCloud": 95,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 79,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 50
+    },
+    "baseline_score": 54
+  },
+  "Cloud Arriving/STANDARD": {
+    "score": 53,
+    "components": {
+      "sky_canvas": 79,
+      "horizon": 45,
+      "illumination": 72,
+      "atmosphere": 93,
+      "weather": 63
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.83,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 25,
+      "stability": 80
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.75,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 66,
+      "centerCloud": 95,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 94,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 50
+    },
+    "baseline_score": 54
+  },
+  "Cloud Arriving/FULL": {
+    "score": 53,
+    "components": {
+      "sky_canvas": 79,
+      "horizon": 45,
+      "illumination": 72,
+      "atmosphere": 93,
+      "weather": 63
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.83,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 25,
+      "stability": 80
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.75,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 66,
+      "centerCloud": 95,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 94,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 50
+    },
+    "baseline_score": 54
+  },
+  "Cloud Arriving/FULL_SKY_33": {
+    "score": 29,
+    "components": {
+      "sky_canvas": 66,
+      "horizon": 22,
+      "illumination": 58,
+      "atmosphere": 93,
+      "weather": 62
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.83,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 80
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 53,
+      "centerCloud": 82,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 60,
+      "corridorMid": 45,
+      "corridorHigh": 90
+    },
+    "baseline_score": 64
+  },
+  "Cloud Arriving/MISSING_REMOTE": {
+    "score": 55,
+    "components": {
+      "sky_canvas": 81,
+      "horizon": 45,
+      "illumination": 85,
+      "atmosphere": 93,
+      "weather": 63
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.83,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 25,
+      "stability": 80
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.75,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 94,
+      "centerCloud": 95,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 79,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 45,
+      "corridorHigh": 50
+    },
+    "baseline_score": 54
+  },
+  "Mixed Clouds/LOCAL_ONLY": {
+    "score": 65,
+    "components": {
+      "sky_canvas": 74,
+      "horizon": 65,
+      "illumination": 75,
+      "atmosphere": 89,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.87,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 83,
+      "centerCloud": 108,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 76,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 60,
+      "corridorHigh": 48
+    },
+    "baseline_score": 67
+  },
+  "Mixed Clouds/STANDARD": {
+    "score": 63,
+    "components": {
+      "sky_canvas": 72,
+      "horizon": 65,
+      "illumination": 64,
+      "atmosphere": 89,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.87,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 58,
+      "centerCloud": 108,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 91,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 60,
+      "corridorHigh": 48
+    },
+    "baseline_score": 67
+  },
+  "Mixed Clouds/FULL": {
+    "score": 63,
+    "components": {
+      "sky_canvas": 72,
+      "horizon": 65,
+      "illumination": 64,
+      "atmosphere": 89,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.87,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 58,
+      "centerCloud": 108,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 91,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 60,
+      "corridorHigh": 48
+    },
+    "baseline_score": 67
+  },
+  "Mixed Clouds/FULL_SKY_33": {
+    "score": 27,
+    "components": {
+      "sky_canvas": 60,
+      "horizon": 22,
+      "illumination": 51,
+      "atmosphere": 89,
+      "weather": 68
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.87,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 47,
+      "centerCloud": 97,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 81,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 58,
+      "corridorMid": 60,
+      "corridorHigh": 90
+    },
+    "baseline_score": 57
+  },
+  "Mixed Clouds/MISSING_REMOTE": {
+    "score": 65,
+    "components": {
+      "sky_canvas": 74,
+      "horizon": 65,
+      "illumination": 75,
+      "atmosphere": 89,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.87,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 83,
+      "centerCloud": 108,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 76,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 60,
+      "corridorHigh": 48
+    },
+    "baseline_score": 67
+  },
+  "Radar Missing/LOCAL_ONLY": {
+    "score": 85,
+    "components": {
+      "sky_canvas": 85,
+      "horizon": 82,
+      "illumination": 88,
+      "atmosphere": 96,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.97,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.17,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 30,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 97,
+      "centerCloud": 110,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 84,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 50,
+      "corridorHigh": 60
+    },
+    "baseline_score": 82
+  },
+  "Radar Missing/STANDARD": {
+    "score": 81,
+    "components": {
+      "sky_canvas": 82,
+      "horizon": 82,
+      "illumination": 74,
+      "atmosphere": 96,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.97,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.17,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 30,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 68,
+      "centerCloud": 110,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 99,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 50,
+      "corridorHigh": 60
+    },
+    "baseline_score": 82
+  },
+  "Radar Missing/FULL": {
+    "score": 81,
+    "components": {
+      "sky_canvas": 82,
+      "horizon": 82,
+      "illumination": 74,
+      "atmosphere": 96,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.97,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.17,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 30,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 68,
+      "centerCloud": 110,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 99,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 50,
+      "corridorHigh": 60
+    },
+    "baseline_score": 82
+  },
+  "Radar Missing/FULL_SKY_33": {
+    "score": 29,
+    "components": {
+      "sky_canvas": 65,
+      "horizon": 22,
+      "illumination": 57,
+      "atmosphere": 96,
+      "weather": 68
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.97,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.17,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 52,
+      "centerCloud": 87,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 83,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 48,
+      "corridorMid": 50,
+      "corridorHigh": 90
+    },
+    "baseline_score": 62
+  },
+  "Radar Missing/MISSING_REMOTE": {
+    "score": 85,
+    "components": {
+      "sky_canvas": 85,
+      "horizon": 82,
+      "illumination": 88,
+      "atmosphere": 96,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.97,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.34,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.17,
+        "weather": 0.07
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 30,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 1,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 97,
+      "centerCloud": 110,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 84,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 50,
+      "corridorHigh": 60
+    },
+    "baseline_score": 82
+  },
+  "All Nowcast Missing/LOCAL_ONLY": {
+    "score": 71,
+    "components": {
+      "sky_canvas": 81,
+      "horizon": 70,
+      "illumination": 84,
+      "atmosphere": 93,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.8,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.08
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 93,
+      "centerCloud": 120,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 65
+    },
+    "baseline_score": 66
+  },
+  "All Nowcast Missing/STANDARD": {
+    "score": 68,
+    "components": {
+      "sky_canvas": 79,
+      "horizon": 70,
+      "illumination": 71,
+      "atmosphere": 93,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.8,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.08
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 65,
+      "centerCloud": 120,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 97,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 65
+    },
+    "baseline_score": 66
+  },
+  "All Nowcast Missing/FULL": {
+    "score": 68,
+    "components": {
+      "sky_canvas": 79,
+      "horizon": 70,
+      "illumination": 71,
+      "atmosphere": 93,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.8,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.08
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 65,
+      "centerCloud": 120,
+      "contrast": 0,
+      "continuity": 100,
+      "structureScore": 60,
+      "antiSunsetScore": 97,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 65
+    },
+    "baseline_score": 66
+  },
+  "All Nowcast Missing/FULL_SKY_33": {
+    "score": 28,
+    "components": {
+      "sky_canvas": 63,
+      "horizon": 22,
+      "illumination": 54,
+      "atmosphere": 93,
+      "weather": 68
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.8,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.08
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 22,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.5,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 50,
+      "centerCloud": 92,
+      "contrast": -6,
+      "continuity": 99,
+      "structureScore": 59,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 69,
+      "antiSunsetTotal": 62,
+      "corridorMid": 55,
+      "corridorHigh": 90
+    },
+    "baseline_score": 60
+  },
+  "All Nowcast Missing/MISSING_REMOTE": {
+    "score": 71,
+    "components": {
+      "sky_canvas": 81,
+      "horizon": 70,
+      "illumination": 84,
+      "atmosphere": 93,
+      "weather": 70
+    },
+    "regime_state": {
+      "type": "PARTLY_CLOUDY",
+      "strength": 0.8,
+      "transition": "STABLE",
+      "transitionScore": 50,
+      "dynamicWeight": {
+        "skyCanvas": 0.33,
+        "horizon": 0.21,
+        "illumination": 0.21,
+        "atmosphere": 0.18,
+        "weather": 0.08
+      }
+    },
+    "weather_score": {
+      "current": 79,
+      "trend": 28,
+      "stability": 100
+    },
+    "bonus": 0,
+    "penalty": 0,
+    "horizon_gate": 0.9,
+    "hard_gates": [],
+    "cloud_structure": {
+      "bankScore": 93,
+      "centerCloud": 120,
+      "contrast": null,
+      "continuity": 50,
+      "structureScore": 30,
+      "antiSunsetScore": 82,
+      "antiSunsetCloud": 0,
+      "antiSunsetTotal": 0,
+      "corridorMid": 55,
+      "corridorHigh": 65
+    },
+    "baseline_score": 66
+  }
+}

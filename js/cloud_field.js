@@ -97,7 +97,9 @@
 
   function extractByIndex(h, idx) {
     function val(k, dflt) {
-      return (h[k] && h[k][idx] != null) ? h[k][idx] : dflt;
+      var value = h[k] && h[k][idx];
+      if (/hPa$/.test(k)) return Number.isFinite(value) ? value : dflt;
+      return value != null ? value : dflt;
     }
     return {
       cloud_cover: val('cloud_cover', 0),
@@ -112,7 +114,7 @@
       precipitation: val('precipitation', 0),
       precipitation_probability: val('precipitation_probability', 0),
       surface_pressure: val('surface_pressure', null),
-      /* 真实高空等压面风场 (850/700/500hPa) */
+      /* NWP 高空等压面风场 (850/700/500hPa) */
       wind_speed_850hPa: val('wind_speed_850hPa', null),
       wind_direction_850hPa: val('wind_direction_850hPa', null),
       wind_speed_700hPa: val('wind_speed_700hPa', null),
@@ -146,6 +148,18 @@
       return ((a1 + alpha * diff + 360) % 360);
     }
 
+    // Pressure-level data may exist as arrays of nulls. Missing is not calm/north wind.
+    function pressureWind(key, direction) {
+      var arr = h[key] || [];
+      var a = Number.isFinite(arr[i1]) ? arr[i1] : null;
+      var b = Number.isFinite(arr[i2]) ? arr[i2] : null;
+      if (a == null && b == null) return null;
+      var value = a == null ? b : (b == null ? a : (direction
+        ? (a + alpha * (((b - a + 540) % 360) - 180) + 360) % 360
+        : a * (1 - alpha) + b * alpha));
+      return direction ? Math.round(value) : Number(value.toFixed(1));
+    }
+
     return {
       cloud_cover: Math.round(scalar('cloud_cover', 0)),
       cloud_cover_low: Math.round(scalar('cloud_cover_low', 0)),
@@ -159,21 +173,14 @@
       precipitation: Number(scalar('precipitation', 0).toFixed(2)),
       precipitation_probability: Math.round(scalar('precipitation_probability', 0)),
       surface_pressure: h.surface_pressure ? Number(scalar('surface_pressure', 1013).toFixed(1)) : null,
-      /* 真实高空等压面风场 (850/700/500hPa) */
-      wind_speed_850hPa: h.wind_speed_850hPa ? Number(scalar('wind_speed_850hPa', null).toFixed(1)) : null,
-      wind_direction_850hPa: h.wind_direction_850hPa ? Math.round(angle('wind_direction_850hPa', null)) : null,
-      wind_speed_700hPa: h.wind_speed_700hPa ? Number(scalar('wind_speed_700hPa', null).toFixed(1)) : null,
-      wind_direction_700hPa: h.wind_direction_700hPa ? Math.round(angle('wind_direction_700hPa', null)) : null,
-      wind_speed_500hPa: h.wind_speed_500hPa ? Number(scalar('wind_speed_500hPa', null).toFixed(1)) : null,
-      wind_direction_500hPa: h.wind_direction_500hPa ? Math.round(angle('wind_direction_500hPa', null)) : null
+      /* NWP 高空等压面风场 (850/700/500hPa) */
+      wind_speed_850hPa: pressureWind('wind_speed_850hPa', false),
+      wind_direction_850hPa: pressureWind('wind_direction_850hPa', true),
+      wind_speed_700hPa: pressureWind('wind_speed_700hPa', false),
+      wind_direction_700hPa: pressureWind('wind_direction_700hPa', true),
+      wind_speed_500hPa: pressureWind('wind_speed_500hPa', false),
+      wind_direction_500hPa: pressureWind('wind_direction_500hPa', true)
     };
-  }
-
-  /**
-   * 兼容保留旧版签名，内部直接采用高精度时序插值
-   */
-  function extractHourlyAt(forecast, timeUtc) {
-    return extractInterpolatedAt(forecast, timeUtc);
   }
 
   /**
@@ -451,7 +458,6 @@
     AZIMUTHS: AZIMUTHS,
     DISTANCES_KM: DISTANCES_KM,
     generateGridNodes: generateGridNodes,
-    extractHourlyAt: extractHourlyAt,
     extractInterpolatedAt: extractInterpolatedAt,
     buildCloudField: buildCloudField,
     interpolateCorridorSamples: interpolateCorridorSamples

@@ -23,6 +23,6 @@ test('feedback hotfix isolates old V2.3.1 cached predictions without changing th
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: false }
   }));
   assert.equal(SS.version.model, '2.3.1');
-  assert.equal(SS.config.cachePrefix, 'sunsetscore_v231_feedback1_');
+  assert.equal(SS.config.cachePrefix, 'sunsetscore_v231_reliability1_');
   assert.equal(SS.cache.get('sample'), null);
 });

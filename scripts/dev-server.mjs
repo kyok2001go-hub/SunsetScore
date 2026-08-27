@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from '../server/network.js';
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -39,6 +40,9 @@ export function parseQWeatherConfig(text) {
 }
 
 async function proxyQWeather(requestUrl, res) {
+  const controller = new AbortController();
+  function onClose() { if (!res.writableEnded) controller.abort(); }
+  res.once('close', onClose);
   const lat = Number(requestUrl.searchParams.get('lat'));
   const lon = Number(requestUrl.searchParams.get('lon'));
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
@@ -58,9 +62,9 @@ async function proxyQWeather(requestUrl, res) {
   upstream.searchParams.set('location', `${lon.toFixed(2)},${lat.toFixed(2)}`);
 
   try {
-    const upstreamResponse = await fetch(upstream, {
-      headers: { 'X-QW-Api-Key': config.apiKey }
-    });
+    const upstreamResponse = await fetchWithDeadline(upstream, {
+      headers: { 'X-QW-Api-Key': config.apiKey }, redirect: 'error'
+    }, { signal: controller.signal });
     const body = Buffer.from(await upstreamResponse.arrayBuffer());
     res.writeHead(upstreamResponse.status, {
       'Content-Type': upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8',
@@ -69,7 +73,9 @@ async function proxyQWeather(requestUrl, res) {
     res.end(body);
   } catch (error) {
     console.error('QWeather upstream request failed:', error instanceof Error ? error.message : String(error));
-    json(res, 502, { error: 'QWeather upstream unavailable' });
+    if (!res.destroyed) json(res, error.name === 'TimeoutError' ? 504 : 502, { error: 'QWeather upstream unavailable' });
+  } finally {
+    res.removeListener('close', onClose);
   }
 }
 

@@ -17,21 +17,23 @@
     return { name: lat.toFixed(2) + ', ' + lon.toFixed(2), country: '', admin1: '', latitude: lat, longitude: lon };
   }
 
-  async function fetchWithCache(key, ttlMinutes, staleMaxHours, fetcher) {
+  async function fetchWithCache(key, ttlMinutes, staleMaxHours, fetcher, options) {
     var hit = SS.cache.getWithStatus(key, staleMaxHours);
     if (hit.status === 'FRESH') return hit;
     try {
       var value = await fetcher();
+      SS.network.throwIfAborted(options && options.signal);
       SS.cache.set(key, value, ttlMinutes);
       return { value: value, status: 'MISS', cacheStatus: 'MISS', ageMinutes: 0 };
     } catch (error) {
+      SS.network.throwIfAborted(options && options.signal);
       if (hit.status === 'STALE') return hit;
       throw error;
     }
   }
 
   function forecastTtlMinutes(sunsetMs, nowMs) {
-    var cfg = SS.modelConfig.scoring.cacheV18;
+    var cfg = SS.modelConfig.scoring.cachePolicy;
     var hours = (sunsetMs - nowMs) / 3600000;
     if (hours >= 0 && hours < 3) return cfg.ttlForecastWithin3h;
     if (hours >= 0 && hours < 6) return cfg.ttlForecastWithin6h;
@@ -66,7 +68,7 @@
     };
   }
 
-  async function gatherSpatial(nodes, localForecast, cacheKey, ttlMinutes) {
+  async function gatherSpatial(nodes, localForecast, cacheKey, ttlMinutes, options) {
     var hit = SS.cache.getWithStatus(cacheKey, SS.modelConfig.cache.staleMaxAgeHours);
     function assemble(forecasts) {
       return nodes.map(function (node, index) {
@@ -75,31 +77,34 @@
     }
     if (hit.status === 'FRESH') return { samples: assemble(hit.value.forecasts), cacheStatus: 'FRESH', ageMinutes: hit.ageMinutes };
     try {
-      var gathered = await SS.data.gather(nodes, localForecast);
+      var gathered = await SS.data.gather(nodes, localForecast, options);
+      SS.network.throwIfAborted(options && options.signal);
       SS.cache.set(cacheKey, { forecasts: gathered.samples.map(function (sample) { return sample.forecast; }) }, ttlMinutes);
       return { samples: gathered.samples, cacheStatus: 'MISS', ageMinutes: 0 };
     } catch (error) {
+      SS.network.throwIfAborted(options && options.signal);
       if (hit.status === 'STALE') return { samples: assemble(hit.value.forecasts), cacheStatus: 'STALE', ageMinutes: hit.ageMinutes };
       throw error;
     }
   }
 
-  async function gatherClassicWithFallback(mode, location, solar, localForecast, date, ttlMinutes) {
+  async function gatherClassicWithFallback(mode, location, solar, localForecast, date, ttlMinutes, options) {
     var nodes = SS.sampling.selectNodes(mode, location.latitude, location.longitude, solar.sunsetAzimuthDeg);
     var key = SS.cacheKeys.spatial(date, location.latitude, location.longitude, solar.sunsetAzimuthDeg, mode.toLowerCase());
     try {
-      var result = await gatherSpatial(nodes, localForecast, key, ttlMinutes);
+      var result = await gatherSpatial(nodes, localForecast, key, ttlMinutes, options);
       result.finalMode = mode;
       result.nodeCount = nodes.length;
       return result;
     } catch (error) {
-      if (mode === 'FULL') return gatherClassicWithFallback('STANDARD', location, solar, localForecast, date, ttlMinutes);
-      if (mode === 'STANDARD') return gatherClassicWithFallback('LOCAL_ONLY', location, solar, localForecast, date, ttlMinutes);
+      SS.network.throwIfAborted(options && options.signal);
+      if (mode === 'FULL') return gatherClassicWithFallback('STANDARD', location, solar, localForecast, date, ttlMinutes, options);
+      if (mode === 'STANDARD') return gatherClassicWithFallback('LOCAL_ONLY', location, solar, localForecast, date, ttlMinutes, options);
       throw new Error('天气 API 暂不可用，请稍后重试');
     }
   }
 
-  async function gatherSky(mode, location, solar, localForecast, date, ttlMinutes) {
+  async function gatherSky(mode, location, solar, localForecast, date, ttlMinutes, options) {
     if (mode === 'LOCAL_ONLY') {
       var localNode = {
         key: 'CENTER_0', direction: 'CENTER', azimuth: 0, distanceKm: 0, azimuthOffset: 0,
@@ -112,7 +117,7 @@
     var skyNodes = SS.cloudField.generateGridNodes(location.latitude, location.longitude);
     var key = SS.cacheKeys.cloudField(date, location.latitude, location.longitude);
     try {
-      var result = await gatherSpatial(skyNodes, localForecast, key, ttlMinutes);
+      var result = await gatherSpatial(skyNodes, localForecast, key, ttlMinutes, options);
       return {
         skySamples: result.samples,
         corridorSamples: SS.cloudField.interpolateCorridorSamples(
@@ -124,7 +129,8 @@
         finalMode: 'FULL_SKY_33'
       };
     } catch (error) {
-      var fallback = await gatherClassicWithFallback(mode, location, solar, localForecast, date, ttlMinutes);
+      SS.network.throwIfAborted(options && options.signal);
+      var fallback = await gatherClassicWithFallback(mode, location, solar, localForecast, date, ttlMinutes, options);
       return {
         skySamples: fallback.samples,
         corridorSamples: fallback.samples,
@@ -144,16 +150,18 @@
     });
   }
 
-  async function minutePrecip(location, date, nowUtcMs) {
+  async function minutePrecip(location, date, nowUtcMs, options) {
     var key = SS.cacheKeys.nowcast('precip', date, location.latitude, location.longitude);
     var cached = SS.cache.get(key);
     if (cached && cached.analysis) return cached.analysis;
     try {
-      var series = await SS.nowcast.fetchMinutePrecip(location.latitude, location.longitude);
+      var series = await SS.nowcast.fetchMinutePrecip(location.latitude, location.longitude, options);
       var analysis = SS.nowcast.analyzePrecip(series, nowUtcMs);
+      SS.network.throwIfAborted(options && options.signal);
       if (analysis) SS.cache.set(key, { analysis: analysis }, SS.modelConfig.nowcast.ttlMinutes.precip);
       return analysis;
     } catch (error) {
+      SS.network.throwIfAborted(options && options.signal);
       return null;
     }
   }
@@ -203,7 +211,7 @@
     return result;
   }
 
-  async function applySunsetEvolution(result, context) {
+  async function applySunsetEvolution(result, context, options) {
     var factor = SS.domain.clamp(result.sky_evolution_factor, 0.65, 1.15, 1);
     result.base_score = result.score;
     if (!SS.evolution.isGoldenWindowActive(context)) {
@@ -226,7 +234,10 @@
       motionForecast: result.cloud_motion
     };
     var fusion = null;
-    try { fusion = await SS.nowcast.run(nowcastContext); } catch (error) { fusion = null; }
+    try { fusion = await SS.nowcast.run(nowcastContext, options); } catch (error) {
+      SS.network.throwIfAborted(options && options.signal);
+      fusion = null;
+    }
     if (fusion) {
       fusion.timeline = SS.nowcast.buildTimeline(fusion.detail && fusion.detail.precip,
         context.weather.localForecast, context.time.nowUtcMs);
@@ -243,7 +254,7 @@
     });
     result.nowcast = fusion;
     result.sky_evolution = evo;
-    var gwFactor = evo ? SS.domain.clamp(evo.gwFactor, SS.modelConfig.evolution.gwFactor.floor, 1, 1) : 1;
+    var gwFactor = evo ? SS.domain.clamp(evo.gwFactor, SS.modelConfig.goldenWindow.floor, 1, 1) : 1;
     result.score = Math.round(SS.domain.clamp(result.score * factor * gwFactor, 0, 100));
     result.level = levelOf(result.score);
     if (evo && evo.degradedSources && evo.degradedSources.length) {
@@ -255,6 +266,8 @@
   async function predict(query, options) {
     var normalizedQuery = String(query || '').trim();
     if (!normalizedQuery) throw new Error('请输入城市或经纬度');
+    options = options || {};
+    SS.network.throwIfAborted(options.signal);
     var nowUtcMs = options && Number.isFinite(options.nowUtcMs) ? options.nowUtcMs : Date.now();
     progress(options, '正在解析地理位置…');
 
@@ -264,7 +277,7 @@
         SS.cacheKeys.geocode(normalizedQuery),
         SS.modelConfig.cache.ttlGeocodingDays * 24 * 60,
         SS.modelConfig.cache.ttlGeocodingDays * 24,
-        function () { return SS.data.geocode(normalizedQuery); }
+        function () { return SS.data.geocode(normalizedQuery, options); }, options
       );
       location = geocodeResult.value;
     }
@@ -275,7 +288,7 @@
       SS.cacheKeys.forecast(roughDate, location.latitude, location.longitude),
       SS.modelConfig.cache.ttlForecastMinutes,
       SS.modelConfig.cache.staleMaxAgeHours,
-      function () { return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500); }
+      function () { return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500, options); }, options
     );
     var localForecast = forecastResult.value;
     var offsetSeconds = localForecast.utc_offset_seconds || 0;
@@ -290,10 +303,11 @@
         var solar = computeSolar(location, nowUtcMs, offsetSeconds);
         if (!solar) throw new Error('该地区当前处于极昼或极夜，今天没有日落');
         return Promise.resolve(serializeSolar(solar));
-      }
+      }, options
     );
     var solar = restoreSolar(solarResult.value);
     var ttlMinutes = forecastTtlMinutes(solar.sunset.valueOf(), nowUtcMs);
+    SS.network.throwIfAborted(options.signal);
     SS.cache.set(SS.cacheKeys.forecast(localDate, location.latitude, location.longitude), localForecast, ttlMinutes);
 
     var time = {
@@ -309,6 +323,7 @@
     // A fresh TTL alone is insufficient when the query crosses the golden-window gate.
     if (cachedResult && cachedResult.app_version === SS.version.app &&
         cachedResult.model_version === SS.version.model &&
+        cachedResult.runtime_config_key === SS.modelConfigKey() &&
         cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) return cachedResult;
 
     progress(options, '正在获取空气质量…');
@@ -318,10 +333,13 @@
         SS.cacheKeys.air(localDate, location.latitude, location.longitude),
         SS.modelConfig.cache.ttlAirQualityMinutes,
         SS.modelConfig.cache.staleMaxAgeHours,
-        function () { return SS.data.fetchAirQuality(location.latitude, location.longitude); }
+        function () { return SS.data.fetchAirQuality(location.latitude, location.longitude, options); }, options
       );
       airQuality = airResult.value;
-    } catch (error) { airQuality = null; }
+    } catch (error) {
+      SS.network.throwIfAborted(options && options.signal);
+      airQuality = null;
+    }
 
     var context = SS.domain.createPredictionContext({
       query: normalizedQuery,
@@ -334,9 +352,9 @@
       airQuality: airQuality
     });
 
-    var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -30 &&
-      time.minutesToSunset <= SS.modelConfig.nowcast.proximityGate.fetchLimitHours * 60;
-    context.nowcast.minutePrecip = fetchNowcast ? await minutePrecip(location, localDate, nowUtcMs) : null;
+    var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
+      time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
+    context.nowcast.minutePrecip = fetchNowcast ? await minutePrecip(location, localDate, nowUtcMs, options) : null;
 
     var localShiftedSunset = SS.time.toLocalShifted(solar.sunset, offsetSeconds);
     var regime = SS.sampling.estimateLocalRegime({
@@ -347,7 +365,7 @@
     });
     var mode = SS.modelConfig.sampling.enabled ? SS.sampling.decideSamplingMode(regime) : 'FULL';
     progress(options, '正在获取全天空 360° 云场与风场动力学…');
-    var spatial = await gatherSky(mode, location, solar, localForecast, localDate, ttlMinutes);
+    var spatial = await gatherSky(mode, location, solar, localForecast, localDate, ttlMinutes, options);
 
     context.sky.currentField = SS.cloudField.buildCloudField(spatial.skySamples, nowUtcMs);
     context.sky.sunsetField = SS.cloudField.buildCloudField(spatial.skySamples, solar.sunset);
@@ -394,14 +412,21 @@
     result.latitude = location.latitude;
     result.longitude = location.longitude;
     addDisplayFields(result, context);
-    result = await applySunsetEvolution(result, context);
+    result = await applySunsetEvolution(result, context, options);
     SS.domain.assertPredictionResult(result);
+    SS.network.throwIfAborted(options.signal);
+    result.runtime_config_key = SS.modelConfigKey();
     SS.cache.set(resultCacheKey, result);
     return result;
   }
 
   SS.prediction = {
-    predict: predict,
+    predict: function (query, options) {
+      options = options || {};
+      return SS.network.run(function (signal) {
+        return predict(query, Object.assign({}, options, { signal: signal }));
+      }, { signal: options.signal, timeoutMs: SS.modelConfig.network.queryTimeoutMs });
+    },
     parseCoordinates: parseCoordinates,
     buildPredictionContext: SS.domain.createPredictionContext
   };

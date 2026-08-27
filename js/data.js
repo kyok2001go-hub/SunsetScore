@@ -11,29 +11,24 @@
   var EARTH_RADIUS_KM = 6371;
   var rad = Math.PI / 180;
 
-  function fetchJson(url) {
-    return fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('请求失败（HTTP ' + r.status + '）：' + url);
-      return r.json();
-    });
-  }
-
-  function delay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+  function fetchJson(url, options) { return SS.network.json(url, options); }
 
   /* 带一次重试的预报请求：保留供本地单点预报使用 */
-  function fetchForecastWithRetry(lat, lon, retryDelayMs) {
-    return SS.data.fetchForecast(lat, lon).catch(function () {
-      return delay(retryDelayMs).then(function () { return SS.data.fetchForecast(lat, lon); });
+  function fetchForecastWithRetry(lat, lon, retryDelayMs, options) {
+    return SS.data.fetchForecast(lat, lon, options).catch(function () {
+      SS.network.throwIfAborted(options && options.signal);
+      return SS.network.sleep(retryDelayMs, options).then(function () { return SS.data.fetchForecast(lat, lon, options); });
     });
   }
 
   /* V1.8 指数退避重试（方案 14.1 节）：针对 429 / 网络错误 */
-  function fetchBatchForecastWithRetry(nodes) {
+  function fetchBatchForecastWithRetry(nodes, options) {
     var rc = SS.modelConfig.sampling.batchRetry;
     function attempt(n, delayMs) {
-      return SS.data.fetchBatchForecast(nodes).catch(function (err) {
+      return SS.data.fetchBatchForecast(nodes, options).catch(function (err) {
+        SS.network.throwIfAborted(options && options.signal);
         if (n >= rc.maxAttempts) throw err;
-        return delay(delayMs).then(function () { return attempt(n + 1, delayMs * rc.backoffFactor); });
+        return SS.network.sleep(delayMs, options).then(function () { return attempt(n + 1, delayMs * rc.backoffFactor); });
       });
     }
     return attempt(0, rc.baseDelayMs);
@@ -59,37 +54,17 @@
     };
   }
 
-  /**
-   * 构建空间采样点：Local + 4 距离 × 3 方位 = 13 点（第 8 章）
-   * V1.8 起仅供回退/兼容使用，正常链路由 SS.sampling.selectNodes 选点
-   */
-  function buildSamplePoints(lat, lon, sunsetAzimuthDeg) {
-    var cfg = SS.modelConfig.scoring;
-    var points = [{ distanceKm: 0, azimuthOffset: 0, latitude: lat, longitude: lon }];
-    cfg.azimuthOffsets.forEach(function (offset) {
-      var bearing = (sunsetAzimuthDeg + offset + 360) % 360;
-      cfg.distancesKm.forEach(function (dist) {
-        var p = destinationPoint(lat, lon, bearing, dist);
-        p.distanceKm = dist;
-        p.azimuthOffset = offset;
-        points.push(p);
-      });
-    });
-    return points;
-  }
-
   SS.data = {
     destinationPoint: destinationPoint,
-    buildSamplePoints: buildSamplePoints,
     fetchForecastWithRetry: fetchForecastWithRetry,
     fetchBatchForecastWithRetry: fetchBatchForecastWithRetry,
 
     /* V1.8 Multi-Coordinate Batch（方案 5 章）：N 个空间节点 → 1 次 Forecast 请求。
        Open-Meteo 多坐标时返回与坐标对齐的数组，单坐标时返回单对象 */
-    fetchBatchForecast: function (nodes) {
+    fetchBatchForecast: function (nodes, options) {
       if (!nodes.length) return Promise.resolve([]);
       if (nodes.length === 1) {
-        return SS.data.fetchForecast(nodes[0].latitude, nodes[0].longitude)
+        return SS.data.fetchForecast(nodes[0].latitude, nodes[0].longitude, options)
           .then(function (fc) { return [fc]; });
       }
       var lats = nodes.map(function (n) { return n.latitude.toFixed(4); }).join(',');
@@ -98,7 +73,7 @@
         '?latitude=' + lats + '&longitude=' + lons +
         '&hourly=' + SS.modelConfig.scoring.hourlyVariables +
         '&forecast_days=2&timezone=auto';
-      return fetchJson(url).then(function (json) {
+      return fetchJson(url, options).then(function (json) {
         var arr = Array.isArray(json) ? json : [json];
         if (arr.length !== nodes.length) {
           throw new Error('批量预报返回 ' + arr.length + ' 个结果，与 ' + nodes.length + ' 个坐标不匹配');
@@ -111,7 +86,7 @@
        [min(日落-lookback, 当前-nowLookback), max(日落+lookahead, 当前+nowLookahead)] 的小时。
        hourly.time 为当地 ISO 字符串，需用各节点自身 utc_offset_seconds 换算成 UTC 比较 */
     trimForecastWindow: function (forecast, nowUtcMs, sunsetUtcMs) {
-      var w = SS.modelConfig.scoring.forecastWindowV18;
+      var w = SS.modelConfig.scoring.forecastWindow;
       if (!forecast || !forecast.hourly || !forecast.hourly.time) return forecast;
       var startUtc = Math.min(sunsetUtcMs - w.lookbackHours * 3600000, nowUtcMs - w.nowLookbackHours * 3600000);
       var endUtc = Math.max(sunsetUtcMs + w.lookaheadHours * 3600000, nowUtcMs + w.nowLookaheadHours * 3600000);
@@ -138,10 +113,10 @@
     },
 
     /* 城市名 → 经纬度 + 时区（Open-Meteo Geocoding） */
-    geocode: function (name) {
+    geocode: function (name, options) {
       var url = SS.modelConfig.api.geocoding +
         '?name=' + encodeURIComponent(name) + '&count=1&language=zh&format=json';
-      return fetchJson(url).then(function (json) {
+      return fetchJson(url, options).then(function (json) {
         if (!json.results || !json.results.length) {
           throw new Error('找不到城市「' + name + '」，请尝试英文名或「纬度,经度」格式');
         }
@@ -158,20 +133,20 @@
     },
 
     /* 单点天气预报（含时区偏移），forecast_days=2 保证覆盖日落时刻 */
-    fetchForecast: function (lat, lon) {
+    fetchForecast: function (lat, lon, options) {
       var url = SS.modelConfig.api.forecast +
         '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
         '&hourly=' + SS.modelConfig.scoring.hourlyVariables +
         '&forecast_days=2&timezone=auto';
-      return fetchJson(url);
+      return fetchJson(url, options);
     },
 
     /* 空气质量（AOD + PM2.5，用于 Atmosphere Score） */
-    fetchAirQuality: function (lat, lon) {
+    fetchAirQuality: function (lat, lon, options) {
       var url = SS.modelConfig.api.airQuality +
         '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
         '&hourly=aerosol_optical_depth,pm2_5&forecast_days=2&timezone=auto';
-      return fetchJson(url);
+      return fetchJson(url, options);
     },
 
     /**
@@ -180,7 +155,7 @@
      * 空气质量由 app.js 单独获取（独立缓存 TTL）。
      * @returns {Promise<{samples: Array, expectedSampleCount: number}>}
      */
-    gather: function (nodes, localForecast) {
+    gather: function (nodes, localForecast, options) {
       var samples = nodes.map(function (n) { return { point: n, forecast: null }; });
       var remoteIdx = [];
       nodes.forEach(function (n, i) {
@@ -191,7 +166,7 @@
         return Promise.resolve({ samples: samples, expectedSampleCount: nodes.length });
       }
       var remoteNodes = remoteIdx.map(function (i) { return nodes[i]; });
-      return fetchBatchForecastWithRetry(remoteNodes).then(function (arr) {
+      return fetchBatchForecastWithRetry(remoteNodes, options).then(function (arr) {
         remoteIdx.forEach(function (sampleIdx, j) { samples[sampleIdx].forecast = arr[j]; });
         return { samples: samples, expectedSampleCount: nodes.length };
       });

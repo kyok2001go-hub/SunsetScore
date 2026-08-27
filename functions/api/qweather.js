@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from '../../server/network.js';
 /**
  * SunsetScore V2.3 - QWeather secret-preserving edge adapter.
  * Bind QWEATHER_API_KEY as a Pages secret. QWEATHER_HOST is optional.
@@ -31,10 +32,13 @@ export async function onRequestGet(context) {
   upstream.searchParams.set('location', `${lon.toFixed(2)},${lat.toFixed(2)}`);
 
   try {
-    const upstreamResponse = await fetch(upstream, {
-      headers: { 'X-QW-Api-Key': env.QWEATHER_API_KEY }
-    });
-    if (!upstreamResponse.ok) return response({ error: 'QWeather upstream failed' }, upstreamResponse.status);
+    const upstreamResponse = await fetchWithDeadline(upstream, {
+      headers: { 'X-QW-Api-Key': env.QWEATHER_API_KEY }, redirect: 'error'
+    }, { signal: request.signal });
+    if (!upstreamResponse.ok) {
+      await upstreamResponse.body?.cancel();
+      return response({ error: 'QWeather upstream failed' }, upstreamResponse.status);
+    }
     return new Response(upstreamResponse.body, {
       status: 200,
       headers: {
@@ -45,6 +49,6 @@ export async function onRequestGet(context) {
     });
   } catch (error) {
     console.error(JSON.stringify({ message: 'qweather upstream failed', error: error instanceof Error ? error.message : String(error) }));
-    return response({ error: 'QWeather upstream unavailable' }, 502);
+    return response({ error: error.name === 'TimeoutError' ? 'QWeather upstream timeout' : 'QWeather upstream unavailable' }, error.name === 'TimeoutError' ? 504 : 502);
   }
 }

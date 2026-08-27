@@ -5,7 +5,7 @@ const { createRuntime, load } = require('./helpers.cjs');
 test('feedback payload carries canonical timezone and version fields', () => {
   const runtime = createRuntime();
   const SS = load(runtime, [
-    'js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+    'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
     'js/baseline.js', 'js/feedback_service.js'
   ]);
   const result = {
@@ -28,7 +28,7 @@ test('feedback payload carries canonical timezone and version fields', () => {
 
 test('remote failure keeps retry available and preserves the actual server error', async () => {
   const runtime = createRuntime({ fetch: async () => ({ ok: false, status: 503, json: async () => ({ error: '数据库不可用' }) }) });
-  const SS = load(runtime, ['js/config.js', 'js/model_config.js', 'js/time.js', 'js/baseline.js', 'js/feedback_service.js']);
+  const SS = load(runtime, ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/time.js', 'js/baseline.js', 'js/feedback_service.js']);
   const result = { city: '上海', timezone: 'Asia/Shanghai' };
   const response = await SS.feedbackService.submit(result, { rating: 'good' });
   assert.equal(response.remote, false);
@@ -43,7 +43,7 @@ test('remote failure keeps retry available and preserves the actual server error
 
 test('HTTP 200 with success:false is not treated as a saved feedback', async () => {
   const runtime = createRuntime({ fetch: async () => ({ ok: true, json: async () => ({ success: false, error: '未写入' }) }) });
-  const SS = load(runtime, ['js/config.js', 'js/model_config.js', 'js/time.js', 'js/baseline.js', 'js/feedback_service.js']);
+  const SS = load(runtime, ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/time.js', 'js/baseline.js', 'js/feedback_service.js']);
   assert.equal((await SS.feedbackService.submit({ city: '上海' }, { rating: 'poor' })).remote, false);
   assert.equal(SS.feedbackService.remainingCooldownMinutes('上海'), 0);
   assert.throws(() => SS.feedbackService.buildPayload({ city: '上海' }, { rating: 'accurate' }), /实际晚霞/);
@@ -54,7 +54,7 @@ test('failed localStorage is not reported as a local backup', async () => {
     fetch: async () => { throw new Error('offline'); },
     localStorage: { getItem: () => null, setItem: () => { throw new Error('quota'); } }
   });
-  const SS = load(runtime, ['js/config.js', 'js/baseline.js']);
+  const SS = load(runtime, ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/baseline.js']);
   const result = await SS.baseline.submitFeedback({ city: '上海', user_rating: 'poor' });
   assert.equal(result.local, false);
   assert.equal(result.remote, false);
@@ -63,7 +63,7 @@ test('failed localStorage is not reported as a local backup', async () => {
 test('feedback cooldown is measured with UTC epoch milliseconds', () => {
   const runtime = createRuntime();
   const SS = load(runtime, [
-    'js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+    'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
     'js/baseline.js', 'js/feedback_service.js'
   ]);
   const now = Date.parse('2026-08-26T10:30:00Z');

@@ -1,28 +1,31 @@
-/* ============================================================
- * SunsetScore V2.3 - 生产模型配置入口
- *
- * V2.3 期间保持原参数对象的引用兼容，所有新代码只读取 SS.modelConfig。
- * 后续模型校准只修改本文件导出的当前生产配置，不再新增历史版本分支。
- * ============================================================ */
+/* 当前生产模型入口：只保留一套算法；历史版本由独立归档保存。 */
 (function (root) {
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};
-  var legacy = SS.config;
+  var cfg = SS.config;
   SS.modelConfig = Object.freeze({
     version: SS.version.model,
-    scoring: legacy,
-    api: legacy.endpoints,
-    cache: legacy.cacheV18,
-    sampling: legacy.samplingV18,
-    nowcast: legacy.nowcastV19,
-    cloudField: legacy.cloudFieldV21,
-    wind: legacy.windMotionV21,
-    skyState: legacy.skyStateV21,
-    evolution: legacy.evolutionV20,
-    goldenWindow: Object.freeze({
-      startMinutes: -30,
-      endMinutes: legacy.nowcastV19.proximityGate.activationHours * 60,
-      model: legacy.goldenWindowV4
-    })
+    scoring: cfg,
+    api: cfg.endpoints,
+    cache: cfg.cachePolicy,
+    sampling: cfg.sampling,
+    nowcast: cfg.nowcast,
+    cloudField: cfg.cloudField,
+    wind: cfg.wind,
+    skyState: cfg.skyState,
+    evolution: cfg.evolution,
+    goldenWindow: cfg.goldenWindow,
+    network: cfg.network
   });
+  // Key operational switches must not reuse a result or observation from a different policy.
+  SS.modelConfigKey = function () {
+    return JSON.stringify({
+      nowcast: cfg.nowcast.enabled,
+      qweather: cfg.nowcast.qweather.enabled,
+      radar: cfg.nowcast.radar.enabled,
+      satellite: cfg.nowcast.satellite.enabled,
+      goldenWindow: cfg.goldenWindow,
+      sampling: cfg.sampling.enabled
+    });
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

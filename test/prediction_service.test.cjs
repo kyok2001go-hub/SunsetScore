@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createRuntime, load, forecast } = require('./helpers.cjs');
 
 const SERVICE_FILES = [
-  'js/config.js', 'js/model_config.js', 'js/domain.js', 'js/time.js',
+  'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
   'js/vendor/suncalc.js', 'js/solar.js', 'js/baseline.js', 'js/cache.js',
   'js/data.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js',
   'js/sky_state.js', 'js/engine.js', 'js/sampling.js', 'js/corridor.js',

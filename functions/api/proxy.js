@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from '../../server/network.js';
 /**
  * Cloudflare Pages Functions - 跨域瓦片与气象接口安全边缘反向代理
  * 路由：GET /api/proxy?url=<ENCODED_URL>
@@ -56,7 +57,7 @@ export async function onRequestGet(context) {
   }
 
   /* 白名单安全校验，杜绝开放代理 (Open Proxy) 滥用风险 */
-  if (!isHostAllowed(parsedTarget.hostname)) {
+  if (parsedTarget.protocol !== 'https:' || !isHostAllowed(parsedTarget.hostname)) {
     return new Response(JSON.stringify({ error: `Forbidden: Host ${parsedTarget.hostname} is not in proxy whitelist` }), {
       status: 403,
       headers: {
@@ -68,11 +69,12 @@ export async function onRequestGet(context) {
 
   /* 转发请求至上游源 */
   try {
-    const upstreamRes = await fetch(parsedTarget.toString(), {
+    const upstreamRes = await fetchWithDeadline(parsedTarget.toString(), {
+      redirect: 'error',
       headers: {
         'User-Agent': 'SunsetScore-Proxy/2.3.1 (Cloudflare Edge)'
       }
-    });
+    }, { signal: request.signal });
 
     if (!upstreamRes.ok) {
       return new Response(upstreamRes.body, {
@@ -100,7 +102,7 @@ export async function onRequestGet(context) {
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: 'Upstream fetch error: ' + err.message }), {
-      status: 502,
+      status: err.name === 'TimeoutError' ? 504 : 502,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'Access-Control-Allow-Origin': '*'

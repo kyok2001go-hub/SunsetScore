@@ -6,20 +6,27 @@
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};
   var initialized = false;
+  var activeQuery = null;
   function $(id) { return root.document.getElementById(id); }
 
   async function predict(query) {
     var normalized = String(query || '').trim();
     if (!normalized) return;
+    if (activeQuery) activeQuery.abort();
+    var controller = new AbortController();
+    activeQuery = controller;
     SS.ui.beginPrediction();
     try {
-      var result = await SS.prediction.predict(normalized, { onProgress: SS.ui.setLoading });
-      SS.ui.renderResult(result);
+      var result = await SS.prediction.predict(normalized, { signal: controller.signal, onProgress: function (message) {
+        if (activeQuery === controller) SS.ui.setLoading(message);
+      } });
+      if (activeQuery === controller && !controller.signal.aborted) SS.ui.renderResult(result);
     } catch (error) {
+      if (activeQuery !== controller || controller.signal.aborted) return;
       if (root.console && root.console.error) root.console.error('[SunsetScore]', error);
       SS.ui.showError(error && error.message ? error.message : '预测失败，请检查网络后重试');
     } finally {
-      SS.ui.endPrediction();
+      if (activeQuery === controller) { activeQuery = null; SS.ui.endPrediction(); }
     }
   }
 

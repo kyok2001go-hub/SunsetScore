@@ -205,7 +205,7 @@
     var bgP = valid(sources.forecastTrend)
       ? clamp(0.5 + sources.forecastTrend / 100 * 0.5, 0.05, 0.95)
       : 0.5;
-    var wBg = cfg.fusionWeights.background;
+    var wBg = cfg.backgroundWeight;
     var fused = {};
     HORIZONS.forEach(function (h) {
       var p = safeProbability(openProb[h + 'm'], 0.5);
@@ -257,14 +257,14 @@
       pSunset = safeProbability(pSunset, 0.5);
       evo.sunsetOpenProbability = pSunset;
       evo.sunsetMinutesAway = Math.round(tSunset);
-      var floor = cfg.gwFactor.floor;
+      var floor = SS.modelConfig.goldenWindow.floor;
       var gwFactor = floor + (1 - floor) * pSunset;
       evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, floor, 1.0) * 1000) / 1000;
     }
 
     var degradedSources = [];
-    if (!radarEvo) degradedSources.push('雷达瓦片');
-    if (!satEvo) degradedSources.push('卫星云图');
+    if (!radarEvo && !(sources.sourcesStatus && sources.sourcesStatus.radar && sources.sourcesStatus.radar.status === 'DISABLED')) degradedSources.push('雷达瓦片');
+    if (!satEvo && !(sources.sourcesStatus && sources.sourcesStatus.satellite && sources.sourcesStatus.satellite.status === 'DISABLED')) degradedSources.push('卫星云图');
     evo.degradedSources = degradedSources;
     evo.hasRealTiles = !!(radarEvo || satEvo);
     evo.sourcesStatus = sources.sourcesStatus || null;
@@ -288,8 +288,8 @@
   function isGoldenWindowActive(ctx) {
     var minutesToSunset = ctx && ctx.time ? ctx.time.minutesToSunset : null;
     if (!valid(minutesToSunset)) return false;
-    var activation = (SS.modelConfig.goldenWindow.model && SS.modelConfig.goldenWindow.model.activationWindowMin) || 180;
-    return minutesToSunset >= -30 && minutesToSunset <= activation;
+    var cfg = SS.modelConfig.goldenWindow;
+    return cfg.enabled && minutesToSunset >= -cfg.afterSunsetMinutes && minutesToSunset <= cfg.beforeSunsetMinutes;
   }
 
   function evaluate(context) {
@@ -317,7 +317,7 @@
     calculateRainStopConfidence: rainStopConfidence,
     calculateEvolutionProbability: fuseEvolution,
     calculateGoldenWindowFactor: function (probability) {
-      var floor = SS.modelConfig.evolution.gwFactor.floor;
+      var floor = SS.modelConfig.goldenWindow.floor;
       return clamp(floor + (1 - floor) * safeProbability(probability, 0.5), floor, 1.0);
     },
     fallbackGoldenWindow: fallbackGoldenWindow,
