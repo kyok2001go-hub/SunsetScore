@@ -12,10 +12,10 @@ test('feedback UI only offers observation ratings and keeps input at least 16px'
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/);
 });
 
-test('all static resource cache-busters match the released app version', () => {
+test('all static resource cache-busters match the app version and asset revision', () => {
   const SS = load(createRuntime(), ['js/config.js']);
   const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
   const versions = [...html.matchAll(/\?v=([^"']+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 20);
-  assert.ok(versions.every((version) => version === SS.version.app));
+  assert.ok(versions.every((version) => version === SS.version.app + '-' + SS.version.assetRevision));
 });

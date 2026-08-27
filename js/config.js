@@ -22,7 +22,8 @@
     app: '2.3.1',
     model: '2.3.1',
     schema: 3,
-    cache: 'v231',
+    assetRevision: 'feedback1',
+    cache: 'v231_feedback1',
     feedbackSchema: 2
   });
 

@@ -24,6 +24,37 @@
     catch (error) { /* localStorage may be unavailable */ }
   }
 
+  function probabilityOrNull(value) {
+    return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  }
+
+  // Availability describes the fetched analysis, not whether the evolution model used it.
+  // For example, usable satellite data is deliberately excluded during rain.
+  function tileStatus(result, name) {
+    var evolution = result.sky_evolution || {};
+    var detail = evolution.detail || {};
+    var nowcast = result.nowcast || {};
+    var observed = nowcast.detail || {};
+    var statuses = [nowcast.sourcesStatus, observed.sourcesStatus, evolution.sourcesStatus, detail.sourcesStatus];
+    var source = null;
+    for (var i = 0; i < statuses.length; i++) {
+      if (statuses[i] && statuses[i][name]) { source = statuses[i][name]; break; }
+    }
+    var used = !!detail[name] && detail[name].available !== false;
+    var available = source && typeof source.available === 'boolean' ? source.available
+      : (observed[name] && typeof observed[name].available === 'boolean' ? observed[name].available
+        : (detail[name] && typeof detail[name].available === 'boolean' ? detail[name].available
+          : (used ? true : null)));
+    return {
+      available: available,
+      status: source && source.status ? source.status
+        : (available === true ? 'OK' : (available === false ? 'UNAVAILABLE'
+          : (result.nowcast_active === false ? 'NOT_REQUESTED' : 'UNKNOWN'))),
+      used_in_evolution: used,
+      error: source && source.error ? source.error : null
+    };
+  }
+
   function buildPayload(result, feedback) {
     if (!result) throw new Error('MISSING_PREDICTION_RESULT');
     var f = feedback || {};
@@ -36,11 +67,18 @@
     var winds = motion.layerWinds || {};
     var arrival = motion.arrivalRisk || {};
     var evolution = result.sky_evolution || {};
-    var evolutionDetail = evolution.detail || {};
     var regime = result.regime_state || {};
     var weights = regime.dynamicWeight || {};
     var components = result.components || {};
-    var openProbability = evolution.openProbability || {};
+    var openProbability = {};
+    ['30m', '60m', '90m', '120m'].forEach(function (horizon) {
+      openProbability[horizon] = probabilityOrNull((evolution.openProbability || {})[horizon]);
+    });
+    var hasProbabilities = ['30m', '60m', '120m'].every(function (horizon) {
+      return openProbability[horizon] != null;
+    });
+    var radarStatus = tileStatus(result, 'radar');
+    var satelliteStatus = tileStatus(result, 'satellite');
     var corridorMid = cs.corridorMid != null ? cs.corridorMid : (d.cloud_mid != null ? d.cloud_mid : 0);
     var corridorHigh = cs.corridorHigh != null ? cs.corridorHigh : (d.cloud_high != null ? d.cloud_high : 0);
     var timestamp = Number.isFinite(f.nowUtcMs) ? f.nowUtcMs : Date.now();
@@ -48,6 +86,8 @@
     var snapshot = {
       query_id: result.query_id,
       timestamp_utc: new Date(timestamp).toISOString(),
+      prediction_time_utc: result.prediction_time_utc || null,
+      asset_revision: SS.version.assetRevision,
       app_version: SS.version.app,
       model_version: SS.version.model,
       schema_version: SS.version.schema,
@@ -65,6 +105,11 @@
       cloud_structure: cs,
       layer_winds: winds,
       sky_evolution: {
+        nowcast_active: typeof result.nowcast_active === 'boolean' ? result.nowcast_active : null,
+        minutes_to_sunset: Number.isFinite(result.hours_to_sunset) ? result.hours_to_sunset * 60 : null,
+        probability_status: hasProbabilities ? 'READY'
+          : (result.nowcast_active === false ? 'NOT_ACTIVE' : 'NO_VALID_PROBABILITY'),
+        sources_status: { radar: radarStatus, satellite: satelliteStatus },
         macro_state: state.state,
         macro_factor: result.sky_evolution_factor,
         gw_factor: evolution.gwFactor,
@@ -126,8 +171,8 @@
       open_prob_120m: openProbability['120m'] != null ? openProbability['120m'] : null,
       arrival_risk_30m: arrival.risk30m != null ? arrival.risk30m : null,
       arrival_risk_60m: arrival.risk60m != null ? arrival.risk60m : null,
-      tile_radar_available: evolutionDetail.radar ? 1 : 0,
-      tile_sat_available: evolutionDetail.satellite ? 1 : 0,
+      tile_radar_available: radarStatus.available === true ? 1 : 0,
+      tile_sat_available: satelliteStatus.available === true ? 1 : 0,
       dyn_weight_canvas: weights.skyCanvas != null ? weights.skyCanvas : null,
       dyn_weight_horizon: weights.horizon != null ? weights.horizon : null,
       dyn_weight_illum: weights.illumination != null ? weights.illumination : null,

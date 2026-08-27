@@ -196,6 +196,7 @@
     result.best_viewing_window = result.best_viewing.start + ' – ' + result.best_viewing.end + ' (峰值 ' + result.best_viewing.peak + ')';
     result.twilight_minutes = Math.round(solar.twilightMinutes);
     result.query_id = SS.baseline.generateQueryId();
+    result.prediction_time_utc = new Date(context.time.nowUtcMs).toISOString();
     result.app_version = SS.version.app;
     result.model_version = SS.version.model;
     result.schema_version = SS.version.schema;
@@ -295,10 +296,20 @@
     var ttlMinutes = forecastTtlMinutes(solar.sunset.valueOf(), nowUtcMs);
     SS.cache.set(SS.cacheKeys.forecast(localDate, location.latitude, location.longitude), localForecast, ttlMinutes);
 
+    var time = {
+      nowUtcMs: nowUtcMs,
+      timezone: timezone,
+      localDate: localDate,
+      sunsetUtcMs: solar.sunset.valueOf(),
+      sunsetLocalText: SS.time.formatLocal(solar.sunset, timezone, false),
+      minutesToSunset: (solar.sunset.valueOf() - nowUtcMs) / 60000
+    };
     var resultCacheKey = normalizedQuery.toLowerCase().replace(/\s+/g, '_') + '_' + localDate;
     var cachedResult = SS.cache.get(resultCacheKey);
+    // A fresh TTL alone is insufficient when the query crosses the golden-window gate.
     if (cachedResult && cachedResult.app_version === SS.version.app &&
-        cachedResult.model_version === SS.version.model) return cachedResult;
+        cachedResult.model_version === SS.version.model &&
+        cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) return cachedResult;
 
     progress(options, '正在获取空气质量…');
     var airQuality = null;
@@ -312,14 +323,6 @@
       airQuality = airResult.value;
     } catch (error) { airQuality = null; }
 
-    var time = {
-      nowUtcMs: nowUtcMs,
-      timezone: timezone,
-      localDate: localDate,
-      sunsetUtcMs: solar.sunset.valueOf(),
-      sunsetLocalText: SS.time.formatLocal(solar.sunset, timezone, false),
-      minutesToSunset: (solar.sunset.valueOf() - nowUtcMs) / 60000
-    };
     var context = SS.domain.createPredictionContext({
       query: normalizedQuery,
       lat: location.latitude,
