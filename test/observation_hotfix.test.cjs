@@ -133,16 +133,17 @@ test('UI keeps hourly weather when minutes are missing and separates availabilit
     return {textContent:'',children:[],classList:{add(){},remove(){}},style:{},
       appendChild(child){this.children.push(child);},setAttribute(){}};
   }
-  const nodes = Object.fromEntries(['nowcast-block','n-summary','n-timeline','details'].map(id => [id,element()]));
+  const nodes = Object.fromEntries(['nowcast-block','n-summary','n-timeline','details','r-city'].map(id => [id,element()]));
   const runtime = createRuntime({document:{getElementById:id=>nodes[id] || null,createElement:element}});
-  const SS = load(runtime, [...files,'js/ui.js']);
+  const SS = load(runtime, [...files,'js/city_search.js','js/ui.js']);
   // Rendering-focused contract; numeric prediction validity is tested by service tests.
   SS.domain.assertPredictionResult = () => {};
-  const result = {score:20,timezone:'Asia/Shanghai',nowcast_active:true,
+  const result = {score:20,city:'台北市',admin1:'臺灣省 or 台灣省',country:'台湾',timezone:'Asia/Shanghai',nowcast_active:true,
     nowcast:{detail:{precip:null},sourcesStatus:{radar:{status:'TIMEOUT',available:false},satellite:{status:'OK',available:true}},
       timeline:Array.from({length:5},(_,i)=>({timeMs:now+i*1800000,icon:'🌧️',label:'降水',source:'小时预报'}))},
     sky_evolution:{detail:{radar:null,satellite:null}}};
   SS.ui.renderResult(result);
+  assert.equal(nodes['r-city'].textContent, '台北市', 'cached raw administrative labels also render without repetitions');
   assert.match(nodes['n-summary'].textContent,/分钟降水暂不可用.*小时预报/);
   assert.equal(nodes['n-timeline'].children.length,5);
   assert.ok(nodes['n-timeline'].children.every(item=>item.children[1].textContent==='🌧️'));

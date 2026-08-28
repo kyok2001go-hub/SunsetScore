@@ -4,6 +4,11 @@
   var SS = root.SunsetScore = root.SunsetScore || {};
   var cache = new Map();
   var administrativeSeats = Object.assign(Object.create(null), { PPLC: 5, PPLG: 5, PPLA: 4, PPLA2: 3, PPLA3: 2 });
+  // Query/name aliases only: coordinates and IDs must still come from the provider.
+  var cityAliases = [
+    { names: ['台北', 'taipei'], query: 'Taipei' },
+    { names: ['旧金山', '舊金山', 'san francisco'], query: 'San Francisco' }
+  ];
   // Province-only input must not resolve to an unrelated namesake village/city.
   // Municipalities (Beijing/Shanghai/Tianjin/Chongqing) and Hong Kong/Macao remain searchable.
   var provinces = ('河北|hebei|山西|shanxi|辽宁|遼寧|liaoning|吉林|jilin|黑龙江|黑龍江|heilongjiang|' +
@@ -34,9 +39,24 @@
       parts[0] = /市$/.test(city) ? city.slice(0, -1) : city + '市';
       if (parts[0].length >= 2) result.push(parts.join(','));
     }
-    return result;
+    var alias = findAlias(city);
+    if (alias) { parts[0] = alias.query; result.push(parts.join(',')); }
+    return Array.from(new Set(result));
   }
-  function cityName(value) { return normalize(value).toLowerCase().replace(/市$/, ''); }
+  function nameKey(value) { return normalize(value).toLowerCase().replace(/臺/g, '台').replace(/灣/g, '湾').replace(/市$/, ''); }
+  function findAlias(value) {
+    var key = nameKey(value);
+    return cityAliases.find(function (alias) { return alias.names.indexOf(key) !== -1; });
+  }
+  function cityName(value) { var alias = findAlias(value); return alias ? alias.names[0] : nameKey(value); }
+  function displayName(value) {
+    // GeoNames can return both traditional variants in one administrative field.
+    // Collapse equivalent variants, not arbitrary different administrative names.
+    return Array.from(new Set(normalize(value).split(/\s+or\s+/i).map(function (part) {
+      return part.replace(/臺/g, '台').replace(/灣/g, '湾');
+    }))).join(' or ');
+  }
+  function regionKey(value) { return cityName(displayName(value)).replace(/省$/, ''); }
   function toLocation(row) {
     if (!row || typeof row.name !== 'string' || !row.name.trim() ||
         !Number.isFinite(row.latitude) || !Number.isFinite(row.longitude) ||
@@ -67,13 +87,26 @@
     };
   }
   function detail(location) {
+    var seen = new Set([regionKey(location.name)]);
+    var country = regionKey(location.country || location.country_code);
     return [location.admin2, location.admin1, location.country || location.country_code]
-      .filter(function (value, index, parts) { return value && cityName(value) !== cityName(location.name) && parts.indexOf(value) === index; }).join(' · ');
+      .map(displayName).filter(function (value, index) {
+        var key = regionKey(value);
+        if (!value || seen.has(key) || (index < 2 && key === country)) return false;
+        seen.add(key);
+        return true;
+      }).join(' · ');
   }
-  function label(location) { var meta = detail(location); return location.name + (meta ? ' · ' + meta : ''); }
+  function title(location) {
+    var name = displayName(location.name), admin = displayName(location.admin1);
+    return name + (admin && regionKey(admin) !== regionKey(name) &&
+      regionKey(admin) !== regionKey(location.country) ? ' · ' + admin : '');
+  }
+  function label(location) { var meta = detail(location); return displayName(location.name) + (meta ? ' · ' + meta : ''); }
   function rankName(location, query) {
     var name = cityName(location.name), search = cityName(cityPart(query));
-    // English queries may return Chinese display names; never penalize their translation.
+    // Unknown pinyin/English translations keep provider ordering; known aliases can
+    // be compared across-language without guessing that a fuzzy match is exact.
     if (!/[\u3400-\u9fff]/.test(search)) return 0;
     return name === search ? 2 : name.indexOf(search) === 0 ? 1 : 0;
   }
@@ -87,9 +120,10 @@
       seen.add(key);
       return true;
     }).sort(function (a, b) {
-      // Domestic source first; QWeather's lower rank is more important, not a population value.
-      return Number(b.source === 'qweather') - Number(a.source === 'qweather') ||
-        rankName(b, query) - rankName(a, query) ||
+      // Explicit name/alias matches outrank unrelated domestic fuzzy matches.
+      // Prefer the domestic source only at the same name-match quality.
+      return rankName(b, query) - rankName(a, query) ||
+        Number(b.source === 'qweather') - Number(a.source === 'qweather') ||
         (a.source === 'qweather' && b.source === 'qweather' ? a.rank - b.rank : 0) || b.population - a.population ||
         (administrativeSeats[b.feature_code] || 1) - (administrativeSeats[a.feature_code] || 1);
     }).slice(0, SS.config.citySearch.resultLimit);
@@ -149,7 +183,7 @@
   }
   SS.citySearch = {
     normalize: normalize, hint: hint, variants: variants, select: select,
-    toLocation: toLocation, detail: detail, label: label, search: search,
+    toLocation: toLocation, detail: detail, label: label, title: title, displayName: displayName, search: search,
     resolve: async function (query, options) {
       var items = await search(query, options);
       if (!items.length) throw new Error(hint(query));

@@ -70,7 +70,7 @@ body {
   /* Fill the stretched field to match the button; keep the iOS-safe font rules. */
   height: 100%;
   min-width: 0;
-  padding: 12px 16px;
+  padding: 12px 48px 12px 16px;
   border-radius: 10px;
   border: 1px solid var(--card-border);
   background: rgba(0, 0, 0, 0.25);
@@ -81,6 +81,15 @@ body {
 }
 #city-input:focus { border-color: var(--accent); }
 #city-input::placeholder { color: var(--text-dim); }
+#city-clear {
+  position: absolute; top: 2px; right: 4px; width: 40px; height: calc(100% - 4px);
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--text-dim);
+  font-size: 24px; line-height: 1; cursor: pointer;
+}
+#city-clear[hidden] { display: none; }
+#city-clear:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+#city-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .city-suggestions {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 21;
@@ -383,6 +392,8 @@ body {
 }
 .timeline-time { font-size: 0.75rem; color: var(--text-dim); }
 .timeline-icon { font-size: 1.3rem; }
+.timeline-icon--night { display: flex; align-items: center; height: 1.6em; }
+.timeline-icon--night svg { display: block; width: 1.1em; height: 1.1em; }
 
 /* ---------- 融合统一的【天空演化】模块样式 ---------- */
 .sky-evolution {
@@ -669,7 +680,7 @@ body {
     gap: 8px;
   }
   #city-input {
-    padding: 10px 12px;
+    padding: 10px 48px 10px 12px;
     font-size: max(16px, 1rem);
   }
   #search-btn {

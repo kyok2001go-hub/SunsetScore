@@ -39,8 +39,38 @@
     };
   }
 
+  // Display-only daylight state: sunrise is inclusive, sunset is exclusive.
+  // Look at neighbouring UTC dates so midnight/date-line queries use the last
+  // actual rise/set event, not the device's date or a fixed local hour.
+  function isDaytime(timeMs, lat, lon) {
+    if (!Number.isFinite(timeMs) || !Number.isFinite(new Date(timeMs).valueOf()) ||
+        !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 ||
+        !root.SunCalc || typeof root.SunCalc.getTimes !== 'function') return null;
+    var latest = -Infinity, daylight = null, current = null;
+    try {
+      for (var offset = -1; offset <= 1; offset++) {
+        var events = root.SunCalc.getTimes(new Date(timeMs + offset * 86400000), lat, lon);
+        if (!events) continue;
+        if (offset === 0) current = events;
+        ['sunrise', 'sunset'].forEach(function (name) {
+          var eventMs = events[name] && events[name].valueOf();
+          if (Number.isFinite(eventMs) && eventMs <= timeMs && eventMs > latest) {
+            latest = eventMs;
+            daylight = name === 'sunrise';
+          }
+        });
+      }
+      if (daylight !== null) return daylight;
+      // No recent rise/set in polar day/night; do not turn missing events into 0.
+      if (current && current.alwaysUp === true) return true;
+      if (current && current.alwaysDown === true) return false;
+    } catch (error) { /* Unknown solar state must not break weather rendering. */ }
+    return null;
+  }
+
   SS.solar = {
     getSunEvents: getSunEvents,
-    position: position
+    position: position,
+    isDaytime: isDaytime
   };
 })(typeof window !== 'undefined' ? window : globalThis);

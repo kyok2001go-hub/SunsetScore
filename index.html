@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.3.4-inputheight1">
+  <link rel="stylesheet" href="css/style.css?v=2.3.4-night1">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -23,6 +23,7 @@
                  maxlength="60" aria-label="城市名或经纬度" role="combobox" aria-autocomplete="list"
                  aria-expanded="false" aria-controls="city-options" aria-describedby="city-search-status"
                  autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+          <button id="city-clear" type="button" aria-label="清空城市输入" title="清空" hidden><span aria-hidden="true">×</span></button>
           <div id="city-suggestions" class="city-suggestions" hidden>
             <ul id="city-options" role="listbox" aria-label="匹配城市"></ul>
             <p id="city-search-status" role="status" aria-live="polite"></p>
@@ -31,12 +32,10 @@
         <button id="search-btn" type="submit">搜索</button>
       </form>
       <div class="chips" id="quick-chips">
-        <button type="button" data-city="Taipei">台北</button>
-        <button type="button" data-city="Tokyo">东京</button>
-        <button type="button" data-city="Shanghai">上海</button>
-        <button type="button" data-city="Beijing">北京</button>
-        <button type="button" data-city="Shenzhen">深圳</button>
-        <button type="button" data-city="San Francisco">旧金山</button>
+        <button type="button" data-city="深圳">深圳</button>
+        <button type="button" data-city="广州">广州</button>
+        <button type="button" data-city="上海">上海</button>
+        <button type="button" data-city="北京">北京</button>
       </div>
     </section>
 
@@ -279,33 +278,33 @@
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-  <script src="js/config.js?v=2.3.4-inputheight1"></script>
-  <script src="js/model_config.js?v=2.3.4-inputheight1"></script>
-  <script src="js/network.js?v=2.3.4-inputheight1"></script>
-  <script src="js/domain.js?v=2.3.4-inputheight1"></script>
-  <script src="js/time.js?v=2.3.4-inputheight1"></script>
-  <script src="js/vendor/suncalc.js?v=2.3.4-inputheight1"></script>
-  <script src="js/solar.js?v=2.3.4-inputheight1"></script>
-  <script src="js/baseline.js?v=2.3.4-inputheight1"></script>
-  <script src="js/cache.js?v=2.3.4-inputheight1"></script>
-  <script src="js/data.js?v=2.3.4-inputheight1"></script>
-  <script src="js/city_search.js?v=2.3.4-inputheight1"></script>
-  <script src="js/cloud_field.js?v=2.3.4-inputheight1"></script>
-  <script src="js/wind.js?v=2.3.4-inputheight1"></script>
-  <script src="js/cloud_motion.js?v=2.3.4-inputheight1"></script>
-  <script src="js/sky_state.js?v=2.3.4-inputheight1"></script>
-  <script src="js/engine.js?v=2.3.4-inputheight1"></script>
-  <script src="js/sampling.js?v=2.3.4-inputheight1"></script>
-  <script src="js/corridor.js?v=2.3.4-inputheight1"></script>
-  <script src="js/nowcast.js?v=2.3.4-inputheight1"></script>
-  <script src="js/evolution.js?v=2.3.4-inputheight1"></script>
-  <script src="js/prediction_service.js?v=2.3.4-inputheight1"></script>
-  <script src="js/feedback_service.js?v=2.3.4-inputheight1"></script>
-  <script src="js/radar_view.js?v=2.3.4-inputheight1"></script>
-  <script src="js/debug.js?v=2.3.4-inputheight1"></script>
-  <script src="js/ui.js?v=2.3.4-inputheight1"></script>
-  <script src="js/feedback_ui.js?v=2.3.4-inputheight1"></script>
-  <script src="js/city_search_ui.js?v=2.3.4-inputheight1"></script>
-  <script src="js/app.js?v=2.3.4-inputheight1"></script>
+  <script src="js/config.js?v=2.3.4-night1"></script>
+  <script src="js/model_config.js?v=2.3.4-night1"></script>
+  <script src="js/network.js?v=2.3.4-night1"></script>
+  <script src="js/domain.js?v=2.3.4-night1"></script>
+  <script src="js/time.js?v=2.3.4-night1"></script>
+  <script src="js/vendor/suncalc.js?v=2.3.4-night1"></script>
+  <script src="js/solar.js?v=2.3.4-night1"></script>
+  <script src="js/baseline.js?v=2.3.4-night1"></script>
+  <script src="js/cache.js?v=2.3.4-night1"></script>
+  <script src="js/data.js?v=2.3.4-night1"></script>
+  <script src="js/city_search.js?v=2.3.4-night1"></script>
+  <script src="js/cloud_field.js?v=2.3.4-night1"></script>
+  <script src="js/wind.js?v=2.3.4-night1"></script>
+  <script src="js/cloud_motion.js?v=2.3.4-night1"></script>
+  <script src="js/sky_state.js?v=2.3.4-night1"></script>
+  <script src="js/engine.js?v=2.3.4-night1"></script>
+  <script src="js/sampling.js?v=2.3.4-night1"></script>
+  <script src="js/corridor.js?v=2.3.4-night1"></script>
+  <script src="js/nowcast.js?v=2.3.4-night1"></script>
+  <script src="js/evolution.js?v=2.3.4-night1"></script>
+  <script src="js/prediction_service.js?v=2.3.4-night1"></script>
+  <script src="js/feedback_service.js?v=2.3.4-night1"></script>
+  <script src="js/radar_view.js?v=2.3.4-night1"></script>
+  <script src="js/debug.js?v=2.3.4-night1"></script>
+  <script src="js/ui.js?v=2.3.4-night1"></script>
+  <script src="js/feedback_ui.js?v=2.3.4-night1"></script>
+  <script src="js/city_search_ui.js?v=2.3.4-night1"></script>
+  <script src="js/app.js?v=2.3.4-night1"></script>
 </body>
 </html>

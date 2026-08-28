@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>天气时间线昼夜图标回归</title>
+  <link rel="stylesheet" href="../../css/style.css?v=2.3.4-night1">
+  <style>
+    body { padding: 16px; }
+    button { padding: 8px 12px; margin: 4px; font: inherit; cursor: pointer; }
+    iframe { display: block; width: 390px; height: 320px; border: 0; outline: 1px solid #544a63; margin-top: 16px; }
+    #fixture { max-width: 760px; margin: 0 auto; }
+    #description { margin: 12px 0 20px; color: var(--text-dim); font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <section id="controls">
+    <p>固定构造天气，只复用生产 SunCalc、UI 和 CSS；不请求外部 API，不代表真实预报。</p>
+    <button data-case="sunset">跨日落</button>
+    <button data-case="night">全夜间</button>
+    <button data-case="sunrise">跨日出</button>
+    <button data-case="missing">降水与缺测</button>
+    <button data-width="320">320px</button>
+    <button data-width="390">390px</button>
+    <button data-width="768">768px</button>
+    <p><output id="metrics" aria-live="polite">等待页面加载…</output></p>
+  </section>
+  <iframe id="preview" title="真实窄屏图标布局" hidden></iframe>
+  <main id="fixture">
+    <section id="nowcast-block" class="card nowcast-section">
+      <h3 class="card-title">🌅 黄金窗口预测 · 图标测试</h3>
+      <p id="description"></p>
+      <div id="n-timeline" class="sky-timeline" aria-label="固定天气时间线"></div>
+    </section>
+  </main>
+  <script src="../../js/config.js?v=2.3.4-night1"></script>
+  <script src="../../js/domain.js?v=2.3.4-night1"></script>
+  <script src="../../js/time.js?v=2.3.4-night1"></script>
+  <script src="../../js/vendor/suncalc.js?v=2.3.4-night1"></script>
+  <script src="../../js/solar.js?v=2.3.4-night1"></script>
+  <script src="../../js/city_search.js?v=2.3.4-night1"></script>
+  <script src="../../js/ui.js?v=2.3.4-night1"></script>
+  <script>
+    var params = new URLSearchParams(location.search);
+    var preview = document.getElementById('preview');
+    if (!params.has('embed')) {
+      document.getElementById('fixture').hidden = true;
+      preview.hidden = false;
+      preview.src = 'night-timeline.html?embed=1&case=sunset';
+      function measure() {
+        var page = preview.contentDocument, view = preview.contentWindow;
+        var icons = Array.from(page.querySelectorAll('.timeline-icon'));
+        document.getElementById('metrics').textContent = '视口/内容 ' + view.innerWidth + '/' + page.documentElement.scrollWidth +
+          'px；夜间图标 ' + page.querySelectorAll('.timeline-icon--night').length + '/5；图标高度 ' +
+          icons.map(function (icon) { return icon.getBoundingClientRect().height.toFixed(1); }).join('/') + 'px';
+      }
+      preview.addEventListener('load', measure);
+      document.querySelectorAll('[data-case]').forEach(function (button) {
+        button.addEventListener('click', function () { preview.src = 'night-timeline.html?embed=1&case=' + button.dataset.case; });
+      });
+      document.querySelectorAll('[data-width]').forEach(function (button) {
+        button.addEventListener('click', function () { preview.style.width = button.dataset.width + 'px'; requestAnimationFrame(measure); });
+      });
+    } else {
+      document.getElementById('controls').hidden = true;
+      var SS = window.SunsetScore;
+      var sun = window.SunCalc.getTimes(new Date('2026-08-28T04:00:00Z'), 22.54, 114.06);
+      var mode = params.get('case');
+      var start = mode === 'sunrise' ? +sun.sunrise - 20 * 60000 :
+        mode === 'night' || mode === 'missing' ? +sun.sunset + 20 * 60000 : +sun.sunset - 20 * 60000;
+      var icons = mode === 'missing' ? ['🌧️', '☁️', '❔', '🌂', '⛅'] : ['☀️', '☀️', '⛅', '⛅', '☀️'];
+      var labels = { '☀️': '晴朗，无降水', '⛅': '多云，无降水', '☁️': '阴天，无降水', '🌧️': '降水', '❔': '暂无此时段降水数据', '🌂': '无降水（云况未知）' };
+      document.getElementById('description').textContent = '深圳 · 2026-08-28 · 日出 ' + SS.time.formatHM(+sun.sunrise, 'Asia/Shanghai') +
+        ' / 日落 ' + SS.time.formatHM(+sun.sunset, 'Asia/Shanghai') + '（测试数据）';
+      SS.ui.renderResult({ score: 50, city: '深圳', latitude: 22.54, longitude: 114.06, timezone: 'Asia/Shanghai', nowcast_active: true,
+        nowcast: { timeline: icons.map(function (icon, i) { return { timeMs: start + i * 1800000, icon: icon, label: labels[icon], source: '构造数据' }; }) }
+      });
+    }
+  </script>
+</body>
+</html>

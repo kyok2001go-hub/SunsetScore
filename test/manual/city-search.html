@@ -16,6 +16,8 @@
   <button type="button" data-width="320">320px</button>
   <button type="button" data-width="390">390px</button>
   <button type="button" data-width="768">768px</button>
+  <button type="button" id="fill-input">填入测试坐标</button>
+  <button type="button" id="clear-input">清空测试输入</button>
   <p><output id="metrics" aria-live="polite">等待页面加载…</output></p>
   <iframe id="preview" title="移动宽度的真实应用页面" src="../../index.html"></iframe>
   <script>
@@ -25,11 +27,25 @@
       var input = page.getElementById('city-input');
       if (!input) return;
       var button = page.getElementById('search-btn');
+      var clear = page.getElementById('city-clear');
+      var clearRect = clear.getBoundingClientRect();
       document.getElementById('metrics').textContent = '视口 ' + view.innerWidth +
         'px；内容 ' + page.documentElement.scrollWidth + 'px；输入字号 ' + view.getComputedStyle(input).fontSize +
-        '；输入框高 ' + input.getBoundingClientRect().height + 'px；按钮高 ' + button.getBoundingClientRect().height + 'px';
+        '；输入框高 ' + input.getBoundingClientRect().height + 'px；按钮高 ' + button.getBoundingClientRect().height +
+        'px；清空可见 ' + !clear.hidden + '；右内边距 ' + view.getComputedStyle(input).paddingRight +
+        '；清空区域 ' + clearRect.width + '×' + clearRect.height + 'px';
     }
     preview.addEventListener('load', measure);
+    document.getElementById('fill-input').addEventListener('click', function () {
+      var input = preview.contentDocument.getElementById('city-input');
+      input.value = '22.540000000000000,114.060000000000000';
+      input.dispatchEvent(new preview.contentWindow.Event('input', { bubbles: true }));
+      measure();
+    });
+    document.getElementById('clear-input').addEventListener('click', function () {
+      preview.contentDocument.getElementById('city-clear').click();
+      measure();
+    });
     document.querySelectorAll('button[data-width]').forEach(function (button) {
       button.addEventListener('click', function () {
         preview.style.width = button.dataset.width + 'px';

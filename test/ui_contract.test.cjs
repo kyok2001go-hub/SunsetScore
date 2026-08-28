@@ -54,3 +54,14 @@ test('static resources, edge logs and server identifiers match the app version a
   const devServer = readFileSync(join(__dirname, '..', 'scripts/dev-server.mjs'), 'utf8');
   assert.ok(devServer.includes('SunsetScore V' + SS.version.app + ' local server:'));
 });
+
+test('search clear control is accessible, does not submit, and keeps space at both input breakpoints', () => {
+  const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+  const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
+  assert.match(html, /id="city-clear" type="button" aria-label="清空城市输入"[^>]*hidden/);
+  assert.match(css, /#city-clear\[hidden\]\s*\{\s*display:\s*none/);
+  assert.match(css, /#city-clear:focus-visible/);
+  const rules = [...css.matchAll(/#city-input\s*\{([^}]+)\}/g)].map(x => x[1]);
+  assert.ok(rules.every(rule => /padding:\s*\d+px 48px/.test(rule)));
+  assert.deepEqual([...html.matchAll(/data-city="([^"]+)"/g)].map(x => x[1]), ['深圳', '广州', '上海', '北京']);
+});

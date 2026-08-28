@@ -6,6 +6,7 @@
   function init(onSearch) {
     var doc = root.document;
     var form = doc.getElementById('search-form'), input = doc.getElementById('city-input');
+    var clearButton = doc.getElementById('city-clear');
     var field = doc.getElementById('city-search-field'), panel = doc.getElementById('city-suggestions');
     var list = doc.getElementById('city-options'), status = doc.getElementById('city-search-status');
     if (!form || !input || !field || !panel || !list || !status) return null;
@@ -14,6 +15,7 @@
     var composing = false, compositionJustEnded = false, wantOpen = false;
 
     function text() { return SS.citySearch.normalize(input.value); }
+    function syncClear() { if (clearButton) clearButton.hidden = !input.value; }
     function close() {
       wantOpen = false;
       panel.hidden = true;
@@ -31,7 +33,7 @@
         option.setAttribute('aria-selected', String(index === active));
         var name = doc.createElement('span');
         name.className = 'city-option-name';
-        name.textContent = location.name;
+        name.textContent = SS.citySearch.displayName(location.name);
         var meta = doc.createElement('span');
         meta.className = 'city-option-meta';
         meta.textContent = SS.citySearch.detail(location);
@@ -95,6 +97,7 @@
       if (!resolved) return;
       invalidate();
       input.value = SS.citySearch.label(resolved);
+      syncClear();
       selected = { text: text(), location: resolved };
       close();
       input.blur(); // Dismiss the mobile keyboard after a deliberate selection.
@@ -118,6 +121,7 @@
     }
     function onInput() {
       invalidate();
+      syncClear();
       if (composing || !text()) { close(); return; }
       wantOpen = true;
       if (SS.prediction.parseCoordinates(text())) { render('点击搜索，按输入的经纬度预测。'); return; }
@@ -132,6 +136,18 @@
       onInput();
     });
     input.addEventListener('input', onInput);
+    if (clearButton) clearButton.addEventListener('click', function () {
+      // Finish IME composition before clearing, then cancel even a pending submit.
+      if (composing) input.blur();
+      composing = false;
+      compositionJustEnded = false;
+      input.value = '';
+      onInput();
+      list.replaceChildren();
+      status.textContent = '';
+      input.focus();
+    });
+    syncClear();
     input.addEventListener('focus', function () {
       if (text() && !selected && !composing) { wantOpen = true; load(); }
     });
@@ -164,7 +180,7 @@
     doc.addEventListener('pointerdown', function (event) { if (!field.contains(event.target)) close(); });
     doc.addEventListener('focusin', function (event) { if (!field.contains(event.target)) close(); });
     form.addEventListener('submit', function (event) { event.preventDefault(); submit(); });
-    return { submit: submit, close: close, setQuery: function (query) { invalidate(); input.value = query; return submit(); } };
+    return { submit: submit, close: close, setQuery: function (query) { invalidate(); input.value = query; syncClear(); return submit(); } };
   }
   SS.citySearchUi = { init: init };
 })(typeof window !== 'undefined' ? window : globalThis);

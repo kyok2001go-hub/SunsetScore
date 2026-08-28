@@ -10,7 +10,7 @@
     app: '2.3.4',
     model: '2.3.4',
     schema: 3,
-    assetRevision: 'inputheight1',
+    assetRevision: 'night1',
     cache: 'v234',
     feedbackSchema: 2
   });

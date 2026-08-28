@@ -74,6 +74,27 @@
     setText('sky-corridor-val', open != null ? '开放概率 ' + Math.round(open * 100) + '% · ' + (evolutionLabels[evolution.state] || '稳定') : '日落走廊通畅 · 背景支持良好');
     setText('sky-arrival-val', motion && motion.arrivalRisk ? motion.arrivalRisk.summaryText : '上游无密集浓云');
   }
+  function appendNightWeatherIcon(host, cloudy) {
+    // Local vector artwork, not a provider icon or a claim about the moon phase.
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = root.document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 32 32');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    var moon = root.document.createElementNS(ns, 'path');
+    moon.setAttribute('d', 'M19 3a11 11 0 1 0 10 16A10 10 0 0 1 19 3Z');
+    moon.setAttribute('fill', '#ffd166');
+    svg.appendChild(moon);
+    if (cloudy) {
+      var cloud = root.document.createElementNS(ns, 'path');
+      cloud.setAttribute('d', 'M9 28a5 5 0 1 1 1-10 7 7 0 0 1 13-1 5.5 5.5 0 1 1 2 11Z');
+      cloud.setAttribute('fill', '#e5e7f4');
+      cloud.setAttribute('stroke', '#bfb3d8');
+      cloud.setAttribute('stroke-width', '1');
+      svg.appendChild(cloud);
+    }
+    host.appendChild(svg);
+  }
   function renderNowcast(result) {
     var block = $('nowcast-block');
     var nowcast = result.nowcast;
@@ -96,12 +117,18 @@
     timeline.textContent = '';
     var items = nowcast.timeline || SS.nowcast.buildTimeline(nowcast.detail && nowcast.detail.precip, null, Date.now());
     items.forEach(function (weather) {
+      var sunIcon = weather.icon === '☀️' || weather.icon === '⛅';
+      var night = sunIcon && SS.solar && SS.solar.isDaytime &&
+        SS.solar.isDaytime(weather.timeMs, result.latitude, result.longitude) === false;
       var item = root.document.createElement('div');
       item.className = 'timeline-item';
-      item.title = weather.label + ' · ' + weather.source;
+      item.title = (night ? '夜间，' : '') + weather.label + ' · ' + weather.source;
       var label = root.document.createElement('span'); label.className = 'timeline-time'; label.textContent = SS.time.formatHM(weather.timeMs, timezone);
       var icon = root.document.createElement('span'); icon.className = 'timeline-icon';
-      icon.textContent = weather.icon;
+      if (night) {
+        icon.className += ' timeline-icon--night';
+        appendNightWeatherIcon(icon, weather.icon === '⛅');
+      } else icon.textContent = weather.icon;
       icon.setAttribute('role', 'img'); icon.setAttribute('aria-label', item.title);
       item.appendChild(label); item.appendChild(icon); timeline.appendChild(item);
     });
@@ -294,7 +321,7 @@
     SS.domain.assertPredictionResult(result);
     currentResult = result;
     clearStatus(); show($('result')); show($('floating-feedback-wrapper'));
-    setText('r-city', result.city + (result.admin1 && result.admin1 !== result.city ? ' · ' + result.admin1 : ''));
+    setText('r-city', SS.citySearch.title({ name: result.city, admin1: result.admin1, country: result.country }));
     setText('r-local-time', '当地 ' + (result.local_time_str || '—') + ' (' +
       (result.timezone_str || SS.time.formatUtcOffset(result.utc_offset_seconds || 0)) + ')');
     var meta = (result.country ? result.country + ' · ' : '') + result.date + (result.sampling_mode ? ' · ' + result.sampling_mode + ' 采样' : '');

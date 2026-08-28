@@ -179,3 +179,69 @@ test('broad fuzzy or translated Chinese matches require explicit confirmation, i
   found.requiresSelection = false;
   await assert.rejects(SS.citySearch.resolve('不存在的城市测试'), /近似候选/);
 });
+
+const sanFrancisco = { ...foreign, id: 5391959, name: '旧金山', country: '美国', country_code: 'US',
+  admin1: '加州', admin2: 'City and County of San Francisco', latitude: 37.77493, longitude: -122.41942, population: 827526 };
+const zhoushan = { ...domestic, id: 'qweather:101211101', name: '舟山', admin1: '浙江省', admin2: '舟山',
+  latitude: 29.98798, longitude: 122.20323, rank: 23 };
+const taipei = { ...foreign, id: 1668341, name: '台北市', admin1: '臺灣省 or 台灣省', admin2: '臺北市',
+  country: '台湾', country_code: 'TW', latitude: 25.05306, longitude: 121.52639, timezone: 'Asia/Taipei' };
+
+test('San Francisco aliases outrank domestic fuzzy Zhoushan; selection keeps upstream US identity and coordinates', async () => {
+  const SS = load(createRuntime(), FILES);
+  SS.data.searchDomesticLocations = async () => [zhoushan];
+  SS.data.searchLocations = async () => [sanFrancisco];
+  for (const query of ['旧金山', '旧金山市', '舊金山', 'San Francisco', 'san francisco']) {
+    const found = await SS.citySearch.resolve(query);
+    assert.equal(found.id, 5391959, query); assert.equal(found.source, 'openmeteo');
+    assert.equal(found.country_code, 'US'); assert.equal(found.latitude, sanFrancisco.latitude);
+    assert.equal(found.longitude, sanFrancisco.longitude);
+  }
+});
+
+test('known overseas aliases cannot silently fall back to an unrelated domestic city when foreign source fails', async () => {
+  const SS = load(createRuntime(), FILES);
+  SS.data.searchDomesticLocations = async () => [zhoushan];
+  SS.data.searchLocations = async () => { throw new Error('offline'); };
+  const items = await SS.citySearch.search('San Francisco');
+  assert.equal(items.partial, true); assert.equal(items.requiresSelection, true);
+  await assert.rejects(SS.citySearch.resolve('San Francisco'), /近似候选/);
+  SS.data.searchLocations = async () => [sanFrancisco];
+  assert.equal((await SS.citySearch.resolve('San Francisco')).id, 5391959, 'partial failure stays retryable');
+});
+
+test('name match quality precedes source priority while equal matches still prefer QWeather', () => {
+  const SS = load(createRuntime(), FILES);
+  const cn = { ...domestic, name: '同名', admin2: '' };
+  const exact = { ...foreign, name: '同名' }, prefix = { ...cn, name: '同名新区' };
+  assert.equal(SS.citySearch.select([prefix, exact], '同名')[0].source, 'openmeteo');
+  assert.equal(SS.citySearch.select([cn, exact], '同名')[0].source, 'qweather');
+});
+
+test('Taipei Chinese/traditional names query an English alias and keep provider coordinates', async () => {
+  const SS = load(createRuntime(), FILES);
+  const queried = [];
+  SS.data.searchDomesticLocations = async () => [];
+  SS.data.searchLocations = async query => { queried.push(query); return query === 'Taipei' ? [taipei] : []; };
+  for (const query of ['台北', '臺北', '台北市', '臺北市', 'Taipei']) {
+    const found = await SS.citySearch.resolve(query);
+    assert.equal(found.id, taipei.id, query);
+    assert.equal(found.latitude, taipei.latitude); assert.equal(found.longitude, taipei.longitude);
+    assert.equal(found.timezone, 'Asia/Taipei');
+  }
+  assert.equal(queried.filter(q => q === 'Taipei').length, 5);
+  assert.deepEqual(Array.from(SS.citySearch.variants('Taipei')), ['Taipei']);
+});
+
+test('display removes equivalent script/administrative repetitions without mutating source records', () => {
+  const SS = load(createRuntime(), FILES);
+  const original = JSON.stringify(taipei);
+  assert.equal(SS.citySearch.detail(taipei), '台湾');
+  assert.equal(SS.citySearch.label(taipei), '台北市 · 台湾');
+  assert.equal(SS.citySearch.title(taipei), '台北市');
+  assert.equal(JSON.stringify(taipei), original);
+  assert.equal(SS.citySearch.label({ ...taipei, name: '臺北市' }), '台北市 · 台湾');
+  assert.equal(SS.citySearch.title(zhoushan), '舟山 · 浙江省');
+  assert.equal(SS.citySearch.label({ ...domestic, name: '朝阳', admin2: '北京', admin1: '北京市' }), '朝阳 · 北京 · 中国');
+  assert.equal(SS.citySearch.displayName('Area A or Area B'), 'Area A or Area B');
+});

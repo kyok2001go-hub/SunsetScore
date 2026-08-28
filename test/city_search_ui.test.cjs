@@ -19,6 +19,7 @@ class Element {
   closest() { return this.attrs.role === 'option' ? this : this.parent?.closest(); }
   find(id) { return this.id === id ? this : this.children.map(child => child.find(id)).find(Boolean); }
   blur() { this.blurred = true; }
+  focus() { this.focused = true; this.emit('focus'); }
   scrollIntoView() { this.scrolled = true; }
 }
 const candidates = [
@@ -30,7 +31,8 @@ function setup(search = async () => candidates) {
   const doc = new Element('document');
   const form = new Element('search-form'), input = new Element('city-input'), field = new Element('city-search-field');
   const panel = new Element('city-suggestions'), list = new Element('city-options'), status = new Element('city-search-status');
-  doc.append(form); form.append(field); field.append(input, panel); panel.append(list, status); panel.hidden = true;
+  const clear = new Element('city-clear');
+  doc.append(form); form.append(field); field.append(input, clear, panel); panel.append(list, status); panel.hidden = true;
   doc.getElementById = id => doc.find(id);
   doc.createElement = () => new Element();
   let nextTimer = 0;
@@ -46,7 +48,7 @@ function setup(search = async () => candidates) {
     for (const [id, timer] of [...timers]) if (timer.delay === delay) { timers.delete(id); timer.fn(); }
   }
   function type(value) { input.value = value; input.emit('input'); }
-  return { doc, form, input, panel, list, status, ui, tick, type, requests, predictions };
+  return { doc, form, input, clear, panel, list, status, ui, tick, type, requests, predictions };
 }
 
 test('typing debounces and direct submit uses the visible first candidate without another lookup', async () => {
@@ -171,4 +173,44 @@ test('domestic outage warns and prevents automatic foreign selection but allows 
   recovered = true;
   await h.ui.submit();
   assert.equal(h.predictions[1].location.id, candidates[0].id);
+});
+
+test('clear toggles with input, cancels debounce, closes suggestions and restores input focus', async () => {
+  const h = setup();
+  assert.equal(h.clear.hidden, true);
+  h.type('厦门'); assert.equal(h.clear.hidden, false);
+  h.clear.emit('click'); h.tick(); await flush();
+  assert.equal(h.input.value, ''); assert.equal(h.clear.hidden, true);
+  assert.equal(h.input.focused, true); assert.equal(h.panel.hidden, true);
+  assert.equal(h.list.children.length, 0); assert.equal(h.status.textContent, '');
+  assert.equal(h.input.attrs['aria-expanded'], 'false');
+  assert.equal(h.requests.length, 0); assert.equal(h.predictions.length, 0);
+  await h.ui.submit(); assert.equal(h.requests.length, 0);
+  h.type(' '); assert.equal(h.clear.hidden, false);
+  h.type(''); assert.equal(h.clear.hidden, true);
+});
+
+test('clear aborts an in-flight submit and late results cannot restore candidates or predict', async () => {
+  let finish;
+  const h = setup(() => new Promise(resolve => { finish = resolve; }));
+  h.type('厦门'); const pending = h.ui.submit();
+  h.clear.emit('click');
+  assert.equal(h.requests[0].signal.aborted, true);
+  finish(candidates); await pending; await flush();
+  assert.equal(h.input.value, ''); assert.equal(h.panel.hidden, true);
+  assert.equal(h.list.children.length, 0); assert.equal(h.predictions.length, 0);
+  assert.equal(h.input.attrs['aria-busy'], 'false');
+});
+
+test('clear resets chosen/quick-search locations and works after IME composition', async () => {
+  const h = setup();
+  await h.ui.setQuery('厦门'); assert.equal(h.clear.hidden, false);
+  h.clear.emit('click'); await h.ui.submit();
+  assert.equal(h.predictions.length, 1, 'empty input must not repeat the previous choice');
+  h.input.emit('compositionstart'); h.type('beijing');
+  h.clear.emit('click'); h.tick(); h.tick(0); await flush();
+  assert.equal(h.input.value, ''); assert.equal(h.panel.hidden, true);
+  h.type('北京'); await h.ui.submit();
+  assert.equal(h.predictions.length, 2, 'new input must not stay locked in IME mode');
+  await h.ui.setQuery('22.54,114.06'); assert.equal(h.clear.hidden, false);
 });
