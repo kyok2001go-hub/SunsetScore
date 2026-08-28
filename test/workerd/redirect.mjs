@@ -8,7 +8,8 @@ function check(condition, message) {
 function invoke(kind, status) {
   const request = new Request(kind === 'qweather'
     ? 'https://example.test/api/qweather?lat=22.54&lon=114.06'
-    : 'https://example.test/api/proxy?url=' + encodeURIComponent(`https://tilecache.rainviewer.com/test.png?status=${status}`));
+    : 'https://example.test/api/proxy?url=' + encodeURIComponent(`https://tilecache.rainviewer.com/test.png?status=${status}`),
+  { headers: { 'cf-ray': '0123456789abcdef-HKG', authorization: 'Bearer test-secret-only' } });
   return (kind === 'qweather' ? qweather : proxy)({
     request, env: { QWEATHER_API_KEY: 'test-secret-only', QWEATHER_HOST: `status-${status}.qweatherapi.com` }
   });
@@ -52,6 +53,39 @@ export const preserveUpstreamErrors = {
         check(response.status === status, `${kind}: preserve upstream ${status}`);
         await response.body?.cancel();
       }
+    }
+  }
+};
+
+export const structuredErrorLogs = {
+  async test() {
+    const records = [];
+    const originalError = console.error;
+    console.error = (record) => records.push(record);
+    try {
+      for (const kind of ['qweather', 'proxy']) {
+        for (const status of [200, 302, 429]) {
+          const response = await invoke(kind, status);
+          await response.body?.cancel();
+        }
+      }
+      check(records.length === 4, 'One log per failure; no success logs');
+      for (const record of records) {
+        check(typeof record === 'object', 'Structured object, not raw message');
+        check(record.event === 'edge_proxy_error' && record.appVersion === '2.3.3', 'Keep event/version');
+        check(record.cfRay === '0123456789abcdef-HKG', 'Keep validated request correlation');
+        check(record.stage === 'upstream_response', 'Keep failure stage');
+        check(record.source === (record.adapter === 'qweather' ? 'qweather' : 'rainviewer'), 'Keep provider category');
+        check(record.errorCode === (record.upstreamStatus === 302 ? 'UPSTREAM_REDIRECT' : 'UPSTREAM_HTTP_ERROR'), 'Keep error class');
+        check(record.responseStatus === (record.upstreamStatus === 302 ? 502 : 429), 'Keep response status');
+        check(Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0, 'Keep bounded elapsed time');
+        const text = JSON.stringify(record);
+        for (const forbidden of ['test-secret-only', 'Bearer', 'https:', 'test.png', 'private-destination', '22.54', '114.06']) {
+          check(!text.includes(forbidden), 'Sensitive values must not appear in custom logs');
+        }
+      }
+    } finally {
+      console.error = originalError;
     }
   }
 };

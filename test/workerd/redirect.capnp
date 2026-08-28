@@ -8,7 +8,8 @@ const config :Workerd.Config = (
       modules = [
         (name = "test/workerd/redirect.mjs", esModule = embed "redirect.mjs"),
         (name = "functions/api/qweather.js", esModule = embed "../../functions/api/qweather.js"),
-        (name = "functions/api/proxy.js", esModule = embed "../../functions/api/proxy.js")
+        (name = "functions/api/proxy.js", esModule = embed "../../functions/api/proxy.js"),
+        (name = "server/edge-log.js", esModule = embed "../../server/edge-log.js")
       ],
       globalOutbound = "upstream"
     )),

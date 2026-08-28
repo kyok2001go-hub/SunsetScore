@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.2 - 当前生产参数配置
+ * SunsetScore V2.3.3 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * ============================================================ */
 (function (root) {
@@ -7,11 +7,11 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.3.2',
-    model: '2.3.2',
+    app: '2.3.3',
+    model: '2.3.3',
     schema: 3,
-    assetRevision: 'precip1',
-    cache: 'v232_precip1',
+    assetRevision: 'release',
+    cache: 'v233',
     feedbackSchema: 2
   });
 
