@@ -52,20 +52,29 @@
     return run(async function (signal) {
       var response = await fetch(url, Object.assign({}, options.init, { signal: signal }));
       throwIfAborted(signal);
+      // HTTP failures need not contain JSON (edge 502 pages often do not).
+      // Preserve the status without persisting arbitrary error bodies or URLs.
+      if (!response.ok && !options.allowHttpError) {
+        var httpError = failure('HttpError', '请求失败（HTTP ' + response.status + '）');
+        httpError.status = response.status;
+        httpError.requestId = response.headers && response.headers.get('cf-ray');
+        if (response.body) response.body.cancel().catch(function () {});
+        throw httpError;
+      }
       var data;
       try {
         data = await response[options.responseType || 'json']();
       } catch (error) {
         throwIfAborted(signal);
-        if (response.ok || !options.allowHttpError) throw error;
+        if (response.ok) {
+          if (error.name !== 'SyntaxError') throw error;
+          var parseError = failure('ParseError', '响应不是有效的 JSON');
+          parseError.status = response.status;
+          throw parseError;
+        }
         data = {};
       }
       throwIfAborted(signal);
-      if (!response.ok && !options.allowHttpError) {
-        var error = failure('HttpError', '请求失败（HTTP ' + response.status + '）');
-        error.status = response.status;
-        throw error;
-      }
       return { response: response, data: data };
     }, options);
   }

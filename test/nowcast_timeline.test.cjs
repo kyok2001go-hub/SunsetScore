@@ -17,10 +17,10 @@ function series(step = 5, count = 24) {
 
 test('QWeather rainy series survives fusion and reaches evolution and all timeline icons', async () => {
   const SS = setup();
-  const analysis = SS.nowcast.analyzePrecip(series(), now);
+  SS.nowcast.fetchMinutePrecip = async () => series();
   const ctx = { lat: 22.54, lon: 114.06, dateStr: '2026-08-26', nowUtc: new Date(now), forecastTrend: 0, utcOffsetSeconds: 0 };
-  for (const type of ['precip', 'radar', 'satellite']) {
-    SS.cache.set(SS.cacheKeys.nowcast(type, ctx.dateStr, ctx.lat, ctx.lon), { analysis: type === 'precip' ? analysis : null }, 10);
+  for (const type of ['radar', 'satellite']) {
+    SS.cache.set(SS.cacheKeys.nowcast(type, ctx.dateStr, ctx.lat, ctx.lon), { analysis: null }, 10);
   }
   const fusion = await SS.nowcast.run(ctx);
   assert.equal(fusion.detail.precip.available, true);

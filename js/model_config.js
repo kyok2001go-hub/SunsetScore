@@ -22,6 +22,7 @@
     return JSON.stringify({
       nowcast: cfg.nowcast.enabled,
       qweather: cfg.nowcast.qweather.enabled,
+      precipRetryMinutes: cfg.nowcast.precipRetryMinutes,
       radar: cfg.nowcast.radar.enabled,
       satellite: cfg.nowcast.satellite.enabled,
       goldenWindow: cfg.goldenWindow,

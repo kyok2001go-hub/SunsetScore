@@ -151,19 +151,8 @@
   }
 
   async function minutePrecip(location, date, nowUtcMs, options) {
-    var key = SS.cacheKeys.nowcast('precip', date, location.latitude, location.longitude);
-    var cached = SS.cache.get(key);
-    if (cached && cached.analysis) return cached.analysis;
-    try {
-      var series = await SS.nowcast.fetchMinutePrecip(location.latitude, location.longitude, options);
-      var analysis = SS.nowcast.analyzePrecip(series, nowUtcMs);
-      SS.network.throwIfAborted(options && options.signal);
-      if (analysis) SS.cache.set(key, { analysis: analysis }, SS.modelConfig.nowcast.ttlMinutes.precip);
-      return analysis;
-    } catch (error) {
-      SS.network.throwIfAborted(options && options.signal);
-      return null;
-    }
+    return SS.nowcast.getMinutePrecip({ lat: location.latitude, lon: location.longitude,
+      dateStr: date, nowUtc: new Date(nowUtcMs) }, options);
   }
 
   function computeForecastTrend(localForecast, nowUtcMs, sunsetUtcMs) {
@@ -233,6 +222,8 @@
       forecastTrend: computeForecastTrend(context.weather.localForecast, context.time.nowUtcMs, context.time.sunsetUtcMs),
       motionForecast: result.cloud_motion
     };
+    // Reuse this query's prefetch, including failure diagnostics; do not request twice.
+    nowcastContext.precipResult = context.nowcast.precipResult;
     var fusion = null;
     try { fusion = await SS.nowcast.run(nowcastContext, options); } catch (error) {
       SS.network.throwIfAborted(options && options.signal);
@@ -333,6 +324,8 @@
     if (cachedResult && cachedResult.app_version === SS.version.app &&
         cachedResult.model_version === SS.version.model &&
         cachedResult.runtime_config_key === SS.modelConfigKey() &&
+        (!cachedResult.minute_refresh_at_ms || Date.now() < cachedResult.minute_refresh_at_ms) &&
+        (!cachedResult.minute_coverage_end_ms || nowUtcMs < cachedResult.minute_coverage_end_ms) &&
         cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) return cachedResult;
 
     progress(options, '正在获取空气质量…');
@@ -363,7 +356,8 @@
 
     var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
       time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
-    context.nowcast.minutePrecip = fetchNowcast ? await minutePrecip(location, localDate, nowUtcMs, options) : null;
+    context.nowcast.precipResult = fetchNowcast ? await minutePrecip(location, localDate, nowUtcMs, options) : null;
+    context.nowcast.minutePrecip = context.nowcast.precipResult ? context.nowcast.precipResult.analysis : null;
 
     var localShiftedSunset = SS.time.toLocalShifted(solar.sunset, offsetSeconds);
     var regime = SS.sampling.estimateLocalRegime({
@@ -425,6 +419,8 @@
     SS.domain.assertPredictionResult(result);
     SS.network.throwIfAborted(options.signal);
     result.runtime_config_key = SS.modelConfigKey();
+    result.minute_refresh_at_ms = context.nowcast.precipResult ? context.nowcast.precipResult.refreshAtMs : null;
+    result.minute_coverage_end_ms = context.nowcast.minutePrecip ? context.nowcast.minutePrecip.coverageEndMs : null;
     SS.cache.set(resultCacheKey, result);
     return result;
   }

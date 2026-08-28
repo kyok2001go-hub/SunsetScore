@@ -37,24 +37,71 @@
   /* ---------- Source 1：分钟级降水（Phase 1） ----------
      首选 QWeather /v7/minutely/5m（5 分钟粒度、中国区、需 API Key），
      未配置/失败时回退 Open-Meteo minutely_15（15 分钟粒度、全球无 Key）。
-     两者统一归一化为 series {times, precip, stepMs, source} */
+     保留原始 times；intervalAnchor 指明时间戳是区间起点还是终点。 */
+
+  function precipError(name, message, businessCode) {
+    var error = new Error(message);
+    error.name = name;
+    if (businessCode != null) error.businessCode = businessCode;
+    return error;
+  }
+
+  function qweatherState(status, error) {
+    return {
+      available: status === 'OK', status: status,
+      error: error ? error.message : null,
+      errorName: error ? error.name : null,
+      httpStatus: error && valid(error.status) ? error.status : null,
+      businessCode: error && error.businessCode != null ? error.businessCode : null,
+      requestId: error && /^[a-zA-Z0-9-]{1,80}$/.test(error.requestId || '') ? error.requestId : null,
+      checkedAtMs: Date.now()
+    };
+  }
+
+  function failureStatus(error) {
+    return ({ TimeoutError: 'TIMEOUT', HttpError: 'HTTP_ERROR', BusinessError: 'BUSINESS_ERROR',
+      ParseError: 'PARSE_ERROR', PrecipDataError: 'NO_DATA' })[error && error.name] || 'FAILED';
+  }
+
+  // Explicit half-open intervals [start, end). Open-Meteo precipitation is the
+  // preceding 15-minute sum; QWeather keeps the existing forecast-start convention.
+  function precipIntervals(series) {
+    if (!series || !Array.isArray(series.times) || !Array.isArray(series.precip) ||
+        series.times.length !== series.precip.length || !series.times.length) return null;
+    var step = series.stepMs;
+    if (!valid(step) || step <= 0) {
+      step = series.times.length > 1 ? Date.parse(series.times[1]) - Date.parse(series.times[0]) : 0;
+    }
+    if (!valid(step) || step <= 0) return null;
+    var anchor = series.intervalAnchor || (series.source === 'openmeteo' ? 'end' : 'start');
+    if (anchor !== 'start' && anchor !== 'end') return null;
+    var starts = series.times.map(function (t) { return Date.parse(t) - (anchor === 'end' ? step : 0); });
+    if (starts.some(function (t, i) { return !valid(t) || (i > 0 && t < starts[i - 1] + step); })) return null;
+    return { starts: starts, stepMs: step, anchor: anchor };
+  }
 
   function fetchQWeatherMinutePrecip(lat, lon, options) {
     var qw = SS.modelConfig.nowcast.qweather;
-    if (!SS.modelConfig.nowcast.enabled || !qw || !qw.enabled || !qw.endpoint || typeof location === 'undefined' || location.protocol === 'file:') return Promise.resolve(null);
     var url = qw.endpoint + '?lat=' + encodeURIComponent(lat.toFixed(4)) + '&lon=' + encodeURIComponent(lon.toFixed(4));
-    return fetchJson(url, options).then(function (json) {
+    return fetchJson(url, Object.assign({}, options, { init: { cache: 'no-cache' } })).then(function (json) {
       /* 注意：QWeather 业务错误也返回 HTTP 200，需检查业务状态码 */
-      if (!json || json.code !== '200' || !json.minutely || json.minutely.length < 8) return null;
+      if (!json || String(json.code) !== '200') {
+        var code = json && json.code != null && /^[a-zA-Z0-9_.-]{1,40}$/.test(String(json.code)) ? String(json.code) : null;
+        var error = precipError('BusinessError', 'QWeather 业务状态异常' + (code ? '（' + code + '）' : '（缺少状态码）'), code);
+        error.status = 200;
+        throw error;
+      }
+      if (!Array.isArray(json.minutely) || json.minutely.length < 8) {
+        throw precipError('PrecipDataError', 'QWeather 分钟序列缺失或不足8条');
+      }
       var times = [], precip = [];
       json.minutely.forEach(function (m) {
-        var p = parseFloat(m.precip);
-        times.push(m.fxTime);
+        var p = m && m.precip != null && String(m.precip).trim() !== '' ? Number(m.precip) : NaN;
+        times.push(m && m.fxTime);
         precip.push(isFinite(p) && p >= 0 ? p : null);
       });
-      var stepMs = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 300000;
       return {
-        times: times, precip: precip, stepMs: stepMs,
+        times: times, precip: precip, stepMs: 300000, intervalAnchor: 'start',
         source: 'qweather', summary: json.summary || null
       };
     });
@@ -66,13 +113,14 @@
       '&minutely_15=precipitation&forecast_minutely_15=120&timezone=auto';
     return fetchJson(url, options).then(function (json) {
       var m15 = json && json.minutely_15;
-      if (!m15 || !m15.time || !m15.precipitation || m15.time.length < 8) return null;
+      if (!m15 || !Array.isArray(m15.time) || !Array.isArray(m15.precipitation) || m15.time.length < 8) {
+        throw precipError('PrecipDataError', 'Open-Meteo 分钟序列缺失或不足8条');
+      }
       var times = m15.time.map(function (tStr) {
         return new Date(SS.time.fromOpenMeteoLocal(tStr, json.utc_offset_seconds || 0)).toISOString();
       });
-      var stepMs = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 900000;
       return {
-        times: times, precip: m15.precipitation, stepMs: stepMs,
+        times: times, precip: m15.precipitation, stepMs: 900000, intervalAnchor: 'end',
         source: 'openmeteo', summary: null
       };
     });
@@ -83,27 +131,54 @@
     options = options || {};
     SS.network.throwIfAborted(options.signal);
     if (!SS.modelConfig.nowcast.enabled) return null;
+    var qw = SS.modelConfig.nowcast.qweather;
+    var unavailable = !qw.endpoint ? '未配置 QWeather 同源接口' : '当前运行环境不支持 QWeather 同源接口';
+    var state = qweatherState(!qw.enabled ? 'DISABLED' : 'UNAVAILABLE',
+      qw.enabled ? precipError('ConfigurationError', unavailable) : null);
+    function reportState(value) {
+      state = value;
+      if (options.onQWeatherStatus) options.onQWeatherStatus(value);
+    }
+    // Do not report UNAVAILABLE while a real request is still in flight.
+    var canRequest = qw.enabled && qw.endpoint && typeof location !== 'undefined' && location.protocol !== 'file:';
+    if (!canRequest) reportState(state);
+    function usable(series) {
+      return precipIntervals(series) && (!valid(options.nowUtcMs) || analyzePrecip(series, options.nowUtcMs));
+    }
+    if (canRequest) {
+      try {
+        var series = await fetchQWeatherMinutePrecip(lat, lon, options);
+        SS.network.throwIfAborted(options.signal);
+        if (!usable(series)) throw precipError('PrecipDataError', 'QWeather 分钟数据过期、时间无效或当前区间缺测');
+        reportState(qweatherState('OK'));
+        series.qweatherStatus = state;
+        return series;
+      } catch (error) {
+        SS.network.throwIfAborted(options.signal);
+        reportState(qweatherState(failureStatus(error), error));
+      }
+    }
     try {
-      var series = await fetchQWeatherMinutePrecip(lat, lon, options);
-      if (series) return series;
+      var fallback = await fetchOpenMeteoMinutePrecip(lat, lon, options);
+      SS.network.throwIfAborted(options.signal);
+      if (!usable(fallback)) throw precipError('PrecipDataError', 'Open-Meteo 分钟数据过期、时间无效或当前区间缺测');
+      fallback.qweatherStatus = state;
+      return fallback;
     } catch (error) {
       SS.network.throwIfAborted(options.signal);
+      error.qweatherStatus = state;
+      throw error;
     }
-    // Disabling QWeather keeps the independent Open-Meteo minute fallback available.
-    return fetchOpenMeteoMinutePrecip(lat, lon, options);
   }
 
   // Read the interval containing the requested time. Never extend a stale series
   // by selecting a nearby value outside its actual coverage (5m or 15m).
   function precipAtSeries(series, timeMs) {
-    if (!series || !series.times || !series.precip) return null;
-    var step = series.stepMs;
-    if (!valid(step) || step <= 0) {
-      step = series.times.length > 1 ? Date.parse(series.times[1]) - Date.parse(series.times[0]) : 0;
-    }
-    if (!valid(step) || step <= 0) return null;
+    var intervals = precipIntervals(series);
+    if (!intervals) return null;
+    var step = intervals.stepMs;
     for (var i = 0; i < series.times.length; i++) {
-      var start = Date.parse(series.times[i]);
+      var start = intervals.starts[i];
       if (timeMs >= start && timeMs < start + step) {
         var value = series.precip[i];
         return valid(value) && value >= 0 ? value : null;
@@ -142,24 +217,24 @@
      时间基准逻辑，兼容 5 分钟（QWeather）与 15 分钟（Open-Meteo）两种粒度 */
   function analyzePrecip(series, nowMs) {
     if (!series || !series.times || !series.precip || series.times.length < 8) return null;
-    var times = series.times, p = series.precip;
-    var stepMs = series.stepMs || 300000;
-    if (!valid(stepMs) || stepMs <= 0) return null;
+    var intervals = precipIntervals(series);
+    if (!intervals || !valid(nowMs)) return null;
+    var times = series.times, starts = intervals.starts, p = series.precip;
+    var stepMs = intervals.stepMs;
     var rc = SS.modelConfig.nowcast.rainClear;
 
-    /* 优先取包含当前时刻的区间；允许来源从下一个时次开始，但拒绝过期数据。 */
+    /* 必须覆盖当前时刻；不能把未来首条记录或缺测空隙冒充当前雨情。 */
     var start = 0;
-    while (start < times.length && Date.parse(times[start]) + stepMs <= nowMs) start++;
-    if (start >= times.length || !valid(Date.parse(times[start])) ||
-        Date.parse(times[start]) > nowMs + stepMs || !valid(p[start]) || p[start] < 0) return null;
+    while (start < times.length && starts[start] + stepMs <= nowMs) start++;
+    if (start >= times.length || starts[start] > nowMs || !valid(p[start]) || p[start] < 0) return null;
 
     // Open-Meteo returns 120 *steps*, not 120 minutes. Analyse only the next two
     // hours of contiguous known data, never infer a rain stop across a data gap.
     var end = start;
-    while (end < times.length && Date.parse(times[end]) < nowMs + 120 * 60000 &&
+    while (end < times.length && starts[end] < nowMs + 120 * 60000 &&
         valid(p[end]) && p[end] >= 0 &&
-        (end === start || Date.parse(times[end]) === Date.parse(times[end - 1]) + stepMs)) end++;
-    var coverageEndMs = Math.min(nowMs + 120 * 60000, Date.parse(times[end - 1]) + stepMs);
+        (end === start || starts[end] === starts[end - 1] + stepMs)) end++;
+    var coverageEndMs = Math.min(nowMs + 120 * 60000, starts[end - 1] + stepMs);
 
     function isDry(v) { return valid(v) && v >= 0 && v < rc.dryThresholdMm; }
 
@@ -167,12 +242,12 @@
     var reqSteps = Math.max(2, Math.ceil(rc.dryStreakMinutes * 60000 / stepMs));
     var stopMs = null, i, j;
     for (i = start; i <= end - reqSteps; i++) {
-      if (Date.parse(times[i + reqSteps - 1]) + stepMs > coverageEndMs) break;
+      if (starts[i + reqSteps - 1] + stepMs > coverageEndMs) break;
       var allDry = true;
       for (j = 0; j < reqSteps; j++) {
         if (!isDry(p[i + j])) { allDry = false; break; }
       }
-      if (allDry) { stopMs = Math.max(nowMs, Date.parse(times[i])); break; }
+      if (allDry) { stopMs = Math.max(nowMs, starts[i]); break; }
     }
 
     var rainingNow = !isDry(p[start]);
@@ -182,7 +257,7 @@
     var nextRainMs = null;
     var scanFrom = stopMs != null ? i + reqSteps : start;
     for (j = scanFrom; j < end; j++) {
-      if (!isDry(p[j])) { nextRainMs = Date.parse(times[j]); break; }
+      if (!isDry(p[j])) { nextRainMs = starts[j]; break; }
     }
 
     /* 强度趋势：当前 30 分钟均值 vs 其后 30 分钟均值 */
@@ -204,7 +279,7 @@
     if (stopMin != null) trend = clamp(1 - stopMin / 90, -1, 1);
     else if (rainingNow) trend = intensifying ? -1 : -0.5;
 
-    var coverageMinutes = Math.max(0, Math.floor((coverageEndMs - Math.max(nowMs, Date.parse(times[start]))) / 60000));
+    var coverageMinutes = Math.max(0, Math.floor((coverageEndMs - nowMs) / 60000));
     var summary = series.summary;
     if (!summary) {
       if (rainingNow && stopMin != null) summary = '预计约 ' + Math.ceil(stopMin) + ' 分钟后持续停雨';
@@ -225,8 +300,57 @@
       intensifying: intensifying,
       rainClearScore: score,
       trend: trend,
-      series: { times: times, precip: p, start: start, stepMs: stepMs }
+      // Keep source/anchor and the original provider summary when reanalysing cached data.
+      series: Object.assign({}, series, { start: start, stepMs: stepMs, intervalAnchor: intervals.anchor })
     };
+  }
+
+  // One minute-data path for prefetch and event fusion. Cache raw series, not
+  // frozen stopMin/rainingNow results; retry deadlines never slide on cache hits.
+  async function getMinutePrecip(ctx, options) {
+    options = options || {};
+    SS.network.throwIfAborted(options.signal);
+    var cfg = SS.modelConfig.nowcast;
+    if (!cfg.enabled) return { analysis: null, status: 'DISABLED', error: null, qweather: qweatherState('DISABLED') };
+    var nowMs = ctx.nowUtc.valueOf();
+    var key = SS.cacheKeys.nowcast('precip', ctx.dateStr, ctx.lat, ctx.lon);
+    function materialize(entry) {
+      return {
+        analysis: entry.series ? analyzePrecip(entry.series, nowMs) : null,
+        status: entry.status, error: entry.error, qweather: entry.qweather,
+        refreshAtMs: entry.refreshAtMs
+      };
+    }
+    var fresh = SS.cache.get(key);
+    if (fresh && valid(fresh.refreshAtMs) && Date.now() < fresh.refreshAtMs) {
+      var hit = materialize(fresh);
+      if (!fresh.series || hit.analysis) return hit;
+    }
+    var entry, observedQWeather = null;
+    try {
+      var series = await SS.network.run(function (signal) {
+        return SS.nowcast.fetchMinutePrecip(ctx.lat, ctx.lon, { signal: signal, nowUtcMs: nowMs,
+          onQWeatherStatus: function (state) { observedQWeather = state; } });
+      }, { signal: options.signal, timeoutMs: SS.modelConfig.network.sourceTimeoutMs });
+      var analysis = analyzePrecip(series, nowMs);
+      entry = {
+        series: analysis ? series : null, status: analysis ? 'OK' : 'NO_DATA',
+        error: analysis ? null : '无当前时段分钟级降水',
+        qweather: series && series.qweatherStatus ? series.qweatherStatus
+          : qweatherState(!cfg.qweather.enabled ? 'DISABLED' : (analysis && series.source === 'qweather' ? 'OK' : 'NO_DATA'))
+      };
+    } catch (error) {
+      SS.network.throwIfAborted(options.signal);
+      entry = { series: null, status: failureStatus(error), error: error.message,
+        qweather: error.qweatherStatus || observedQWeather || qweatherState(!cfg.qweather.enabled ? 'DISABLED' : 'UNKNOWN') };
+    }
+    SS.network.throwIfAborted(options.signal);
+    var retry = !entry.series || (cfg.qweather.enabled && !entry.qweather.available);
+    var ttl = retry ? Math.min(cfg.ttlMinutes.precip, cfg.precipRetryMinutes) : cfg.ttlMinutes.precip;
+    entry.refreshAtMs = Date.now() + ttl * 60000;
+    entry.qweather = Object.assign({}, entry.qweather, { retryAtMs: retry && cfg.qweather.enabled ? entry.refreshAtMs : null });
+    SS.cache.set(key, entry, ttl);
+    return materialize(entry);
   }
 
   /* ---------- Source 2：雷达雨系运动（RainViewer Weather Maps API，Phase 2） ----------
@@ -592,6 +716,7 @@
 
   SS.nowcast = {
     fetchMinutePrecip: fetchMinutePrecip,
+    getMinutePrecip: getMinutePrecip,
     precipAtSeries: precipAtSeries,
     buildTimeline: buildTimeline,
     analyzePrecip: analyzePrecip,
@@ -630,15 +755,7 @@
       }
 
       return Promise.all([
-        cached('precip', function (sourceOptions) {
-          return fetchMinutePrecip(ctx.lat, ctx.lon, sourceOptions).then(function (series) {
-            var a = analyzePrecip(series, ctx.nowUtc.valueOf());
-            return { analysis: a, status: a ? 'OK' : 'NO_DATA', error: a ? null : '无分钟级降水' };
-          }).catch(function (err) {
-            SS.network.throwIfAborted(sourceOptions.signal);
-            return { analysis: null, status: err.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: err.message || '降水接口异常' };
-          });
-        }),
+        nowcastConfig.enabled && ctx.precipResult ? Promise.resolve(ctx.precipResult) : getMinutePrecip(ctx, options),
         cached('radar', function (sourceOptions) {
           /* 瓦片分析依赖 canvas：非浏览器环境与全瓦片失败记录诊断信息；
              失败也缓存空结果（TTL 内负缓存），避免对不可用源反复重试 */
@@ -683,9 +800,7 @@
         if (!fusion) fusion = { sources: [], trend: 'STABLE', nowcastScore: null, goldenWindow: null, clearTimeMs: null, cloudRisk: 'NONE' };
 
         fusion.sourcesStatus = {
-          qweather: { available: !!precip && precip.source === 'qweather',
-            status: !nowcastConfig.enabled || !nowcastConfig.qweather.enabled ? 'DISABLED'
-              : (precip && precip.source === 'qweather' ? 'OK' : 'FALLBACK_OR_UNAVAILABLE'), error: null },
+          qweather: precipRes.qweather || qweatherState('UNKNOWN'),
           precip: { available: !!precip, status: precipRes.status || (precip ? 'OK' : 'FAILED'), error: precipRes.error || null },
           radar: { available: !!radar, status: radarRes.status || (radar ? 'OK' : 'FAILED'), error: radarRes.error || null },
           satellite: { available: !!satellite, status: satRes.status || (satellite ? 'OK' : 'FAILED'), error: satRes.error || null }

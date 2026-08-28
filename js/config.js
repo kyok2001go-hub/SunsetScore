@@ -10,8 +10,8 @@
     app: '2.3.2',
     model: '2.3.2',
     schema: 3,
-    assetRevision: 'release',
-    cache: 'v232',
+    assetRevision: 'precip1',
+    cache: 'v232_precip1',
     feedbackSchema: 2
   });
 
@@ -269,6 +269,8 @@
       },
       /* 缓存 TTL（分钟，方案 9 章） */
       ttlMinutes: { precip: 10, radar: 10, satellite: 15 },
+      // Retry a failed preferred source on a subsequent query, not on a background timer.
+      precipRetryMinutes: 1,
       /* QWeather 分钟级降水（Phase 1 首选数据源，覆盖中国区）：
          浏览器只调用同源 /api/qweather，不保存 API Key。
          Cloudflare Pages Function 从 QWEATHER_API_KEY Secret 读取；本地 npm run dev

@@ -6,9 +6,10 @@ const { createRuntime, load } = require('./helpers.cjs');
 const files = ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js',
   'js/time.js', 'js/cache.js', 'js/cloud_field.js', 'js/nowcast.js', 'js/evolution.js'];
 const now = Date.parse('2026-08-27T09:00:00Z');
-function series(step = 15, count = 120) {
-  return { times: Array.from({length: count}, (_, i) => new Date(now + i * step * 60000).toISOString()),
-    precip: Array(count).fill(0.2), stepMs: step * 60000, source: 'openmeteo' };
+function series(step = 15, count = 120, source = 'openmeteo') {
+  // Provider timestamps: Open-Meteo labels the END of the accumulated interval.
+  return { times: Array.from({length: count}, (_, i) => new Date(now + (i + (source === 'openmeteo' ? 1 : 0)) * step * 60000).toISOString()),
+    precip: Array(count).fill(0.2), stepMs: step * 60000, source };
 }
 
 test('Pages proxies forward the original native body, preserving V2.3.1 streaming identity', async () => {
@@ -53,7 +54,8 @@ test('proxy rollback retains HTTPS and host checks, with no upstream request for
 
 test('Open-Meteo minute UTC conversion is independent of the browser/host timezone', () => {
   const script = `const {createRuntime,load}=require('./test/helpers.cjs');
-    const ss=load(createRuntime({location:{protocol:'https:'},fetch:async()=>new Response(JSON.stringify({utc_offset_seconds:28800,minutely_15:{time:Array(8).fill('2026-08-27T17:00'),precipitation:Array(8).fill(0.2)}}))}),${JSON.stringify(files)});
+    const time=Array.from({length:8},(_,i)=>new Date(Date.UTC(2026,7,27,17,i*15)).toISOString().slice(0,16));
+    const ss=load(createRuntime({location:{protocol:'https:'},fetch:async()=>new Response(JSON.stringify({utc_offset_seconds:28800,minutely_15:{time,precipitation:Array(8).fill(0.2)}}))}),${JSON.stringify(files)});
     ss.config.nowcast.qweather.enabled=false;
     ss.nowcast.fetchMinutePrecip(22.54,114.06).then(s=>console.log(s.times[0]));`;
   for (const timezone of ['Asia/Shanghai', 'UTC', 'America/Los_Angeles']) {
@@ -100,7 +102,7 @@ test('minute analysis uses the current interval and only contiguous known data w
 
 test('QWeather summary is preserved and rain-stop candidates are clipped to the sunset event', () => {
   const SS = load(createRuntime(), files);
-  const s = series(5, 24);
+  const s = series(5, 24, 'qweather');
   s.source = 'qweather'; s.summary = '降雨还将持续120分钟';
   assert.equal(SS.nowcast.analyzePrecip(s, now).summary, s.summary);
   const sunset = now + 60 * 60000;
