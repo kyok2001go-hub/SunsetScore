@@ -271,15 +271,13 @@
     var nowUtcMs = options && Number.isFinite(options.nowUtcMs) ? options.nowUtcMs : Date.now();
     progress(options, '正在解析地理位置…');
 
-    var location = parseCoordinates(normalizedQuery);
+    // Candidate selection is already resolved: never geocode its name a second time.
+    var location = options.location ? SS.citySearch.toLocation(options.location) : parseCoordinates(normalizedQuery);
+    if (options.location && !location) throw new Error('城市候选无效，请重新选择');
     if (!location) {
-      var geocodeResult = await fetchWithCache(
-        SS.cacheKeys.geocode(normalizedQuery),
-        SS.modelConfig.cache.ttlGeocodingDays * 24 * 60,
-        SS.modelConfig.cache.ttlGeocodingDays * 24,
-        function () { return SS.data.geocode(normalizedQuery, options); }, options
-      );
-      location = geocodeResult.value;
+      // Share the candidate cache; a separate seven-day first-hit cache could
+      // disagree with the current dropdown or resurrect a bad historical match.
+      location = await SS.data.geocode(normalizedQuery, options);
     }
 
     progress(options, '正在获取本地天气与时区…');
@@ -318,7 +316,9 @@
       sunsetLocalText: SS.time.formatLocal(solar.sunset, timezone, false),
       minutesToSunset: (solar.sunset.valueOf() - nowUtcMs) / 60000
     };
-    var resultCacheKey = normalizedQuery.toLowerCase().replace(/\s+/g, '_') + '_' + localDate;
+    // Homonymous cities must not share an entire prediction (even with the same query).
+    var resultCacheKey = normalizedQuery.toLowerCase().replace(/\s+/g, '_') + '_' +
+      (location.source || 'coordinates') + '_' + (location.id || 'coordinates') + '_' + SS.cacheKeys.coord(location.latitude, location.longitude) + '_' + localDate;
     var cachedResult = SS.cache.get(resultCacheKey);
     // A fresh TTL alone is insufficient when the query crosses the golden-window gate.
     if (cachedResult && cachedResult.app_version === SS.version.app &&

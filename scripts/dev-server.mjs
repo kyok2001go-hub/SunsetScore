@@ -1,4 +1,5 @@
 import { fetchWithDeadline } from '../server/network.js';
+import { handleGeo, geoQuery } from '../server/qweather-geo.js';
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -87,6 +88,25 @@ function isBlockedPath(pathname) {
     normalized.startsWith('/.env');
 }
 
+async function proxyGeocoding(requestUrl, req, res) {
+  if (!geoQuery(requestUrl)) { json(res, 400, { error: 'Invalid city query' }); return; }
+  const controller = new AbortController();
+  function onClose() { if (!res.writableEnded) controller.abort(); }
+  res.once('close', onClose);
+  try {
+    const config = parseQWeatherConfig(await readFile(keyFile, 'utf8'));
+    const response = await handleGeo(new Request(requestUrl, { method: req.method, signal: controller.signal }),
+      { QWEATHER_API_KEY: config.apiKey, QWEATHER_HOST: config.apiHost });
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!res.destroyed) {
+      res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(body);
+    }
+  } catch {
+    if (!res.destroyed) json(res, 503, { error: 'QWeather local city config unavailable' });
+  } finally { res.removeListener('close', onClose); }
+}
+
 async function serveStatic(requestUrl, res) {
   let pathname;
   try {
@@ -125,6 +145,11 @@ async function serveStatic(requestUrl, res) {
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`);
+  if (requestUrl.pathname === '/api/geocoding') {
+    if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }).end('Method Not Allowed'); return; }
+    await proxyGeocoding(requestUrl, req, res);
+    return;
+  }
   if (requestUrl.pathname === '/api/qweather') {
     if (req.method !== 'GET') {
       res.writeHead(405, { Allow: 'GET' }).end('Method Not Allowed');
@@ -137,7 +162,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`SunsetScore V2.3.3 local server: http://${host}:${port}`);
+  console.log(`SunsetScore V2.3.4 local server: http://${host}:${port}`);
   console.log('QWeather key source: QweatherKey.txt (server-side only)');
 });
 

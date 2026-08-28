@@ -39,7 +39,6 @@
      避免未来修改采样规则时旧缓存污染新算法（方案 10.1 节） */
   SS.cacheKeys = {
     coord: function (lat, lon) { return lat.toFixed(4) + '_' + lon.toFixed(4); },
-    geocode: function (name) { return 'geocode_' + String(name).toLowerCase().replace(/\s+/g, '_'); },
     forecast: function (date, lat, lon) { return 'forecast_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
     spatial: function (date, lat, lon, azimuthDeg, mode) {
       return 'spatial_' + date + '_' + SS.cacheKeys.coord(lat, lon) + '_' +

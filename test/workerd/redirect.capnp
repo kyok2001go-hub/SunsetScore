@@ -9,6 +9,9 @@ const config :Workerd.Config = (
         (name = "test/workerd/redirect.mjs", esModule = embed "redirect.mjs"),
         (name = "functions/api/qweather.js", esModule = embed "../../functions/api/qweather.js"),
         (name = "functions/api/proxy.js", esModule = embed "../../functions/api/proxy.js"),
+        (name = "functions/api/geocoding.js", esModule = embed "../../functions/api/geocoding.js"),
+        (name = "server/qweather-geo.js", esModule = embed "../../server/qweather-geo.js"),
+        (name = "server/geo-coordinates.js", esModule = embed "../../server/geo-coordinates.js"),
         (name = "server/edge-log.js", esModule = embed "../../server/edge-log.js")
       ],
       globalOutbound = "upstream"

@@ -62,22 +62,40 @@ body {
 .card-title { font-size: 1rem; margin-bottom: 14px; color: var(--text); }
 
 /* ---------- 搜索 ---------- */
-.search-card { padding: 22px; }
-#search-form { display: flex; gap: 10px; }
+.search-card { padding: 22px; position: relative; z-index: 20; }
+#search-form { display: flex; align-items: stretch; gap: 10px; }
+.city-search-field { flex: 1; min-width: 0; position: relative; }
 #city-input {
-  flex: 1;
+  width: 100%;
+  /* Fill the stretched field to match the button; keep the iOS-safe font rules. */
+  height: 100%;
   min-width: 0;
   padding: 12px 16px;
   border-radius: 10px;
   border: 1px solid var(--card-border);
   background: rgba(0, 0, 0, 0.25);
   color: var(--text);
-  font-size: 1rem;
+  font-size: max(16px, 1rem);
   outline: none;
   transition: border-color 0.2s;
 }
 #city-input:focus { border-color: var(--accent); }
 #city-input::placeholder { color: var(--text-dim); }
+
+.city-suggestions {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 21;
+  background: #211a2e; border: 1px solid var(--card-border); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); overflow: hidden;
+}
+.city-suggestions[hidden] { display: none; }
+#city-options { list-style: none; max-height: min(300px, 40vh); overflow-y: auto; overscroll-behavior: contain; }
+#city-options [role="option"] { padding: 10px 12px; min-height: 48px; cursor: pointer; border-bottom: 1px solid var(--card-border); }
+#city-options [aria-selected="true"] { background: rgba(255, 122, 69, 0.18); }
+@media (hover: hover) { #city-options [role="option"]:hover { background: rgba(255, 122, 69, 0.18); } }
+.city-option-name, .city-option-meta { display: block; overflow-wrap: anywhere; }
+.city-option-name { font-size: 16px; color: var(--text); }
+.city-option-meta { font-size: 12px; color: var(--text-dim); }
+#city-search-status { padding: 9px 12px; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
 
 #search-btn {
   padding: 12px 28px;
@@ -652,7 +670,7 @@ body {
   }
   #city-input {
     padding: 10px 12px;
-    font-size: 0.92rem;
+    font-size: max(16px, 1rem);
   }
   #search-btn {
     padding: 10px 16px;

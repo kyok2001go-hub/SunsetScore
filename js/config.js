@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.3 - 当前生产参数配置
+ * SunsetScore V2.3.4 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * ============================================================ */
 (function (root) {
@@ -7,11 +7,11 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.3.3',
-    model: '2.3.3',
+    app: '2.3.4',
+    model: '2.3.4',
     schema: 3,
-    assetRevision: 'release',
-    cache: 'v233',
+    assetRevision: 'inputheight1',
+    cache: 'v234',
     feedbackSchema: 2
   });
 
@@ -199,7 +199,6 @@
 
     /* ---------- 缓存策略（方案 10-11、15 章） ---------- */
     cachePolicy: {
-      ttlGeocodingDays: 7,
       ttlSolarHours: 24,
       ttlForecastMinutes: 60,           /* 临近日落时缩短 */
       ttlForecastWithin6h: 30,
@@ -358,9 +357,12 @@
 
     /* 每次网络操作包含响应体读取；查询取消会中止重试和后续降级请求。 */
     network: { queryTimeoutMs: 90000, sourceTimeoutMs: 30000, requestTimeoutMs: 15000, observationTimeoutMs: 10000, tileTimeoutMs: 8000, feedbackTimeoutMs: 15000 },
+    /* 检索策略，不参与天气评分。PPL没有城市/村庄细分，人口门槛仅用于候选筛选。 */
+    citySearch: { debounceMs: 300, resultLimit: 8, requestCount: 50, cacheMinutes: 5, maxCacheEntries: 30, minTownPopulation: 10000 },
 
     /* ---------- API 端点 ---------- */
     endpoints: {
+      domesticGeocoding: '/api/geocoding',
       geocoding: 'https://geocoding-api.open-meteo.com/v1/search',
       forecast: 'https://api.open-meteo.com/v1/forecast',
       airQuality: 'https://air-quality-api.open-meteo.com/v1/air-quality'

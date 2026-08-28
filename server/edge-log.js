@@ -1,11 +1,11 @@
 /** Request-scoped, allowlisted diagnostics. Never serialize an Error or Request. */
-export const EDGE_APP_VERSION = '2.3.3';
+export const EDGE_APP_VERSION = '2.3.4';
 
 const SOURCES = ['qweather', 'rainviewer', 'gibs', 'openmeteo'];
-const STAGES = ['configuration', 'validation', 'fetch', 'upstream_response', 'body_cancel', 'response_forward'];
+const STAGES = ['configuration', 'validation', 'fetch', 'upstream_response', 'body_cancel', 'response_forward', 'body_parse'];
 const ERROR_CODES = ['NOT_CONFIGURED', 'INVALID_COORDINATES', 'MISSING_TARGET', 'INVALID_TARGET',
   'FORBIDDEN_TARGET', 'UPSTREAM_REDIRECT', 'UPSTREAM_HTTP_ERROR', 'UPSTREAM_TIMEOUT',
-  'UPSTREAM_ABORTED', 'UPSTREAM_FETCH_ERROR', 'RESPONSE_ERROR'];
+  'UPSTREAM_ABORTED', 'UPSTREAM_FETCH_ERROR', 'RESPONSE_ERROR', 'INVALID_QUERY', 'INVALID_PAYLOAD', 'UPSTREAM_BUSINESS_ERROR'];
 const ERROR_NAMES = ['Error', 'TypeError', 'TimeoutError', 'AbortError', 'RangeError', 'SyntaxError'];
 
 function allowed(value, values) {
@@ -48,7 +48,7 @@ export function createEdgeErrorLogger(request, adapter) {
       const elapsed = Date.now() - startedAt;
       console.error({
         event: 'edge_proxy_error', logSchema: 1, appVersion: EDGE_APP_VERSION,
-        adapter: allowed(adapter, ['qweather', 'proxy']),
+        adapter: allowed(adapter, ['qweather', 'proxy', 'geocoding']),
         source: allowed(details.source, SOURCES),
         stage: allowed(details.stage, STAGES),
         errorCode: allowed(details.errorCode, ERROR_CODES),

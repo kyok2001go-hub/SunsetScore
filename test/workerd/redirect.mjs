@@ -1,5 +1,6 @@
 import { onRequestGet as qweather } from '../../functions/api/qweather.js';
 import { onRequestGet as proxy } from '../../functions/api/proxy.js';
+import { onRequest as geocoding } from '../../functions/api/geocoding.js';
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -25,6 +26,33 @@ export const successfulNativeFetch = {
     check(image.status === 200, 'Tile proxy must succeed in workerd');
     check(image.headers.get('Content-Type') === 'image/png', 'Keep image MIME type');
     check(Array.from(new Uint8Array(await image.arrayBuffer())).join(',') === '137,80,78,71,0,255', 'Keep binary bytes');
+  }
+};
+
+export const geoApiNativeFetch = {
+  async test() {
+    for (const status of [200, 204, 205, 302, 401, 403, 429, 503]) {
+      const response = await geocoding({ request: new Request('https://example.test/api/geocoding?q=' + encodeURIComponent('许昌')),
+        env: { QWEATHER_API_KEY: 'test-secret-only', QWEATHER_HOST: `status-${status}.qweatherapi.com` } });
+      check(response.status === (status === 204 ? 200 : [205, 302].includes(status) ? 502 : status), 'GeoAPI native fetch status');
+      const data = await response.json();
+      if (status === 200) {
+        check(data.results[0].id === 'qweather:101180401', 'GeoAPI source namespace');
+        check(data.results[0].latitude !== 34.03 && data.results[0].coordinate_system === 'WGS84', 'GeoAPI coordinate conversion');
+      } else check(response.headers.get('Cache-Control') === 'no-store', 'GeoAPI errors must not be cached');
+      if (status === 204) check(data.results.length === 0, 'Modern no-location is not an outage');
+      check(!JSON.stringify(data).includes('test-secret-only'), 'GeoAPI must not expose key');
+      check(!response.headers.has('Location'), 'GeoAPI never exposes redirect destination');
+    }
+  }
+};
+
+export const geoApiBodyDeadline = {
+  async test() {
+    const response = await geocoding({ request: new Request('https://example.test/api/geocoding?q=' + encodeURIComponent('许昌')),
+      env: { QWEATHER_API_KEY: 'test-secret-only', QWEATHER_HOST: 'status-206.qweatherapi.com' } });
+    check(response.status === 504, 'Native body read must be aborted by deadline');
+    check((await response.json()).errorCode === 'UPSTREAM_TIMEOUT', 'Preserve timeout classification');
   }
 };
 
@@ -72,7 +100,7 @@ export const structuredErrorLogs = {
       check(records.length === 4, 'One log per failure; no success logs');
       for (const record of records) {
         check(typeof record === 'object', 'Structured object, not raw message');
-        check(record.event === 'edge_proxy_error' && record.appVersion === '2.3.3', 'Keep event/version');
+        check(record.event === 'edge_proxy_error' && record.appVersion === '2.3.4', 'Keep event/version');
         check(record.cfRay === '0123456789abcdef-HKG', 'Keep validated request correlation');
         check(record.stage === 'upstream_response', 'Keep failure stage');
         check(record.source === (record.adapter === 'qweather' ? 'qweather' : 'rainviewer'), 'Keep provider category');

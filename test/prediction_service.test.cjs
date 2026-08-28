@@ -5,7 +5,7 @@ const { createRuntime, load, forecast } = require('./helpers.cjs');
 const SERVICE_FILES = [
   'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
   'js/vendor/suncalc.js', 'js/solar.js', 'js/baseline.js', 'js/cache.js',
-  'js/data.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js',
+  'js/data.js', 'js/city_search.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js',
   'js/sky_state.js', 'js/engine.js', 'js/sampling.js', 'js/corridor.js',
   'js/nowcast.js', 'js/evolution.js', 'js/prediction_service.js', 'js/feedback_service.js'
 ];
@@ -32,7 +32,7 @@ test('prediction service runs without DOM and returns a valid V2.3 result', asyn
     nowUtcMs: Date.parse('2026-08-26T02:00:00Z')
   });
 
-  assert.equal(result.model_version, '2.3.3');
+  assert.equal(result.model_version, '2.3.4');
   assert.equal(result.timezone, 'Asia/Shanghai');
   assert.equal(result.utc_offset_seconds, 28800);
   assert.ok(Number.isFinite(result.score));
@@ -40,6 +40,33 @@ test('prediction service runs without DOM and returns a valid V2.3 result', asyn
   assert.equal(result.cloud_field.schemaVersion, 1);
   assert.deepEqual(Object.keys(result.cloud_motion.predictions).sort(), ['m120', 'm30', 'm60']);
   assert.doesNotThrow(() => SS.domain.assertPredictionResult(result));
+});
+
+test('selected homonymous cities keep their own coordinates and result caches without re-geocoding', async () => {
+  const SS = load(createRuntime(), SERVICE_FILES);
+  const fc = forecast(); fc.timezone = 'Asia/Shanghai'; fc.utc_offset_seconds = 28800;
+  const coordinates = [];
+  SS.data.geocode = () => assert.fail('selected location must not be geocoded again');
+  SS.data.fetchForecastWithRetry = async (lat, lon) => { coordinates.push([lat, lon]); return fc; };
+  SS.data.fetchAirQuality = async () => null;
+  SS.data.gather = async nodes => ({ samples: nodes.map(point => ({ point, forecast: fc })), successCount: nodes.length });
+  const nowUtcMs = Date.parse('2026-08-26T02:00:00Z');
+  const location = { id: 1, name: '同名城市', admin1: '甲省', country: '中国', timezone: 'Asia/Shanghai',
+    latitude: 22.54, longitude: 114.06, feature_code: 'PPLA2', population: 100000 };
+  const first = await SS.prediction.predict(location.name, { nowUtcMs, location });
+  const second = await SS.prediction.predict(location.name, { nowUtcMs, location: { ...location, id: 2, latitude: 24.48, longitude: 118.08, admin1: '乙省' } });
+  assert.equal(first.latitude, 22.54); assert.equal(second.latitude, 24.48);
+  assert.equal(second.admin1, '乙省');
+  assert.notEqual(second.query_id, first.query_id);
+  assert.deepEqual(coordinates, [[22.54, 114.06], [24.48, 118.08]]);
+  const again = await SS.prediction.predict(location.name, { nowUtcMs, location });
+  assert.equal(again.query_id, first.query_id);
+  const domestic = { ...location, id: 'qweather:1', source: 'qweather', country_code: 'CN',
+    feature_code: 'QW_CITY', coordinate_system: 'WGS84', rank: 30 };
+  const fromQWeather = await SS.prediction.predict(location.name, { nowUtcMs, location: domestic });
+  assert.notEqual(fromQWeather.query_id, first.query_id, 'different geocoding sources cannot share a result');
+  assert.equal((await SS.prediction.predict(location.name, { nowUtcMs, location: domestic })).query_id, fromQWeather.query_id);
+  await assert.rejects(SS.prediction.predict(location.name, { nowUtcMs, location: { ...location, latitude: null } }), /候选无效/);
 });
 
 test('golden-window prediction carries minute rain through the complete service into timeline', async () => {
@@ -104,7 +131,7 @@ test('cached results respect both golden-window boundaries without changing the 
   assert.equal(sameWindow.query_id, entered.query_id);
   assert.equal(nowcastCalls, 1);
 
-  SS.cache.remove('22.54,114.06_2026-08-26');
+  SS.cache.remove('22.54,114.06_coordinates_coordinates_' + SS.cacheKeys.coord(22.54, 114.06) + '_2026-08-26');
   const lastActive = await predictAt('11:15:00');
   assert.equal(lastActive.nowcast_active, true);
   assert.equal(nowcastCalls, 2);

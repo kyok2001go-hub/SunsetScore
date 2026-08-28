@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>城市搜索：移动布局手动回归</title>
+  <style>
+    body { margin: 16px; font: 16px system-ui; background: #eee; color: #222; }
+    button { font: inherit; padding: 8px; }
+    iframe { display: block; width: 390px; height: 780px; border: 0; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <p>仅供本地布局回归；启动 npm run dev 后打开本页。不是 iOS Safari 真机或触摸模拟。</p>
+  <p>在下方页面输入厦门、福建或 Springfield，检查候选、换行、滚动及选择。</p>
+  <button type="button" data-width="320">320px</button>
+  <button type="button" data-width="390">390px</button>
+  <button type="button" data-width="768">768px</button>
+  <p><output id="metrics" aria-live="polite">等待页面加载…</output></p>
+  <iframe id="preview" title="移动宽度的真实应用页面" src="../../index.html"></iframe>
+  <script>
+    var preview = document.getElementById('preview');
+    function measure() {
+      var view = preview.contentWindow, page = preview.contentDocument;
+      var input = page.getElementById('city-input');
+      if (!input) return;
+      var button = page.getElementById('search-btn');
+      document.getElementById('metrics').textContent = '视口 ' + view.innerWidth +
+        'px；内容 ' + page.documentElement.scrollWidth + 'px；输入字号 ' + view.getComputedStyle(input).fontSize +
+        '；输入框高 ' + input.getBoundingClientRect().height + 'px；按钮高 ' + button.getBoundingClientRect().height + 'px';
+    }
+    preview.addEventListener('load', measure);
+    document.querySelectorAll('button[data-width]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        preview.style.width = button.dataset.width + 'px';
+        requestAnimationFrame(measure);
+      });
+    });
+  </script>
+</body>
+</html>

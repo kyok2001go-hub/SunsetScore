@@ -9,7 +9,7 @@
   var activeQuery = null;
   function $(id) { return root.document.getElementById(id); }
 
-  async function predict(query) {
+  async function predict(query, location) {
     var normalized = String(query || '').trim();
     if (!normalized) return;
     if (activeQuery) activeQuery.abort();
@@ -17,7 +17,7 @@
     activeQuery = controller;
     SS.ui.beginPrediction();
     try {
-      var result = await SS.prediction.predict(normalized, { signal: controller.signal, onProgress: function (message) {
+      var result = await SS.prediction.predict(normalized, { location: location, signal: controller.signal, onProgress: function (message) {
         if (activeQuery === controller) SS.ui.setLoading(message);
       } });
       if (activeQuery === controller && !controller.signal.aborted) SS.ui.renderResult(result);
@@ -33,19 +33,13 @@
   function init() {
     if (initialized) return;
     initialized = true;
-    var form = $('search-form');
-    var input = $('city-input');
     var chips = $('quick-chips');
     var details = $('details-toggle');
-    if (form) form.addEventListener('submit', function (event) {
-      event.preventDefault();
-      predict(input && input.value);
-    });
+    var search = SS.citySearchUi.init(predict);
     if (chips) chips.addEventListener('click', function (event) {
       var button = event.target.closest('button[data-city]');
       if (!button) return;
-      if (input) input.value = button.dataset.city;
-      predict(button.dataset.city);
+      if (search) search.setQuery(button.dataset.city);
     });
     if (details) details.addEventListener('click', SS.ui.toggleDetails);
     if (SS.feedbackUi) SS.feedbackUi.init();
