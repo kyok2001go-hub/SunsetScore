@@ -34,8 +34,14 @@ export async function onRequestGet(context) {
     // Restore the V2.3.1 native body forwarding path. Do not wrap the edge stream.
     // Browser deadlines remain active; server/network.js is local-server-only for now.
     const upstreamResponse = await fetch(upstream, {
-      headers: { 'X-QW-Api-Key': env.QWEATHER_API_KEY }, redirect: 'error'
+      // The deployed Pages runtime rejects redirect:'error' before any request.
+      // Manual mode keeps the secret on this host; reject 3xx below, never follow.
+      headers: { 'X-QW-Api-Key': env.QWEATHER_API_KEY }, redirect: 'manual'
     });
+    if (upstreamResponse.status >= 300 && upstreamResponse.status < 400) {
+      await upstreamResponse.body?.cancel();
+      return response({ error: 'QWeather upstream 3xx rejected', upstreamStatus: upstreamResponse.status }, 502);
+    }
     if (!upstreamResponse.ok) {
       await upstreamResponse.body?.cancel();
       return response({ error: 'QWeather upstream failed' }, upstreamResponse.status);

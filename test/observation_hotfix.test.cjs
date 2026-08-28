@@ -29,7 +29,7 @@ test('Pages proxies forward the original native body, preserving V2.3.1 streamin
       assert.equal(response.status, 200);
       assert.equal(response.body, nativeBody, 'must not reconstruct the edge stream with getReader/pull');
       assert.equal(forwarded.init.signal, undefined, 'no new edge cancellation wrapper');
-      assert.equal(forwarded.init.redirect, 'error');
+      assert.equal(forwarded.init.redirect, 'manual');
       assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
       assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
       if (kind === 'qweather') {

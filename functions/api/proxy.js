@@ -70,11 +70,25 @@ export async function onRequestGet(context) {
   try {
     // Match the proven V2.3.1 native stream path; retain HTTPS/redirect restrictions.
     const upstreamRes = await fetch(parsedTarget.toString(), {
-      redirect: 'error',
+      // Pages runtime compatibility: inspect 3xx ourselves instead of redirect:'error'.
+      redirect: 'manual',
       headers: {
         'User-Agent': 'SunsetScore-Proxy/2.3.2 (Cloudflare Edge)'
       }
     });
+
+    // Do not follow a redirect outside the validated target or expose its Location.
+    if (upstreamRes.status >= 300 && upstreamRes.status < 400) {
+      await upstreamRes.body?.cancel();
+      return new Response(JSON.stringify({ error: 'Upstream 3xx rejected', upstreamStatus: upstreamRes.status }), {
+        status: 502,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store'
+        }
+      });
+    }
 
     if (!upstreamRes.ok) {
       return new Response(upstreamRes.body, {
