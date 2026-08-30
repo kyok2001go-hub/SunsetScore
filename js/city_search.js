@@ -105,10 +105,12 @@
   function label(location) { var meta = detail(location); return displayName(location.name) + (meta ? ' · ' + meta : ''); }
   function rankName(location, query) {
     var name = cityName(location.name), search = cityName(cityPart(query));
-    // Unknown pinyin/English translations keep provider ordering; known aliases can
-    // be compared across-language without guessing that a fuzzy match is exact.
-    if (!/[\u3400-\u9fff]/.test(search)) return 0;
     return name === search ? 2 : name.indexOf(search) === 0 ? 1 : 0;
+  }
+  function directlyMatches(location, query) {
+    var search = cityName(cityPart(query));
+    return rankName(location, query) > 0 || (/[\u3400-\u9fff]/.test(search) &&
+      cityName(location.admin2).indexOf(search) !== -1);
   }
   function select(rows, query) {
     var seen = new Set();
@@ -166,9 +168,7 @@
       output.warning = output.requiresSelection ? '国内城市检索暂不可用；以下仅为国外候选，请核对后点击选择，或点击搜索重试。'
         : '国外候选暂不可用；以下为国内城市，可选择或直接搜索。';
     }
-    var term = cityName(cityPart(query));
-    if (!output.requiresSelection && /[\u3400-\u9fff]/.test(term) && output[0] && output[0].source === 'qweather' &&
-        cityName(output[0].name).indexOf(term) === -1 && cityName(output[0].admin2).indexOf(term) === -1) {
+    if (!output.requiresSelection && output[0] && !directlyMatches(output[0], query)) {
       // The provider may return broad fuzzy matches (or translated/traditional aliases).
       // Keep them selectable, but do not silently predict an unrelated city.
       output.requiresSelection = true;

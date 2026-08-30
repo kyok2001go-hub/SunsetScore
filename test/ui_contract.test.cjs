@@ -15,6 +15,8 @@ test('feedback UI only offers observation ratings and keeps input at least 16px'
   const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
   const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
   assert.deepEqual([...html.matchAll(/data-rating="([^"]+)"/g)].map((match) => match[1]), ['great', 'good', 'fair', 'poor']);
+  assert.match(html, /id="feedback-modal-title"[\s\S]*id="feedback-modal-city"[\s\S]*id="feedback-modal-date"[\s\S]*feedback-modal-desc/);
+  assert.match(css, /\.feedback-modal-context\s*\{[^}]*display:\s*flex/);
   assert.match(css, /\.modal-fb-textarea\s*\{[^}]*font-size:\s*max\(16px,\s*1rem\)/);
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/);
 });

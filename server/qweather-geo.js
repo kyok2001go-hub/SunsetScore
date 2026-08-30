@@ -14,11 +14,13 @@ function reply(data, status = 200, cache = false) {
 
 export function geoQuery(url) {
   const query = (url.searchParams.get('q') || '').normalize('NFKC').trim().replace(/\s+/g, ' ').replace(/，/g, ',');
+  const requestedLanguage = url.searchParams.get('lang');
   const parts = query.split(',').map(part => part.trim());
   // Only a bounded city keyword + optional administrative qualifier. No URL, ID or coordinates.
-  if (query.length > 60 || parts.length > 2 || parts[0].length < 2 ||
+  if (query.length > 60 || parts.length > 2 || parts[0].length < 2 || (requestedLanguage && !/^(?:zh|en)$/.test(requestedLanguage)) ||
       parts.some(part => !part || !/^[\p{L}\p{M}\s.'’·-]+$/u.test(part))) return null;
-  return { location: parts[0], adm: parts[1] || '' };
+  return { location: parts[0], adm: parts[1] || '',
+    language: requestedLanguage || (/[\u3400-\u9fff]/.test(query) ? 'zh' : 'en') };
 }
 
 async function boundedJson(response) {
@@ -76,7 +78,7 @@ export async function handleGeo(request, env) {
   const host = env.QWEATHER_HOST;
   if (typeof host !== 'string' || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+qweatherapi\.com$/i.test(host)) return fail('INVALID_TARGET', 503);
   const upstream = new URL(`https://${host}/geo/v2/city/lookup`);
-  upstream.search = new URLSearchParams({ location: query.location, range: 'cn', number: '20', lang: 'zh' }).toString();
+  upstream.search = new URLSearchParams({ location: query.location, range: 'cn', number: '20', lang: query.language }).toString();
   if (query.adm) upstream.searchParams.set('adm', query.adm);
   const controller = new AbortController();
   let timedOut = false;

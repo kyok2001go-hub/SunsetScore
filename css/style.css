@@ -870,6 +870,18 @@ body {
   align-items: center;
   gap: 8px;
 }
+.feedback-modal-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 7px;
+  color: #ffd7b8;
+  font-size: 0.94rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.feedback-modal-context-separator { color: rgba(255, 255, 255, 0.42); }
 .feedback-modal-desc {
   font-size: 0.86rem;
   color: var(--text-dim);

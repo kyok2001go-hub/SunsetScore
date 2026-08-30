@@ -22,9 +22,31 @@
     if (group) Array.prototype.forEach.call(group.querySelectorAll('.modal-fb-btn'), function (button) { button.classList.remove('active'); });
     if ($('modal-feedback-comment')) $('modal-feedback-comment').value = '';
   }
+  function formatDate(result) {
+    var value = result && typeof result.date === 'string' ? result.date.trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && result && typeof result.sunset_time_local === 'string') {
+      var matched = result.sunset_time_local.match(/^\d{4}-\d{2}-\d{2}/);
+      value = matched ? matched[0] : '';
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { value: '', label: '日期未知' };
+    var parts = value.split('-');
+    return { value: value, label: parts[0] + '年' + Number(parts[1]) + '月' + Number(parts[2]) + '日' };
+  }
+  function renderContext(result) {
+    var city = $('feedback-modal-city');
+    var date = $('feedback-modal-date');
+    if (city) city.textContent = result && typeof result.city === 'string' && result.city.trim() ? result.city.trim() : '未知城市';
+    if (date) {
+      var formatted = formatDate(result);
+      date.textContent = formatted.label;
+      if (formatted.value) date.setAttribute('datetime', formatted.value);
+      else date.removeAttribute('datetime');
+    }
+  }
   function open() {
-    if (!SS.ui.getCurrentResult()) { toast('请先搜索城市获取今日晚霞预测~', true); return; }
-    reset(); SS.ui.show($('feedback-modal')); root.document.body.style.overflow = 'hidden';
+    var result = SS.ui.getCurrentResult();
+    if (!result) { toast('请先搜索城市获取今日晚霞预测~', true); return; }
+    reset(); renderContext(result); SS.ui.show($('feedback-modal')); root.document.body.style.overflow = 'hidden';
   }
   function close() { SS.ui.hide($('feedback-modal')); root.document.body.style.overflow = ''; reset(); }
   async function submit() {

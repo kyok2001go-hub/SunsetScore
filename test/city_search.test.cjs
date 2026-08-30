@@ -11,9 +11,13 @@ test('QWeather mainland candidates win, exclude mainland Open-Meteo and direct g
   const queries = [];
   const SS = load(createRuntime({ fetch: async (url) => {
     const query = new URL(url, 'https://example.test');
-    if (query.pathname === '/api/geocoding') { queries.push(query.searchParams.get('q')); return Response.json({ results: [domestic, domestic] }); }
+    if (query.pathname === '/api/geocoding') {
+      assert.equal(query.searchParams.get('lang'), 'zh');
+      queries.push(query.searchParams.get('q')); return Response.json({ results: [domestic, domestic] });
+    }
     queries.push(query.searchParams.get('name'));
     assert.equal(query.searchParams.get('count'), '50');
+    assert.equal(query.searchParams.get('language'), 'zh');
     return Response.json({ results: [xiamen, foreign] });
   } }), FILES);
   const candidates = await SS.citySearch.search('　厦门　');
@@ -53,15 +57,38 @@ test('city policy excludes administrative regions, villages, historical places a
   assert.ok(SS.citySearch.toLocation({ ...xiamen, latitude: 0, longitude: 0 }));
 });
 
-test('candidate ranking preserves distinct homonyms and prioritizes Chinese exact names without penalizing translations', () => {
+test('candidate ranking preserves distinct homonyms and prioritizes exact names in either script', () => {
   const SS = load(createRuntime(), FILES);
   const largerPrefix = { ...xiamen, id: 100, name: '厦门新区', population: 9999999 };
   const tiny = { ...xiamen, id: 101, name: 'Xiamen', feature_code: 'PPL', population: 12000, admin1: '山西' };
   assert.equal(SS.citySearch.select([largerPrefix, xiamen], '厦门')[0].id, xiamen.id);
-  assert.equal(SS.citySearch.select([tiny, xiamen], 'Xiamen')[0].id, xiamen.id);
+  assert.equal(SS.citySearch.select([tiny, xiamen], 'Xiamen')[0].id, tiny.id);
   const namesakes = [{ ...xiamen, id: 201, name: 'Springfield' }, { ...xiamen, id: 202, name: 'Springfield', longitude: 10 }];
   assert.equal(SS.citySearch.select(namesakes, 'Springfield').length, 2);
   assert.equal(SS.citySearch.select([...namesakes, namesakes[0]], 'Springfield').length, 2);
+});
+
+test('Open-Meteo requests result labels in the query language', async () => {
+  const languages = [];
+  const SS = load(createRuntime({ fetch: async url => {
+    languages.push(new URL(url).searchParams.get('language'));
+    return Response.json({ results: [] });
+  } }), FILES);
+  await SS.data.searchLocations('new york');
+  await SS.data.searchLocations('纽约');
+  assert.deepEqual(languages, ['en', 'zh']);
+});
+
+test('domestic geocoding requests result labels in the query language and separates cache URLs', async () => {
+  const requests = [];
+  const SS = load(createRuntime({ fetch: async url => {
+    requests.push(new URL(url, 'https://example.test'));
+    return Response.json({ results: [] });
+  } }), FILES);
+  await SS.data.searchDomesticLocations('new york');
+  await SS.data.searchDomesticLocations('纽约');
+  assert.deepEqual(requests.map(url => url.searchParams.get('lang')), ['en', 'zh']);
+  assert.deepEqual(requests.map(url => url.searchParams.get('q')), ['new york', '纽约']);
 });
 
 test('empty and single-character keywords do not request; empty results remain retryable', async () => {
@@ -141,11 +168,12 @@ test('invalid geocoding payloads surface service errors instead of pretending th
 test('Xuchang Chinese and pinyin resolve to QWeather Xuchang, never Jiangguanchi', async () => {
   const SS = load(createRuntime(), FILES);
   const xuchang = { ...domestic, id: 'qweather:101180401', name: '许昌', admin1: '河南省', admin2: '许昌' };
-  SS.data.searchDomesticLocations = async () => [xuchang];
+  SS.data.searchDomesticLocations = async query => [{ ...xuchang,
+    name: /[\u3400-\u9fff]/.test(query) ? xuchang.name : 'Xuchang' }];
   SS.data.searchLocations = async () => [{ ...xiamen, id: 1788046, name: '将官池', admin2: '许昌市' }];
   for (const q of ['许昌', '许昌市', 'xuchang']) {
     const found = await SS.citySearch.resolve(q);
-    assert.equal(found.name, '许昌'); assert.equal(found.id, xuchang.id);
+    assert.equal(found.name, /[\u3400-\u9fff]/.test(q) ? '许昌' : 'Xuchang'); assert.equal(found.id, xuchang.id);
     assert.equal(SS.citySearch.toLocation(found).id, found.id, 'selection survives validation');
   }
 });
@@ -162,12 +190,31 @@ test('domestic rank direction and homonym IDs remain separate; overseas-only res
 
 test('foreign failure leaves domestic direct search usable, not cached as complete', async () => {
   const SS = load(createRuntime(), FILES);
-  SS.data.searchDomesticLocations = async () => [domestic];
+  SS.data.searchDomesticLocations = async () => [{ ...domestic, name: 'Xiamen' }];
   let calls = 0;
   SS.data.searchLocations = async () => { calls++; throw new Error('foreign offline'); };
   assert.equal((await SS.citySearch.resolve('xiamen')).id, domestic.id);
   const found = await SS.citySearch.search('xiamen');
   assert.equal(found.partial, true); assert.equal(found.requiresSelection, false); assert.equal(calls, 2);
+});
+
+test('English exact city names outrank unrelated domestic fuzzy results, including New York', async () => {
+  const SS = load(createRuntime(), FILES);
+  const liangjiang = { ...domestic, id: 'qweather:101040800', name: 'Liangjiang New Area',
+    admin1: 'Chongqing', admin2: 'Chongqing', latitude: 29.63, longitude: 106.56 };
+  const newYork = { ...foreign, id: 5128581, name: 'New York', country: 'United States', country_code: 'US',
+    admin1: 'New York', latitude: 40.71427, longitude: -74.00597, population: 8804190 };
+  SS.data.searchDomesticLocations = async () => [liangjiang];
+  SS.data.searchLocations = async () => [newYork];
+  const found = await SS.citySearch.resolve('new york');
+  assert.equal(found.id, newYork.id);
+  assert.equal(found.country_code, 'US');
+
+  SS.data.searchLocations = async () => { throw new Error('foreign offline'); };
+  const partial = await SS.citySearch.search('new york city');
+  assert.equal(partial[0].id, liangjiang.id);
+  assert.equal(partial.requiresSelection, true);
+  await assert.rejects(SS.citySearch.resolve('new york city'), /近似候选/);
 });
 
 test('broad fuzzy or translated Chinese matches require explicit confirmation, including from cache', async () => {

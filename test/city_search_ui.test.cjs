@@ -43,7 +43,7 @@ function setup(search = async () => candidates) {
   }), ['js/config.js', 'js/city_search.js', 'js/city_search_ui.js']);
   SS.citySearch.search = (query, options) => { requests.push({ query, signal: options.signal }); return search(query, options); };
   SS.prediction = { parseCoordinates: q => q === '22.54,114.06' ? { latitude: 22.54, longitude: 114.06 } : null };
-  const ui = SS.citySearchUi.init((query, location) => predictions.push({ query, location }));
+  const ui = SS.citySearchUi.init((query, location, submittedQuery) => predictions.push({ query, location, submittedQuery }));
   function tick(delay = 300) {
     for (const [id, timer] of [...timers]) if (timer.delay === delay) { timers.delete(id); timer.fn(); }
   }
@@ -63,8 +63,19 @@ test('typing debounces and direct submit uses the visible first candidate withou
   await h.ui.submit();
   assert.equal(h.requests.length, 1);
   assert.equal(h.predictions[0].location.id, 1);
+  assert.equal(h.predictions[0].submittedQuery, '厦门');
   assert.equal(h.panel.hidden, true);
   assert.equal(h.input.blurred, true);
+});
+
+test('prediction receives the exact user-entered term separately from the resolved city name', async () => {
+  const newYork = [{ id: 5128581, name: 'New York', admin1: 'New York', country: 'United States',
+    country_code: 'US', latitude: 40.71427, longitude: -74.00597, feature_code: 'PPLA', population: 8804190 }];
+  const h = setup(async () => newYork);
+  h.type('new york');
+  await h.ui.submit();
+  assert.equal(h.predictions[0].query, 'New York');
+  assert.equal(h.predictions[0].submittedQuery, 'new york');
 });
 
 test('clicking a second candidate retains its exact location on repeat search; touch scroll does not select', async () => {

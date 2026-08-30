@@ -114,8 +114,9 @@
 
     /* 原始地理编码列表；类型筛选、排序和中文后缀归一由 city_search.js 负责。 */
     searchLocations: function (name, options) {
+      var language = /[\u3400-\u9fff]/.test(name) ? 'zh' : 'en';
       var url = SS.modelConfig.api.geocoding +
-        '?name=' + encodeURIComponent(name) + '&count=' + SS.config.citySearch.requestCount + '&language=zh&format=json';
+        '?name=' + encodeURIComponent(name) + '&count=' + SS.config.citySearch.requestCount + '&language=' + language + '&format=json';
       return fetchJson(url, options).then(function (json) {
         if (!json || json.error || (json.results != null && !Array.isArray(json.results))) throw new Error('城市检索服务返回异常，请稍后重试');
         return json.results || [];
@@ -123,7 +124,8 @@
     },
 
     searchDomesticLocations: function (name, options) {
-      return fetchJson(SS.modelConfig.api.domesticGeocoding + '?q=' + encodeURIComponent(name), options).then(function (json) {
+      var language = /[\u3400-\u9fff]/.test(name) ? 'zh' : 'en';
+      return fetchJson(SS.modelConfig.api.domesticGeocoding + '?q=' + encodeURIComponent(name) + '&lang=' + language, options).then(function (json) {
         if (!json || json.error || !Array.isArray(json.results)) throw new Error('国内城市检索服务返回异常，请稍后重试');
         return json.results;
       });

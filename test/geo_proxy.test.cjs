@@ -39,12 +39,28 @@ test('GeoAPI uses fixed mainland endpoint/key header and emits bounded canonical
   assert.ok(!JSON.stringify(data).includes('private.test'));
 });
 
+test('GeoAPI requests English candidate labels for Latin search terms', async t => {
+  const { handleGeo, geoQuery } = await setup(t);
+  const englishRequest = new Request('https://example.test/api/geocoding?q=new%20york&lang=en');
+  assert.equal(geoQuery(new URL(englishRequest.url)).language, 'en');
+  t.mock.method(global, 'fetch', async url => {
+    assert.equal(url.searchParams.get('location'), 'new york');
+    assert.equal(url.searchParams.get('lang'), 'en');
+    return Response.json({ code: '200', location: [{ ...row, name: 'Liangjiang New Area', country: 'China',
+      adm1: 'Chongqing', adm2: 'Chongqing' }] });
+  });
+  const response = await handleGeo(englishRequest, env);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).results[0].name, 'Liangjiang New Area');
+});
+
 test('GeoAPI validates city query, configuration and destination before issuing fetch', async t => {
   const { handleGeo } = await setup(t);
   t.mock.method(global, 'fetch', () => { throw new Error('must not fetch'); });
   for (const q of ['', '许', 'a'.repeat(61), 'https://evil.test', '22.54,114.06', '许昌,河南,中国', 'xx\n?key=test']) {
     assert.equal((await handleGeo(request(q), env)).status, 400, q);
   }
+  assert.equal((await handleGeo(new Request('https://example.test/api/geocoding?q=new%20york&lang=fr'), env)).status, 400);
   for (const host of ['evil.test', 'qweatherapi.com.evil.test', 'user:pass@weather.qweatherapi.com', 'weather.qweatherapi.com/x', 'https://weather.qweatherapi.com']) {
     assert.equal((await handleGeo(request(), { ...env, QWEATHER_HOST: host })).status, 503);
   }

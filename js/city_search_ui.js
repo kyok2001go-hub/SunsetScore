@@ -92,24 +92,26 @@
       pending = { query: query, promise: promise };
       return promise;
     }
-    function choose(location) {
+    function choose(location, submittedQuery) {
       var resolved = SS.citySearch.toLocation(location);
       if (!resolved) return;
+      var originalQuery = submittedQuery == null ? input.value : submittedQuery;
       invalidate();
       input.value = SS.citySearch.label(resolved);
       syncClear();
-      selected = { text: text(), location: resolved };
+      selected = { text: text(), location: resolved, query: originalQuery };
       close();
       input.blur(); // Dismiss the mobile keyboard after a deliberate selection.
-      return onSearch(resolved.name, resolved);
+      return onSearch(resolved.name, resolved, originalQuery);
     }
     async function submit() {
       if (composing || compositionJustEnded || submitting || !text()) return;
-      if (selected && selected.text === text()) return choose(selected.location);
+      if (selected && selected.text === text()) return choose(selected.location, selected.query);
+      var originalQuery = input.value;
       var query = text();
       if (SS.prediction.parseCoordinates(query)) {
         invalidate(); close(); input.blur();
-        return onSearch(query);
+        return onSearch(query, undefined, originalQuery);
       }
       wantOpen = true;
       submitting = true;
@@ -117,7 +119,7 @@
       var found = await load();
       if (generation !== revision || text() !== query) return;
       submitting = false;
-      if (found && found.length && !found.requiresSelection) return choose(found[0]);
+      if (found && found.length && !found.requiresSelection) return choose(found[0], originalQuery);
     }
     function onInput() {
       invalidate();
@@ -158,7 +160,7 @@
       }
       if (event.key === 'Escape' || event.key === 'Tab') { close(); return; }
       if (event.key === 'Enter' && !panel.hidden && active >= 0) {
-        event.preventDefault(); choose(items[active]); return;
+        event.preventDefault(); choose(items[active], input.value); return;
       }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -175,7 +177,7 @@
     list.addEventListener('pointerdown', function (event) { if (event.pointerType === 'mouse') event.preventDefault(); });
     list.addEventListener('click', function (event) {
       var option = event.target.closest('[role="option"]');
-      if (option && list.contains(option) && readyQuery === text()) choose(items[Number(option.dataset.index)]);
+      if (option && list.contains(option) && readyQuery === text()) choose(items[Number(option.dataset.index)], input.value);
     });
     doc.addEventListener('pointerdown', function (event) { if (!field.contains(event.target)) close(); });
     doc.addEventListener('focusin', function (event) { if (!field.contains(event.target)) close(); });
