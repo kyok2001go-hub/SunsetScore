@@ -231,7 +231,7 @@ export async function runWorkerPool(items, concurrency, handler) {
 }
 
 export function readConfig(env = process.env) {
-  const baseUrl = new URL(String(env.SUNSETSCORE_URL || 'https://sunsetscore.ky-ok.com'));
+  const baseUrl = new URL(String(env.SUNSETSCORE_URL || 'https://sunsetscore.pages.dev'));
   if (!/^https?:$/.test(baseUrl.protocol)) throw new Error('SUNSETSCORE_URL must use HTTP or HTTPS');
   const cities = parseCities(env.METADATA_CITIES);
   if (!cities.length) throw new Error('METADATA_CITIES does not contain a valid city');

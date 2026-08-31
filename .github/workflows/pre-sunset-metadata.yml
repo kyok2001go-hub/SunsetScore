@@ -74,7 +74,7 @@ jobs:
       - name: Collect metadata
         run: npm run metadata:collect
         env:
-          SUNSETSCORE_URL: https://sunsetscore.ky-ok.com
+          SUNSETSCORE_URL: https://sunsetscore.pages.dev
           SUBMIT: ${{ steps.collector-mode.outputs.submit }}
           METADATA_CITIES: ${{ steps.collector-mode.outputs.cities }}
           METADATA_CONCURRENCY: '2'

@@ -68,6 +68,7 @@ test('configuration defaults to fourteen cities, clamps concurrency and supports
   assert.equal(defaults.cities.length, 14);
   assert.equal(defaults.concurrency, 2);
   assert.equal(defaults.submit, false);
+  assert.equal(defaults.baseUrl, 'https://sunsetscore.pages.dev');
   const subset = collector.readConfig({ METADATA_CITIES: '深圳，广州,深圳', METADATA_CONCURRENCY: '9', SUBMIT: 'true' });
   assert.deepEqual(subset.cities, ['深圳', '广州']);
   assert.equal(subset.concurrency, 2);
@@ -192,6 +193,7 @@ test('workflow and package keep the approved schedule, bounded concurrency and d
   assert.match(workflow, /cron:\s*'13 12 \* \* \*'/);
   assert.match(workflow, /timezone:\s*'Asia\/Shanghai'/);
   assert.match(workflow, /timeout-minutes:\s*60/);
+  assert.match(workflow, /SUNSETSCORE_URL:\s*https:\/\/sunsetscore\.pages\.dev/);
   assert.match(workflow, /METADATA_CONCURRENCY:\s*'2'/);
   assert.match(workflow, /submit:\s*\n\s*description:[\s\S]*?default:\s*false/);
   assert.match(workflow, /actions\/checkout@v6/);
