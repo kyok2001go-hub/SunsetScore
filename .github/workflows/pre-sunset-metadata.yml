@@ -1,0 +1,92 @@
+name: SunsetScore Pre-Sunset Metadata
+
+on:
+  schedule:
+    - cron: '13 12 * * *'
+      timezone: 'Asia/Shanghai'
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: '真正提交到D1；关闭时仅Dry Run'
+        required: true
+        default: false
+        type: boolean
+      city_scope:
+        description: '采集全部城市，或仅用深圳做受控验证'
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - shenzhen
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunsetscore-pre-sunset-metadata
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect noon metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check project
+        run: npm run check
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve collector mode
+        id: collector-mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_SUBMIT: ${{ inputs.submit }}
+          CITY_SCOPE: ${{ inputs.city_scope }}
+        run: |
+          submit=false
+          cities=''
+          if [[ "$EVENT_NAME" == 'schedule' || "$MANUAL_SUBMIT" == 'true' ]]; then
+            submit=true
+          fi
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' && "$CITY_SCOPE" == 'shenzhen' ]]; then
+            cities='深圳'
+          fi
+          echo "submit=$submit" >> "$GITHUB_OUTPUT"
+          echo "cities=$cities" >> "$GITHUB_OUTPUT"
+
+      - name: Collect metadata
+        run: npm run metadata:collect
+        env:
+          SUNSETSCORE_URL: https://sunsetscore.ky-ok.com
+          SUBMIT: ${{ steps.collector-mode.outputs.submit }}
+          METADATA_CITIES: ${{ steps.collector-mode.outputs.cities }}
+          METADATA_CONCURRENCY: '2'
+          NAVIGATION_TIMEOUT_MS: '45000'
+          PREDICTION_TIMEOUT_MS: '120000'
+          ARTIFACTS_DIR: artifacts
+
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pre-sunset-metadata-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14

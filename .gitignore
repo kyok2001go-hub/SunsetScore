@@ -7,3 +7,10 @@ QweatherKey.txt
 .wrangler/
 node_modules/
 
+# GitHub Actions metadata collector output.
+artifacts/
+playwright-report/
+test-results/
+*.zip
+*.trace
+

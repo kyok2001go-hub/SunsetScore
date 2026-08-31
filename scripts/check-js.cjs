@@ -1,11 +1,14 @@
-const { readdirSync, statSync } = require('node:fs');
+const { readdirSync } = require('node:fs');
 const { join } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+const ignoredDirectories = new Set(['.git', '.wrangler', 'artifacts', 'node_modules', 'playwright-report', 'test-results']);
+
 function collect(dir) {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    return statSync(path).isDirectory() ? collect(path) : (/\.m?js$/.test(path) ? [path] : []);
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) return [];
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? collect(path) : (/\.m?js$/.test(path) ? [path] : []);
   });
 }
 
