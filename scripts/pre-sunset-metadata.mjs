@@ -18,6 +18,8 @@ export const DEFAULT_CITIES = Object.freeze([
 ]);
 
 export const META_ONLY_COMMENT = '[META_ONLY][SLOT:1200] 晚霞前预测快照，仅记录预测元数据，非实况反馈';
+export const PREDICTION_RETRY_MIN_DELAY_MS = 15000;
+export const PREDICTION_RETRY_MAX_DELAY_MS = 30000;
 
 function boundedInteger(value, fallback, min, max) {
   const parsed = Number.parseInt(String(value == null ? '' : value), 10);
@@ -144,7 +146,7 @@ function shouldCapture(status) {
   return status && status !== STATUSES.DRY_RUN && status !== STATUSES.SUBMITTED;
 }
 
-export async function collectCity(city, index, config, adapter) {
+export async function collectCity(city, index, config, adapter, attemptOptions = {}) {
   const startedAtMs = Date.now();
   const record = resultRecord(city, index, startedAtMs);
   let session = null;
@@ -189,7 +191,7 @@ export async function collectCity(city, index, config, adapter) {
       : stage === 'navigation' || stage === 'setup' ? 'NAVIGATION_ERROR' : 'PREDICTION_ERROR');
     record.errorMessage = safeErrorMessage(error);
   } finally {
-    if (session && shouldCapture(record.status)) {
+    if (session && attemptOptions.captureFailure !== false && shouldCapture(record.status)) {
       try {
         record.screenshot = await adapter.screenshot(session, city, index, record.status, config);
       } catch {
@@ -202,6 +204,35 @@ export async function collectCity(city, index, config, adapter) {
   }
 
   return finishRecord(record, Date.now());
+}
+
+export function predictionRetryDelayMs(random = Math.random) {
+  const value = Number(random());
+  const ratio = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  return Math.round(PREDICTION_RETRY_MIN_DELAY_MS +
+    (PREDICTION_RETRY_MAX_DELAY_MS - PREDICTION_RETRY_MIN_DELAY_MS) * ratio);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function collectCityWithPredictionRetry(city, index, config, adapter, runtime = {}) {
+  const first = await collectCity(city, index, config, adapter, { captureFailure: false });
+  if (first.status !== STATUSES.FAILED_PREDICTION) return first;
+
+  const delayMs = predictionRetryDelayMs(runtime.random || Math.random);
+  if (typeof runtime.onRetry === 'function') {
+    runtime.onRetry({ city, index, delayMs, errorCode: first.errorCode });
+  }
+  await (runtime.sleep || sleep)(delayMs);
+
+  // collectCity closes the first attempt in finally. A second call therefore
+  // creates a fresh BrowserContext/Page and can submit at most once.
+  const retried = await collectCity(city, index, config, adapter);
+  retried.startedAtUtc = first.startedAtUtc;
+  retried.durationMs = Math.max(0, Date.parse(retried.finishedAtUtc) - Date.parse(first.startedAtUtc));
+  return retried;
 }
 
 export async function runWorkerPool(items, concurrency, handler) {
@@ -407,7 +438,12 @@ export async function main(env = process.env) {
     const adapter = createPlaywrightAdapter(browser);
     results = await runWorkerPool(config.cities, config.concurrency, async (city, index) => {
       console.log('[' + (index + 1) + '/' + config.cities.length + '] ' + city + ' started');
-      const result = await collectCity(city, index, config, adapter);
+      const result = await collectCityWithPredictionRetry(city, index, config, adapter, {
+        onRetry: ({ delayMs, errorCode }) => {
+          console.log('[' + (index + 1) + '/' + config.cities.length + '] ' + city +
+            ' prediction retry in ' + Math.round(delayMs / 1000) + 's (' + errorCode + ')');
+        }
+      });
       console.log('[' + (index + 1) + '/' + config.cities.length + '] ' + city + ' -> ' + result.status);
       return result;
     });

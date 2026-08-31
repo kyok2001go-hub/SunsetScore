@@ -23,15 +23,19 @@ function prediction(city, values = {}) {
 }
 
 function fakeAdapter(behavior = {}) {
-  const calls = { submit: [], close: 0, screenshot: 0 };
+  const calls = { create: 0, navigate: 0, prediction: 0, submit: [], close: 0, screenshot: 0 };
   return {
     calls,
-    async create(city) { return { city }; },
+    async create(city) { calls.create += 1; return { city, attempt: calls.create }; },
     async navigate(session) {
+      calls.navigate += 1;
       if (behavior.navigationError) throw Object.assign(new Error('navigation failed'), { code: 'TEST_NAVIGATION' });
     },
     async waitForPrediction(session) {
-      if (behavior.predictionError) throw Object.assign(new Error('prediction failed'), { code: 'TEST_PREDICTION' });
+      calls.prediction += 1;
+      if (behavior.predictionError || session.attempt <= (behavior.predictionErrors || 0)) {
+        throw Object.assign(new Error('prediction failed'), { code: 'TEST_PREDICTION' });
+      }
       return behavior.prediction || prediction(session.city);
     },
     async submit(session, feedback) {
@@ -139,6 +143,58 @@ test('collector emits every required status and dry run never submits', async ()
   assert.equal(submissionFailure.status, collector.STATUSES.FAILED_SUBMISSION);
 });
 
+test('prediction failure retries once after bounded backoff with a fresh context and submits at most once', async () => {
+  const collector = await collectorPromise;
+  const adapter = fakeAdapter({ predictionErrors: 1 });
+  const delays = [];
+  const result = await collector.collectCityWithPredictionRetry('深圳', 0, config(true), adapter, {
+    random: () => 0,
+    sleep: async (delayMs) => { delays.push(delayMs); }
+  });
+  assert.equal(result.status, collector.STATUSES.SUBMITTED);
+  assert.deepEqual(delays, [collector.PREDICTION_RETRY_MIN_DELAY_MS]);
+  assert.equal(adapter.calls.create, 2);
+  assert.equal(adapter.calls.navigate, 2);
+  assert.equal(adapter.calls.prediction, 2);
+  assert.equal(adapter.calls.close, 2);
+  assert.equal(adapter.calls.submit.length, 1);
+  assert.equal(adapter.calls.screenshot, 0);
+});
+
+test('a second prediction failure becomes final and only the final attempt captures a screenshot', async () => {
+  const collector = await collectorPromise;
+  const adapter = fakeAdapter({ predictionErrors: 2 });
+  const delays = [];
+  const result = await collector.collectCityWithPredictionRetry('武汉', 9, config(false), adapter, {
+    random: () => 1,
+    sleep: async (delayMs) => { delays.push(delayMs); }
+  });
+  assert.equal(result.status, collector.STATUSES.FAILED_PREDICTION);
+  assert.deepEqual(delays, [collector.PREDICTION_RETRY_MAX_DELAY_MS]);
+  assert.equal(adapter.calls.create, 2);
+  assert.equal(adapter.calls.close, 2);
+  assert.equal(adapter.calls.submit.length, 0);
+  assert.equal(adapter.calls.screenshot, 1);
+});
+
+test('navigation and submission failures never enter the prediction retry path', async () => {
+  const collector = await collectorPromise;
+  for (const adapter of [
+    fakeAdapter({ navigationError: true }),
+    fakeAdapter({ response: { remote: false, error: 'D1 unavailable' } })
+  ]) {
+    let slept = false;
+    const result = await collector.collectCityWithPredictionRetry('深圳', 0, config(true), adapter, {
+      sleep: async () => { slept = true; }
+    });
+    assert.equal(slept, false);
+    assert.equal(adapter.calls.create, 1);
+    assert.equal(adapter.calls.close, 1);
+    assert.equal(adapter.calls.submit.length <= 1, true);
+    assert.notEqual(result.status, collector.STATUSES.FAILED_PREDICTION);
+  }
+});
+
 test('two-worker pool never exceeds concurrency, continues after failure and restores input order', async () => {
   const collector = await collectorPromise;
   const cities = ['深圳', '广州', '北京', '上海', '兰州'];
@@ -195,6 +251,8 @@ test('workflow and package keep the approved schedule, bounded concurrency and d
   assert.match(workflow, /timeout-minutes:\s*60/);
   assert.match(workflow, /SUNSETSCORE_URL:\s*https:\/\/sunsetscore\.pages\.dev/);
   assert.match(workflow, /METADATA_CONCURRENCY:\s*'2'/);
+  assert.match(workflow, /NAVIGATION_TIMEOUT_MS:\s*'45000'/);
+  assert.match(workflow, /PREDICTION_TIMEOUT_MS:\s*'120000'/);
   assert.match(workflow, /submit:\s*\n\s*description:[\s\S]*?default:\s*false/);
   assert.match(workflow, /actions\/checkout@v6/);
   assert.match(workflow, /actions\/setup-node@v7/);
