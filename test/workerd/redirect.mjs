@@ -100,7 +100,7 @@ export const structuredErrorLogs = {
       check(records.length === 4, 'One log per failure; no success logs');
       for (const record of records) {
         check(typeof record === 'object', 'Structured object, not raw message');
-        check(record.event === 'edge_proxy_error' && record.appVersion === '2.3.7', 'Keep event/version');
+        check(record.event === 'edge_proxy_error' && record.appVersion === '2.3.8', 'Keep event/version');
         check(record.cfRay === '0123456789abcdef-HKG', 'Keep validated request correlation');
         check(record.stage === 'upstream_response', 'Keep failure stage');
         check(record.source === (record.adapter === 'qweather' ? 'qweather' : 'rainviewer'), 'Keep provider category');

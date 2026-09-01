@@ -17,7 +17,7 @@ export const DEFAULT_CITIES = Object.freeze([
   '西安', '太原', '武汉', '长沙', '南京', '杭州', '昆明'
 ]);
 
-export const META_ONLY_COMMENT = '[META_ONLY][SLOT:1200] 晚霞前预测快照，仅记录预测元数据，非实况反馈';
+export const MAX_METADATA_CITIES = 20;
 export const PREDICTION_RETRY_MIN_DELAY_MS = 15000;
 export const PREDICTION_RETRY_MAX_DELAY_MS = 30000;
 
@@ -51,11 +51,23 @@ export function parseCities(value) {
   });
 }
 
-export function metadataFeedback() {
+export function validateSlot(value) {
+  const slot = String(value == null ? '' : value).trim();
+  if (!/^(?:[01]\d|2[0-3])[0-5]\d$/.test(slot)) {
+    throw new Error('METADATA_SLOT must use HHMM between 0000 and 2359');
+  }
+  return slot;
+}
+
+export function metadataComment(slot) {
+  return '[META_ONLY][SLOT:' + validateSlot(slot) + '] 自动预测快照，仅记录预测元数据，非实况反馈';
+}
+
+export function metadataFeedback(config) {
   return {
     rating: 'poor',
     ratingLabel: '🌧️ 完全无霞',
-    comment: META_ONLY_COMMENT
+    comment: metadataComment(config && config.slot)
   };
 }
 
@@ -174,7 +186,7 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
         record.status = STATUSES.DRY_RUN;
       } else {
         stage = 'submission';
-        const response = await adapter.submit(session, metadataFeedback(), config);
+        const response = await adapter.submit(session, metadataFeedback(config), config);
         if (!response || response.remote !== true) {
           record.status = STATUSES.FAILED_SUBMISSION;
           record.errorCode = response && response.cooldown ? 'SUBMISSION_COOLDOWN' : 'REMOTE_NOT_CONFIRMED';
@@ -266,6 +278,12 @@ export function readConfig(env = process.env) {
   if (!/^https?:$/.test(baseUrl.protocol)) throw new Error('SUNSETSCORE_URL must use HTTP or HTTPS');
   const cities = parseCities(env.METADATA_CITIES);
   if (!cities.length) throw new Error('METADATA_CITIES does not contain a valid city');
+  if (cities.length > MAX_METADATA_CITIES) {
+    throw new Error('METADATA_CITIES exceeds maximum of ' + MAX_METADATA_CITIES);
+  }
+  const slot = validateSlot(env.METADATA_SLOT);
+  const scheduledTimezone = String(env.METADATA_TIMEZONE || 'Asia/Shanghai').trim();
+  if (!scheduledTimezone) throw new Error('METADATA_TIMEZONE must not be empty');
   return {
     baseUrl: baseUrl.href.replace(/\/$/, ''),
     cities,
@@ -274,8 +292,11 @@ export function readConfig(env = process.env) {
     predictionTimeoutMs: boundedInteger(env.PREDICTION_TIMEOUT_MS, 120000, 1000, 180000),
     navigationTimeoutMs: boundedInteger(env.NAVIGATION_TIMEOUT_MS, 45000, 1000, 120000),
     artifactsDir: path.resolve(String(env.ARTIFACTS_DIR || 'artifacts')),
-    slotLocal: '12:00',
-    scheduledTimezone: 'Asia/Shanghai'
+    trigger: String(env.METADATA_TRIGGER || env.GITHUB_EVENT_NAME || 'local').trim() || 'local',
+    scheduleCron: String(env.METADATA_SCHEDULE_CRON || '').trim() || null,
+    slot,
+    slotLocal: slot.slice(0, 2) + ':' + slot.slice(2),
+    scheduledTimezone
   };
 }
 
@@ -376,8 +397,12 @@ export function buildReport(config, startedAtMs, finishedAtMs, results, env = pr
     workflowRunId: env.GITHUB_RUN_ID || null,
     workflowSha: env.GITHUB_SHA || null,
     mode: config.submit ? 'SUBMIT' : 'DRY_RUN',
+    trigger: config.trigger || null,
+    scheduleCron: config.scheduleCron || null,
+    slot: config.slot,
     slotLocal: config.slotLocal,
     scheduledTimezone: config.scheduledTimezone,
+    requestedCities: Array.from(config.cities || []),
     startedAtUtc: new Date(startedAtMs).toISOString(),
     finishedAtUtc: new Date(finishedAtMs).toISOString(),
     durationMs: Math.max(0, finishedAtMs - startedAtMs),
@@ -394,7 +419,10 @@ export function summaryMarkdown(report) {
   const lines = [
     '# SunsetScore Pre-Sunset Metadata', '',
     '- Mode: **' + report.mode + '**',
+    '- Trigger: **' + markdown(report.trigger) + '**',
+    '- Schedule: **' + markdown(report.scheduleCron) + '**',
     '- Slot: **' + report.slotLocal + ' ' + report.scheduledTimezone + '**',
+    '- Requested cities: **' + report.requestedCities.length + '**',
     '- Actual start: **' + report.startedAtUtc + '**',
     '- Duration: **' + Math.round(report.durationMs / 1000) + 's**',
     '- Counts: **' + Object.entries(counts).map(([key, value]) => key + '=' + value).join(', ') + '**', '',
@@ -429,6 +457,8 @@ export async function main(env = process.env) {
 
   console.log('SunsetScore Pre-Sunset Metadata');
   console.log('Mode:', config.submit ? 'SUBMIT' : 'DRY RUN');
+  console.log('Trigger:', config.trigger);
+  console.log('Slot:', config.slot, config.scheduledTimezone);
   console.log('Cities:', config.cities.join(', '));
   console.log('Concurrency:', config.concurrency);
 

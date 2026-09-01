@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '13 12 * * *'
       timezone: 'Asia/Shanghai'
+    - cron: '13 16 * * *'
+      timezone: 'Asia/Shanghai'
   workflow_dispatch:
     inputs:
       submit:
@@ -11,14 +13,15 @@ on:
         required: true
         default: false
         type: boolean
-      city_scope:
-        description: '采集全部城市，或仅用深圳做受控验证'
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - shenzhen
+      cities:
+        description: '城市列表，逗号分隔；留空使用默认城市'
+        required: false
+        default: ''
+        type: string
+
+env:
+  DEFAULT_METADATA_CITIES: '深圳,广州,北京,上海,兰州,西宁,银川,西安,太原,武汉,长沙,南京,杭州,昆明'
+  METADATA_TIMEZONE: 'Asia/Shanghai'
 
 permissions:
   contents: read
@@ -29,7 +32,7 @@ concurrency:
 
 jobs:
   collect:
-    name: Collect noon metadata
+    name: Collect metadata
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -57,19 +60,55 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
           MANUAL_SUBMIT: ${{ inputs.submit }}
-          CITY_SCOPE: ${{ inputs.city_scope }}
+          MANUAL_CITIES: ${{ inputs.cities }}
+          DEFAULT_CITIES: ${{ env.DEFAULT_METADATA_CITIES }}
+          SCHEDULED_TIMEZONE: ${{ env.METADATA_TIMEZONE }}
         run: |
           submit=false
-          cities=''
-          if [[ "$EVENT_NAME" == 'schedule' || "$MANUAL_SUBMIT" == 'true' ]]; then
+          cities="$DEFAULT_CITIES"
+          schedule_cron=''
+          slot=''
+
+          if [[ "$EVENT_NAME" == 'schedule' ]]; then
             submit=true
+            schedule_cron="$EVENT_SCHEDULE"
+            if [[ "$schedule_cron" =~ ^([0-9]{1,2})[[:space:]]+([0-9]{1,2})[[:space:]]+\*[[:space:]]+\*[[:space:]]+\*$ ]]; then
+              minute="${BASH_REMATCH[1]}"
+              hour="${BASH_REMATCH[2]}"
+              if (( 10#$minute > 59 || 10#$hour > 23 )); then
+                echo "Unsupported schedule time: $schedule_cron" >&2
+                exit 1
+              fi
+              slot=$(printf '%02d%02d' "$((10#$hour))" "$((10#$minute))")
+            else
+              echo "Unsupported schedule cron: $schedule_cron" >&2
+              exit 1
+            fi
+          elif [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            if [[ "$MANUAL_SUBMIT" == 'true' ]]; then
+              submit=true
+            fi
+            if [[ -n "${MANUAL_CITIES//[[:space:]]/}" ]]; then
+              cities="$MANUAL_CITIES"
+            fi
+            slot=$(TZ="$SCHEDULED_TIMEZONE" date +%H%M)
+          else
+            echo "Unsupported workflow trigger: $EVENT_NAME" >&2
+            exit 1
           fi
-          if [[ "$EVENT_NAME" == 'workflow_dispatch' && "$CITY_SCOPE" == 'shenzhen' ]]; then
-            cities='深圳'
-          fi
-          echo "submit=$submit" >> "$GITHUB_OUTPUT"
-          echo "cities=$cities" >> "$GITHUB_OUTPUT"
+
+          delimiter="METADATA_CITIES_${GITHUB_RUN_ID}_${RANDOM}"
+          {
+            echo "submit=$submit"
+            echo "slot=$slot"
+            echo "trigger=$EVENT_NAME"
+            echo "schedule_cron=$schedule_cron"
+            echo "cities<<$delimiter"
+            echo "$cities"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Collect metadata
         run: npm run metadata:collect
@@ -77,6 +116,10 @@ jobs:
           SUNSETSCORE_URL: https://sunsetscore.pages.dev
           SUBMIT: ${{ steps.collector-mode.outputs.submit }}
           METADATA_CITIES: ${{ steps.collector-mode.outputs.cities }}
+          METADATA_SLOT: ${{ steps.collector-mode.outputs.slot }}
+          METADATA_TRIGGER: ${{ steps.collector-mode.outputs.trigger }}
+          METADATA_SCHEDULE_CRON: ${{ steps.collector-mode.outputs.schedule_cron }}
+          METADATA_TIMEZONE: ${{ env.METADATA_TIMEZONE }}
           METADATA_CONCURRENCY: '2'
           NAVIGATION_TIMEOUT_MS: '45000'
           PREDICTION_TIMEOUT_MS: '120000'
