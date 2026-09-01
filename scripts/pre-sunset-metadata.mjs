@@ -59,6 +59,43 @@ export function validateSlot(value) {
   return slot;
 }
 
+export function scheduledSlotFromUtcCron(value, timeZone = 'Asia/Shanghai', referenceDate = new Date()) {
+  const cron = String(value || '').trim();
+  const match = cron.match(/^([0-9]{1,2})\s+([0-9]{1,2})\s+\*\s+\*\s+\*$/);
+  if (!match) throw new Error('Unsupported schedule cron: ' + cron);
+
+  const minute = Number(match[1]);
+  const hour = Number(match[2]);
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59 ||
+      !Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new Error('Unsupported schedule time: ' + cron);
+  }
+
+  const zone = String(timeZone || '').trim();
+  if (!zone) throw new Error('METADATA_TIMEZONE must not be empty');
+  const date = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  if (!Number.isFinite(date.getTime())) throw new Error('Invalid schedule reference date');
+  const scheduledUtc = new Date(Date.UTC(
+    date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hour, minute, 0, 0
+  ));
+
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(scheduledUtc);
+  } catch {
+    throw new Error('Unsupported METADATA_TIMEZONE: ' + zone);
+  }
+  const localHour = parts.find((part) => part.type === 'hour');
+  const localMinute = parts.find((part) => part.type === 'minute');
+  if (!localHour || !localMinute) throw new Error('Unable to resolve scheduled SLOT');
+  return localHour.value.padStart(2, '0') + localMinute.value.padStart(2, '0');
+}
+
 export function metadataComment(slot) {
   return '[META_ONLY][SLOT:' + validateSlot(slot) + '] 自动预测快照，仅记录预测元数据，非实况反馈';
 }
@@ -508,7 +545,16 @@ export async function main(env = process.env) {
 
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 if (isMain) {
-  main().catch((error) => {
+  const command = process.argv[2];
+  const operation = command === '--resolve-scheduled-slot'
+    ? Promise.resolve().then(() => {
+      process.stdout.write(scheduledSlotFromUtcCron(
+        process.env.EVENT_SCHEDULE,
+        process.env.SCHEDULED_TIMEZONE || process.env.METADATA_TIMEZONE || 'Asia/Shanghai'
+      ) + '\n');
+    })
+    : main();
+  operation.catch((error) => {
     console.error(safeErrorMessage(error));
     process.exitCode = 1;
   });

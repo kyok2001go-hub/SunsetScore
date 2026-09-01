@@ -2,10 +2,8 @@ name: SunsetScore Pre-Sunset Metadata
 
 on:
   schedule:
-    - cron: '13 12 * * *'
-      timezone: 'Asia/Shanghai'
-    - cron: '13 16 * * *'
-      timezone: 'Asia/Shanghai'
+    - cron: '13 4 * * *'
+    - cron: '13 8 * * *'
   workflow_dispatch:
     inputs:
       submit:
@@ -74,18 +72,7 @@ jobs:
           if [[ "$EVENT_NAME" == 'schedule' ]]; then
             submit=true
             schedule_cron="$EVENT_SCHEDULE"
-            if [[ "$schedule_cron" =~ ^([0-9]{1,2})[[:space:]]+([0-9]{1,2})[[:space:]]+\*[[:space:]]+\*[[:space:]]+\*$ ]]; then
-              minute="${BASH_REMATCH[1]}"
-              hour="${BASH_REMATCH[2]}"
-              if (( 10#$minute > 59 || 10#$hour > 23 )); then
-                echo "Unsupported schedule time: $schedule_cron" >&2
-                exit 1
-              fi
-              slot=$(printf '%02d%02d' "$((10#$hour))" "$((10#$minute))")
-            else
-              echo "Unsupported schedule cron: $schedule_cron" >&2
-              exit 1
-            fi
+            slot=$(node scripts/pre-sunset-metadata.mjs --resolve-scheduled-slot)
           elif [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             if [[ "$MANUAL_SUBMIT" == 'true' ]]; then
               submit=true
