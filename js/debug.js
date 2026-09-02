@@ -18,7 +18,7 @@
     pre.textContent = JSON.stringify({
       versions: { app: result.app_version, model: result.model_version, schema: result.schema_version },
       sampling: result.sampling_mode,
-      cache: result.cache_status,
+      cache: { result: result.result_cache_status || 'MISS', spatial: result.cache_status },
       score: result.score,
       components: result.components,
       distance_diagnostics: {

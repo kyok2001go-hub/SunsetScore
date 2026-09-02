@@ -15,19 +15,95 @@
       root.localStorage.removeItem(k);
       return true;
     } catch (e) {
-      return false;
+      /* 配额已满时仍允许读取和清理已有条目，不能直接退化为不可用。 */
+      try {
+        return !!root.localStorage && e && e.name === 'QuotaExceededError' && root.localStorage.length > 0;
+      } catch (ignored) {
+        return false;
+      }
     }
   }
 
   var memCache = {}; /* localStorage 不可用时的降级方案 */
   var hasStorage = storageAvailable();
 
+  function storageKeys() {
+    var keys = [];
+    if (!hasStorage) return keys;
+    try {
+      for (var i = 0; i < root.localStorage.length; i++) {
+        var key = root.localStorage.key(i);
+        if (typeof key === 'string') keys.push(key);
+      }
+    } catch (e) { /* localStorage 可能在运行时被浏览器禁用 */ }
+    return keys;
+  }
+
+  function parseEnvelope(raw) {
+    try {
+      var item = JSON.parse(raw);
+      return item && typeof item.expiresAt === 'number' ? item : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function storageGet(key) {
+    try { return root.localStorage.getItem(key); }
+    catch (e) { return null; }
+  }
+
+  function cleanupStorage(now) {
+    if (!hasStorage) return;
+    storageKeys().forEach(function (fullKey) {
+      /* 只清理 SunsetScore 数据缓存，绝不触碰反馈备份和反馈冷却键。 */
+      if (fullKey.indexOf('sunsetscore_v') !== 0) return;
+      var obsolete = fullKey.indexOf(SS.config.cachePrefix) !== 0;
+      var item = obsolete ? null : parseEnvelope(storageGet(fullKey));
+      if (obsolete || !item || item.schemaVersion !== SS.version.schema || now > item.expiresAt) {
+        try { root.localStorage.removeItem(fullKey); } catch (e) { /* 忽略单项清理失败 */ }
+      }
+    });
+  }
+
+  function writeStorage(fullKey, item) {
+    function attempt() {
+      try {
+        root.localStorage.setItem(fullKey, item);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    if (attempt()) return true;
+
+    cleanupStorage(Date.now());
+    if (attempt()) return true;
+
+    /* 仍超额时按创建时间淘汰最旧的当前版本缓存，直到本次写入成功。 */
+    var victims = storageKeys().filter(function (key) {
+      return key !== fullKey && key.indexOf(SS.config.cachePrefix) === 0;
+    }).map(function (key) {
+      var entry = parseEnvelope(storageGet(key));
+      return { key: key, createdAt: entry && Number.isFinite(entry.createdAt) ? entry.createdAt : 0 };
+    }).sort(function (a, b) { return a.createdAt - b.createdAt; });
+
+    for (var i = 0; i < victims.length; i++) {
+      try { root.localStorage.removeItem(victims[i].key); } catch (e) { /* 继续尝试下一项 */ }
+      if (attempt()) return true;
+    }
+    return false;
+  }
+
+  if (hasStorage) cleanupStorage(Date.now());
+
   function readRaw(key) {
     try {
-      var raw = hasStorage ? root.localStorage.getItem(SS.config.cachePrefix + key) : memCache[key];
+      var raw = hasStorage ? storageGet(SS.config.cachePrefix + key) : null;
+      if (!raw) raw = memCache[key];
       if (!raw) return null;
-      var item = JSON.parse(raw);
-      if (!item || typeof item.expiresAt !== 'number') return null;
+      var item = parseEnvelope(raw);
+      if (!item) return null;
       if (item.schemaVersion !== SS.version.schema) return null;
       return item;
     } catch (e) {
@@ -114,13 +190,13 @@
         expiresAt: now + ttl,
         data: value
       });
-      try {
-        if (hasStorage) {
-          root.localStorage.setItem(SS.config.cachePrefix + key, item);
-        } else {
-          memCache[key] = item;
-        }
-      } catch (e) { /* 存储满或隐私模式下静默失败 */ }
+      if (hasStorage && writeStorage(SS.config.cachePrefix + key, item)) {
+        delete memCache[key];
+        return true;
+      }
+      /* 配额无法恢复或持久存储不可用时，至少保证当前页面内仍可命中。 */
+      memCache[key] = item;
+      return !hasStorage;
     },
 
     remove: function (key) {

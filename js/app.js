@@ -46,7 +46,9 @@
       var result = await SS.prediction.predict(normalized, { location: location, signal: controller.signal, onProgress: function (message) {
         if (activeQuery === controller) SS.ui.setLoading(message);
       } });
-      if (activeQuery === controller && !controller.signal.aborted) SS.ui.renderResult(result);
+      if (activeQuery === controller && !controller.signal.aborted) {
+        SS.ui.renderResult(result, { fromCache: result.result_cache_status === 'HIT' });
+      }
     } catch (error) {
       if (activeQuery !== controller || controller.signal.aborted) return;
       if (root.console && root.console.error) root.console.error('[SunsetScore]', error);

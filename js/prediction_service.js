@@ -326,7 +326,9 @@
         cachedResult.runtime_config_key === SS.modelConfigKey() &&
         (!cachedResult.minute_refresh_at_ms || Date.now() < cachedResult.minute_refresh_at_ms) &&
         (!cachedResult.minute_coverage_end_ms || nowUtcMs < cachedResult.minute_coverage_end_ms) &&
-        cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) return cachedResult;
+        cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) {
+      return Object.assign({}, cachedResult, { result_cache_status: 'HIT' });
+    }
 
     progress(options, '正在获取空气质量…');
     var airQuality = null;
@@ -421,6 +423,7 @@
     result.runtime_config_key = SS.modelConfigKey();
     result.minute_refresh_at_ms = context.nowcast.precipResult ? context.nowcast.precipResult.refreshAtMs : null;
     result.minute_coverage_end_ms = context.nowcast.minutePrecip ? context.nowcast.minutePrecip.coverageEndMs : null;
+    result.result_cache_status = 'MISS';
     SS.cache.set(resultCacheKey, result);
     return result;
   }

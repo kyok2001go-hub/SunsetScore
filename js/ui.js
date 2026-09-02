@@ -314,7 +314,8 @@
       ['空间完整度 / 全天空方差', valueOrDash(result.spatial_completeness) + ' / ' + valueOrDash(result.spatial_variance) + '（360° 标准差）'],
       ['距离可靠性（经验诊断）', valueOrDash(result.distance_reliability == null ? null : result.distance_reliability.toFixed(3))],
       ['有效距离带覆盖', valueOrDash(result.distance_band_coverage == null ? null : Math.round(result.distance_band_coverage * 100) + '%')],
-      ['数据新鲜度 / 缓存', (result.data_freshness || 0) + ' min / ' + (result.cache_status || '—')]
+      ['数据新鲜度 / 结果缓存', (result.data_freshness || 0) + ' / ' + (result.result_cache_status || 'MISS')],
+      ['空间数据缓存', result.cache_status || '—']
     ]);
   }
   function renderResult(result, options) {

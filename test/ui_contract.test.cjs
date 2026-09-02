@@ -67,3 +67,11 @@ test('search clear control is accessible, does not submit, and keeps space at bo
   assert.ok(rules.every(rule => /padding:\s*\d+px 48px/.test(rule)));
   assert.deepEqual([...html.matchAll(/data-city="([^"]+)"/g)].map(x => x[1]), ['深圳', '广州', '上海', '北京']);
 });
+
+test('cache diagnostics distinguish prediction-result hits from spatial-data reuse', () => {
+  const ui = readFileSync(join(__dirname, '..', 'js', 'ui.js'), 'utf8');
+  const app = readFileSync(join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  assert.match(ui, /数据新鲜度 \/ 结果缓存/);
+  assert.match(ui, /空间数据缓存/);
+  assert.match(app, /fromCache:\s*result\.result_cache_status === 'HIT'/);
+});

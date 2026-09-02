@@ -61,6 +61,8 @@ test('selected homonymous cities keep their own coordinates and result caches wi
   assert.deepEqual(coordinates, [[22.54, 114.06], [24.48, 118.08]]);
   const again = await SS.prediction.predict(location.name, { nowUtcMs, location });
   assert.equal(again.query_id, first.query_id);
+  assert.equal(first.result_cache_status, 'MISS');
+  assert.equal(again.result_cache_status, 'HIT');
   const domestic = { ...location, id: 'qweather:1', source: 'qweather', country_code: 'CN',
     feature_code: 'QW_CITY', coordinate_system: 'WGS84', rank: 30 };
   const fromQWeather = await SS.prediction.predict(location.name, { nowUtcMs, location: domestic });

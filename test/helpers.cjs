@@ -29,7 +29,9 @@ function createRuntime(extra = {}) {
     localStorage: {
       getItem: (key) => storage.has(key) ? storage.get(key) : null,
       setItem: (key, value) => storage.set(key, String(value)),
-      removeItem: (key) => storage.delete(key)
+      removeItem: (key) => storage.delete(key),
+      key: (index) => [...storage.keys()][index] ?? null,
+      get length() { return storage.size; }
     },
     ...extra
   };

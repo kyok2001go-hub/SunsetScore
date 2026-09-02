@@ -10,7 +10,7 @@
     app: '2.3.8',
     model: '2.3.8',
     schema: 3,
-    assetRevision: 'metadata2',
+    assetRevision: 'cachefix1',
     cache: 'v237',
     feedbackSchema: 2
   });
