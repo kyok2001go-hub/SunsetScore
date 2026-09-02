@@ -15,14 +15,14 @@ test('cache writes and reads schema-versioned envelopes', () => {
   assert.equal(SS.cache.get('sample'), null);
 });
 
-test('V2.3.8 keeps the V2.3.7 data cache contract while isolating result versions', () => {
+test('V2.3.9 keeps the V2.3.7 data cache contract while isolating result versions', () => {
   const runtime = createRuntime();
   const SS = load(runtime, ['js/config.js', 'js/cache.js']);
   runtime.storage.set('sunsetscore_v231_sample', JSON.stringify({
     schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: false }
   }));
-  assert.equal(SS.version.model, '2.3.8');
+  assert.equal(SS.version.model, '2.3.9');
   runtime.storage.set('sunsetscore_v231_reliability1_sample', JSON.stringify({
     schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: true }

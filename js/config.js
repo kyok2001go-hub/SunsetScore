@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.8 - 当前生产参数配置
+ * SunsetScore V2.3.9 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * ============================================================ */
 (function (root) {
@@ -7,10 +7,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.3.8',
-    model: '2.3.8',
+    app: '2.3.9',
+    model: '2.3.9',
     schema: 3,
-    assetRevision: 'cachefix1',
+    assetRevision: 'uxfix1',
     cache: 'v237',
     feedbackSchema: 2
   });
@@ -168,8 +168,7 @@
     /* ---------- 晚霞等级（第 19 章） ---------- */
     levels: [
       { min: 90, label: '极佳' },
-      { min: 75, label: '很好' },
-      { min: 60, label: '不错' },
+      { min: 60, label: '很好' },
       { min: 40, label: '一般' },
       { min: 20, label: '较差' },
       { min: 0, label: '很差' }

@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.8 - 应用启动器
+ * SunsetScore V2.3.9 - 应用启动器
  * 只负责绑定入口事件，并连接 Prediction Service 与 UI。
  * ============================================================ */
 (function (root) {
@@ -70,6 +70,7 @@
       if (search) search.setQuery(button.dataset.city);
     });
     if (details) details.addEventListener('click', SS.ui.toggleDetails);
+    if (SS.ui.initScoreHelp) SS.ui.initScoreHelp();
     if (SS.feedbackUi) SS.feedbackUi.init();
     var deepLinkCity = getDeepLinkCity();
     if (search && deepLinkCity) search.setQuery(deepLinkCity);

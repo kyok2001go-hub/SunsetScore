@@ -26,7 +26,8 @@
       radar: cfg.nowcast.radar.enabled,
       satellite: cfg.nowcast.satellite.enabled,
       goldenWindow: cfg.goldenWindow,
-      sampling: cfg.sampling.enabled
+      sampling: cfg.sampling.enabled,
+      levels: cfg.levels
     });
   };
 })(typeof window !== 'undefined' ? window : globalThis);

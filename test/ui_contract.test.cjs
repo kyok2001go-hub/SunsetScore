@@ -21,6 +21,35 @@ test('feedback UI only offers observation ratings and keeps input at least 16px'
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/);
 });
 
+test('prediction uses five levels and exposes accessible observation guidance from the score', () => {
+  const SS = load(createRuntime(), ['js/config.js', 'js/model_config.js']);
+  const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+  assert.deepEqual(JSON.parse(JSON.stringify(SS.config.levels)), [
+    { min: 90, label: '极佳' },
+    { min: 60, label: '很好' },
+    { min: 40, label: '一般' },
+    { min: 20, label: '较差' },
+    { min: 0, label: '很差' }
+  ]);
+  assert.match(SS.modelConfigKey(), /"levels":/);
+  assert.doesNotMatch(readFileSync(join(__dirname, '..', 'js', 'ui.js'), 'utf8'), /不错/);
+  assert.match(html, /id="score-ring" role="button" tabindex="0"[\s\S]*aria-controls="score-help-modal"/);
+  assert.match(html, /id="r-level" class="level-badge score-level-badge"[\s\S]*id="r-level-text"[\s\S]*score-help-icon/);
+  assert.match(html, /id="score-help-modal"[\s\S]*强烈建议前往[\s\S]*建议前往[\s\S]*可酌情前往[\s\S]*不建议专程前往[\s\S]*不建议前往/);
+  const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
+  assert.match(css, /\.score-level-badge\s*\{[^}]*min-width:\s*72px/);
+  assert.match(css, /\.score-help-icon\s*\{[^}]*border:\s*1px solid currentColor[^}]*color:\s*inherit/);
+  assert.match(css, /\.score-level-heading > span:last-child\s*\{\s*color:\s*var\(--score-level-color\)/);
+});
+
+test('feedback description aligns with its options and long mobile toasts can wrap', () => {
+  const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
+  assert.doesNotMatch(css, /\.feedback-modal-header\s*\{[^}]*padding-right/);
+  assert.match(css, /\.feedback-modal-title\s*\{[^}]*padding-right:\s*28px/);
+  assert.match(css, /\.toast-container\s*\{[^}]*width:\s*min\(680px,\s*calc\(100% - 32px\)\)/);
+  assert.match(css, /\.ss-toast\s*\{[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/);
+});
+
 test('city combobox keeps 16px input at every breakpoint and loads its two modules in dependency order', () => {
   const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
   const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');

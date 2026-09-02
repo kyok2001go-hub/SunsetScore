@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.3.8-cachefix1">
+  <link rel="stylesheet" href="css/style.css?v=2.3.9-uxfix1">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -68,10 +68,14 @@
           </div>
 
           <div class="score-row">
-            <div class="score-ring" id="score-ring">
+            <div class="score-ring" id="score-ring" role="button" tabindex="0"
+                 aria-haspopup="dialog" aria-controls="score-help-modal" aria-label="查看晚霞指数等级和观测建议">
               <div class="score-inner">
                 <span id="r-score" class="score-value">—</span>
-                <span id="r-level" class="level-badge">—</span>
+                <span id="r-level" class="level-badge score-level-badge">
+                  <span id="r-level-text">—</span>
+                  <span class="score-help-icon" aria-hidden="true">?</span>
+                </span>
               </div>
             </div>
             <div class="score-side">
@@ -219,6 +223,42 @@
     </button>
   </div>
 
+  <!-- 晚霞指数五级说明弹窗 -->
+  <div id="score-help-modal" class="feedback-modal-overlay score-help-modal-overlay hidden"
+       role="dialog" aria-modal="true" aria-labelledby="score-help-modal-title" aria-describedby="score-help-modal-desc">
+    <div class="feedback-modal-card score-help-modal-card">
+      <button type="button" id="score-help-modal-close" class="feedback-modal-close" aria-label="关闭等级说明">×</button>
+      <div class="feedback-modal-header score-help-modal-header">
+        <h2 id="score-help-modal-title" class="feedback-modal-title">晚霞指数等级说明</h2>
+        <p id="score-help-modal-desc" class="feedback-modal-desc">
+          晚霞指数衡量“值不值得去看”，不是晚霞出现概率。可结合路程和临近天气安排观测。
+        </p>
+      </div>
+      <div class="score-level-guide">
+        <article class="score-level-item score-level-best">
+          <div class="score-level-heading"><span class="level-badge lv-best">极佳</span><span>90–100 分</span></div>
+          <p><strong>强烈建议前往。</strong>形成高观赏价值晚霞的综合条件非常有利，建议提前到场。</p>
+        </article>
+        <article class="score-level-item score-level-great">
+          <div class="score-level-heading"><span class="level-badge lv-great">很好</span><span>60–89 分</span></div>
+          <p><strong>建议前往。</strong>综合条件较有利，值得安排观测。</p>
+        </article>
+        <article class="score-level-item score-level-fair">
+          <div class="score-level-heading"><span class="level-badge lv-fair">一般</span><span>40–59 分</span></div>
+          <p><strong>可酌情前往。</strong>存在晚霞机会，建议结合路程和临近天气决定。</p>
+        </article>
+        <article class="score-level-item score-level-poor">
+          <div class="score-level-heading"><span class="level-badge lv-poor">较差</span><span>20–39 分</span></div>
+          <p><strong>不建议专程前往。</strong>若已经在附近，可以顺路观察。</p>
+        </article>
+        <article class="score-level-item score-level-bad">
+          <div class="score-level-heading"><span class="level-badge lv-bad">很差</span><span>0–19 分</span></div>
+          <p><strong>不建议前往。</strong>当前云层、降水或大气等综合条件明显不利。</p>
+        </article>
+      </div>
+    </div>
+  </div>
+
   <!-- 实况反馈弹窗 Modal -->
   <div id="feedback-modal" class="feedback-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title">
     <div class="feedback-modal-card">
@@ -277,39 +317,39 @@
   <div id="toast-container" class="toast-container"></div>
 
   <footer class="footer">
-    数据来源：QWeather（国内城市 / 分钟降水）· Open-Meteo（天气 / 空气质量 / 探空风 / 国外地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.3.8<br>
+    数据来源：QWeather（国内城市 / 分钟降水）· Open-Meteo（天气 / 空气质量 / 探空风 / 国外地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.3.9<br>
     晚霞指数不是概率，而是"值不值得去看"的综合评分
   </footer>
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-<script src="js/config.js?v=2.3.8-cachefix1"></script>
-<script src="js/model_config.js?v=2.3.8-cachefix1"></script>
-<script src="js/network.js?v=2.3.8-cachefix1"></script>
-<script src="js/domain.js?v=2.3.8-cachefix1"></script>
-<script src="js/time.js?v=2.3.8-cachefix1"></script>
-<script src="js/vendor/suncalc.js?v=2.3.8-cachefix1"></script>
-<script src="js/solar.js?v=2.3.8-cachefix1"></script>
-<script src="js/baseline.js?v=2.3.8-cachefix1"></script>
-<script src="js/cache.js?v=2.3.8-cachefix1"></script>
-<script src="js/data.js?v=2.3.8-cachefix1"></script>
-<script src="js/city_search.js?v=2.3.8-cachefix1"></script>
-<script src="js/cloud_field.js?v=2.3.8-cachefix1"></script>
-<script src="js/wind.js?v=2.3.8-cachefix1"></script>
-<script src="js/cloud_motion.js?v=2.3.8-cachefix1"></script>
-<script src="js/sky_state.js?v=2.3.8-cachefix1"></script>
-<script src="js/engine.js?v=2.3.8-cachefix1"></script>
-<script src="js/sampling.js?v=2.3.8-cachefix1"></script>
-<script src="js/corridor.js?v=2.3.8-cachefix1"></script>
-<script src="js/nowcast.js?v=2.3.8-cachefix1"></script>
-<script src="js/evolution.js?v=2.3.8-cachefix1"></script>
-<script src="js/prediction_service.js?v=2.3.8-cachefix1"></script>
-<script src="js/feedback_service.js?v=2.3.8-cachefix1"></script>
-<script src="js/radar_view.js?v=2.3.8-cachefix1"></script>
-<script src="js/debug.js?v=2.3.8-cachefix1"></script>
-<script src="js/ui.js?v=2.3.8-cachefix1"></script>
-<script src="js/feedback_ui.js?v=2.3.8-cachefix1"></script>
-<script src="js/city_search_ui.js?v=2.3.8-cachefix1"></script>
-<script src="js/app.js?v=2.3.8-cachefix1"></script>
+<script src="js/config.js?v=2.3.9-uxfix1"></script>
+<script src="js/model_config.js?v=2.3.9-uxfix1"></script>
+<script src="js/network.js?v=2.3.9-uxfix1"></script>
+<script src="js/domain.js?v=2.3.9-uxfix1"></script>
+<script src="js/time.js?v=2.3.9-uxfix1"></script>
+<script src="js/vendor/suncalc.js?v=2.3.9-uxfix1"></script>
+<script src="js/solar.js?v=2.3.9-uxfix1"></script>
+<script src="js/baseline.js?v=2.3.9-uxfix1"></script>
+<script src="js/cache.js?v=2.3.9-uxfix1"></script>
+<script src="js/data.js?v=2.3.9-uxfix1"></script>
+<script src="js/city_search.js?v=2.3.9-uxfix1"></script>
+<script src="js/cloud_field.js?v=2.3.9-uxfix1"></script>
+<script src="js/wind.js?v=2.3.9-uxfix1"></script>
+<script src="js/cloud_motion.js?v=2.3.9-uxfix1"></script>
+<script src="js/sky_state.js?v=2.3.9-uxfix1"></script>
+<script src="js/engine.js?v=2.3.9-uxfix1"></script>
+<script src="js/sampling.js?v=2.3.9-uxfix1"></script>
+<script src="js/corridor.js?v=2.3.9-uxfix1"></script>
+<script src="js/nowcast.js?v=2.3.9-uxfix1"></script>
+<script src="js/evolution.js?v=2.3.9-uxfix1"></script>
+<script src="js/prediction_service.js?v=2.3.9-uxfix1"></script>
+<script src="js/feedback_service.js?v=2.3.9-uxfix1"></script>
+<script src="js/radar_view.js?v=2.3.9-uxfix1"></script>
+<script src="js/debug.js?v=2.3.9-uxfix1"></script>
+<script src="js/ui.js?v=2.3.9-uxfix1"></script>
+<script src="js/feedback_ui.js?v=2.3.9-uxfix1"></script>
+<script src="js/city_search_ui.js?v=2.3.9-uxfix1"></script>
+<script src="js/app.js?v=2.3.9-uxfix1"></script>
 </body>
 </html>

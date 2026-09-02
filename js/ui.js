@@ -13,7 +13,9 @@
     sky_canvas: 'skyCanvas', horizon: 'horizon', illumination: 'illumination',
     atmosphere: 'atmosphere', weather: 'weather'
   };
-  var levelClasses = { '极佳': 'lv-best', '很好': 'lv-great', '不错': 'lv-good', '一般': 'lv-fair', '较差': 'lv-poor', '很差': 'lv-bad' };
+  var levelClasses = { '极佳': 'lv-best', '很好': 'lv-great', '一般': 'lv-fair', '较差': 'lv-poor', '很差': 'lv-bad' };
+  var scoreHelpInitialized = false;
+  var scoreHelpPreviousFocus = null;
   var evolutionLabels = { OPENING: '正在打开', OPEN: '开放', CLOSING: '正在闭合', BLOCKED: '持续遮挡', UNCERTAIN: '不确定' };
   var trendLabels = { OPENING: '↑ 云层正在打开', APPROACHING: '↓ 云层正在逼近', STABLE: '→ 天空状态稳定' };
   var riskLabels = { HIGH: '高', MEDIUM: '中', LOW: '低', NONE: '无' };
@@ -40,10 +42,48 @@
   }
   function endPrediction() { var button = $('search-btn'); if (button) button.disabled = false; }
   function ringColor(score) {
-    if (score >= 75) return '#ff7a45';
+    if (score >= 90) return '#ff7a45';
     if (score >= 60) return '#ffa940';
     if (score >= 40) return '#d3adf7';
+    if (score >= 20) return '#a9a9c0';
     return '#6b7280';
+  }
+  function openScoreHelp() {
+    var modal = $('score-help-modal');
+    if (!modal) return;
+    scoreHelpPreviousFocus = root.document.activeElement;
+    show(modal);
+    if (root.document.body) root.document.body.style.overflow = 'hidden';
+    var closeButton = $('score-help-modal-close');
+    if (closeButton && closeButton.focus) closeButton.focus();
+  }
+  function closeScoreHelp() {
+    var modal = $('score-help-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    hide(modal);
+    if (root.document.body) root.document.body.style.overflow = '';
+    if (scoreHelpPreviousFocus && scoreHelpPreviousFocus.focus) scoreHelpPreviousFocus.focus();
+    scoreHelpPreviousFocus = null;
+  }
+  function initScoreHelp() {
+    if (scoreHelpInitialized) return;
+    scoreHelpInitialized = true;
+    var trigger = $('score-ring');
+    var modal = $('score-help-modal');
+    var closeButton = $('score-help-modal-close');
+    if (trigger) {
+      trigger.addEventListener('click', openScoreHelp);
+      trigger.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openScoreHelp();
+      });
+    }
+    if (closeButton) closeButton.addEventListener('click', closeScoreHelp);
+    if (modal) modal.addEventListener('click', function (event) { if (event.target === modal) closeScoreHelp(); });
+    root.document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeScoreHelp();
+    });
   }
   function formatWind(wind) {
     if (!wind) return '—';
@@ -330,7 +370,11 @@
     if (options && options.fromCache) meta += ' · 缓存结果';
     setText('r-meta', meta);
     setText('r-score', result.score); setText('r-confidence', result.confidence + ' / 100');
-    var badge = $('r-level'); if (badge) { badge.textContent = result.level; badge.className = 'level-badge ' + (levelClasses[result.level] || 'lv-fair'); }
+    var badge = $('r-level');
+    if (badge) {
+      setText('r-level-text', result.level);
+      badge.className = 'level-badge score-level-badge ' + (levelClasses[result.level] || 'lv-fair');
+    }
     var ring = $('score-ring'); if (ring) { var color = ringColor(result.score); ring.style.background = 'conic-gradient(' + color + ' ' + result.score * 3.6 + 'deg, rgba(255,255,255,0.08) 0deg)'; ring.style.setProperty('--ring-color', color); }
     setText('r-golden-hour', result.golden_hour || '—');
     setText('r-sunset', (result.sunset_local || '—') + (result.hours_to_sunset < -0.5 ? '（今日已过）' : ''));
@@ -352,6 +396,7 @@
     show: show, hide: hide, setLoading: setLoading, showError: showError,
     clearStatus: clearStatus, beginPrediction: beginPrediction, endPrediction: endPrediction,
     renderResult: renderResult, toggleDetails: toggleDetails,
+    initScoreHelp: initScoreHelp, openScoreHelp: openScoreHelp, closeScoreHelp: closeScoreHelp,
     getCurrentResult: function () { return currentResult; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

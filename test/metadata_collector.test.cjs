@@ -15,8 +15,8 @@ function prediction(city, values = {}) {
     level: '很差',
     queryId: 'qid-' + city,
     predictionTimeUtc: '2026-08-31T04:13:00.000Z',
-    appVersion: '2.3.8',
-    modelVersion: '2.3.8',
+    appVersion: '2.3.9',
+    modelVersion: '2.3.9',
     latitude: 22.54,
     longitude: 114.06,
     ...values
@@ -277,7 +277,7 @@ test('two-worker pool never exceeds concurrency, continues after failure and res
 test('report records trigger, planned slot, requested cities, actual timing and ordered Markdown', async () => {
   const collector = await collectorPromise;
   const results = [
-    { requestedCity: '深圳', actualCity: '深圳', score: 68, level: '不错', predictionTimeUtc: '2026-08-31T04:13:00Z', status: 'DRY_RUN' },
+    { requestedCity: '深圳', actualCity: '深圳', score: 68, level: '很好', predictionTimeUtc: '2026-08-31T04:13:00Z', status: 'DRY_RUN' },
     { requestedCity: '广州', actualCity: null, score: null, level: null, predictionTimeUtc: null, status: 'FAILED_PREDICTION' }
   ];
   const report = collector.buildReport({
@@ -353,9 +353,9 @@ test('workflow accepts configurable UTC schedules and cities while preserving ru
   assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.3.8');
-  assert.equal(lock.version, '2.3.8');
-  assert.equal(lock.packages[''].version, '2.3.8');
+  assert.equal(packageJson.version, '2.3.9');
+  assert.equal(lock.version, '2.3.9');
+  assert.equal(lock.packages[''].version, '2.3.9');
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });
