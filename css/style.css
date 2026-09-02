@@ -379,6 +379,30 @@ body {
   color: var(--text-dim);
   line-height: 1.6;
 }
+.detail-formula-line {
+  color: #d9d2e5;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.detail-formula-final {
+  margin-top: 0.7rem;
+}
+.formula-operator {
+  color: var(--accent-soft);
+  font-size: 1.18em;
+  font-weight: 800;
+  line-height: 1;
+}
+.formula-bracket {
+  color: #76d7ff;
+  font-size: 1.22em;
+  font-weight: 800;
+  line-height: 1;
+}
+.detail-formula-caption {
+  margin-top: 0.75rem;
+  color: var(--text-dim);
+}
 
 /* ---------- 页脚 ---------- */
 .footer {

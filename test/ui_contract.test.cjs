@@ -104,3 +104,27 @@ test('cache diagnostics distinguish prediction-result hits from spatial-data reu
   assert.match(ui, /空间数据缓存/);
   assert.match(app, /fromCache:\s*result\.result_cache_status === 'HIT'/);
 });
+
+test('score details use one two-stage formula vocabulary without changing score composition labels', () => {
+  const ui = readFileSync(join(__dirname, '..', 'js', 'ui.js'), 'utf8');
+  const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
+  for (const term of [
+    '基础分 Score_engine', '最终 Score_final', '动态权重 W_i',
+    '大气质量修正 Q', '地平线门控 G_H', '结构加分 B_structure',
+    '过渡加分 B_transition', '天气惩罚 P_weather',
+    '天空演化因子 F_sky', '黄金窗口因子 F_gw'
+  ]) assert.match(ui, new RegExp(term.replace(/[()]/g, '\\$&')));
+  assert.match(ui, /addFormulaLine\(note,[\s\S]*?基础分 Score_engine[\s\S]*?最终 Score_final/);
+  assert.match(ui, /\['=', 'operator'\][\s\S]*?\['\(', 'bracket'\][\s\S]*?\['Σ', 'operator'\][\s\S]*?\['×', 'operator'\][\s\S]*?\['\)', 'bracket'\]/);
+  assert.match(ui, /\['动态权重分布 W_i', dynamicWeightText\(regimeState\)\],\s*\['Σ 组件得分 × 动态权重 W_i'/);
+  assert.match(ui, /\['Σ 组件得分 × 动态权重 W_i', detailPhysicalScore\(result\)\]/);
+  assert.doesNotMatch(ui, /\['基础分 Score_engine'|\['最终 Score_final'/);
+  assert.doesNotMatch(ui, /\['天气型过渡诊断'|\['天气评分组成'|\['天气型强度'/);
+  assert.doesNotMatch(ui, /最终Score Score_final|组件动态加权得分 Σ/);
+  assert.match(ui, /goldenWindowFactorText[\s\S]*1\.000[\s\S]*未激活/);
+  assert.doesNotMatch(ui, /全天演化|天空状态演化|全天演化倍率|黄金窗口倍率|天气风险扣分|总加分（结构\+过渡）/);
+  assert.match(css, /\.formula-operator\s*\{[^}]*color:\s*var\(--accent-soft\)[^}]*font-size:\s*1\.18em/);
+  assert.match(css, /\.formula-bracket\s*\{[^}]*color:\s*#76d7ff[^}]*font-size:\s*1\.22em/);
+  assert.deepEqual([...ui.matchAll(/sky_canvas:\s*'([^']+)'|horizon:\s*'([^']+)'|illumination:\s*'([^']+)'|atmosphere:\s*'([^']+)'|weather:\s*'([^']+)'/g)]
+    .slice(0, 5).map(match => match.slice(1).find(Boolean)), ['云幕潜力', '地平线通透', '受光条件', '大气质量', '天气稳定']);
+});

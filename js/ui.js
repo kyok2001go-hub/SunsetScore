@@ -19,7 +19,6 @@
   var evolutionLabels = { OPENING: '正在打开', OPEN: '开放', CLOSING: '正在闭合', BLOCKED: '持续遮挡', UNCERTAIN: '不确定' };
   var trendLabels = { OPENING: '↑ 云层正在打开', APPROACHING: '↓ 云层正在逼近', STABLE: '→ 天空状态稳定' };
   var riskLabels = { HIGH: '高', MEDIUM: '中', LOW: '低', NONE: '无' };
-  var transitionLabels = { IMPROVING: '有利过渡', DETERIORATING: '转差', STABLE: '稳定' };
   var gradientLabels = { far_cloud_bank: '远方云幕', approaching_cloud: '云层逼近', neutral: '无明显趋势' };
   var clearingLabels = { far_to_near: '自远方推进', near_to_far: '自近处退去', uniform: '均匀打开', none: '无打开' };
 
@@ -209,7 +208,32 @@
     });
     group.appendChild(heading); group.appendChild(grid); host.appendChild(group);
   }
+  function addFormulaLine(host, parts, finalLine) {
+    var line = root.document.createElement('div');
+    line.className = 'detail-formula-line' + (finalLine ? ' detail-formula-final' : '');
+    parts.forEach(function (part) {
+      var token = root.document.createElement('span');
+      token.className = 'formula-' + (part[1] || 'term');
+      token.textContent = part[0];
+      line.appendChild(token);
+    });
+    host.appendChild(line);
+  }
   function valueOrDash(value) { return value == null ? '—' : value; }
+  function fixedFactor(value, digits, fallback) {
+    var number = Number(value);
+    return Number.isFinite(number) ? number.toFixed(digits) : fallback;
+  }
+  function signedDetail(value, positive) {
+    var number = Number(value);
+    if (!Number.isFinite(number)) number = 0;
+    return (positive ? (number < 0 ? '−' : '+') : (number < 0 ? '+' : '−')) + Math.abs(number);
+  }
+  function goldenWindowFactorText(result) {
+    var evolution = result.sky_evolution || {};
+    var value = fixedFactor(evolution.gwFactor, 3, '1.000');
+    return value + (result.nowcast_active ? '' : '（未激活）');
+  }
   function detailPhysicalScore(result) {
     var components = result.components || {};
     var weights = result.regime_state && result.regime_state.dynamicWeight;
@@ -231,16 +255,11 @@
       ' / 受光 ' + Math.round(weights.illumination * 100) + ' / 大气 ' + Math.round(weights.atmosphere * 100) +
       ' / 天气 ' + Math.round(weights.weather * 100) + ' %';
   }
-  function weatherScoreText(weatherScore) {
-    if (!weatherScore) return '—';
-    return '当前 ' + valueOrDash(weatherScore.current) + ' / 趋势 ' + valueOrDash(weatherScore.trend) +
-      ' / 稳定 ' + valueOrDash(weatherScore.stability);
-  }
   function evolutionDetailText(result) {
     var evolution = result.sky_evolution;
     if (!evolution) return '—（未启用或不在临近时段）';
     var parts = ['状态 ' + (evolutionLabels[evolution.state] || evolution.state || '—')];
-    if (evolution.gwFactor != null) parts.push('概率因子 ×' + evolution.gwFactor);
+    if (evolution.gwFactor != null) parts.push('黄金窗口因子 F_gw ' + fixedFactor(evolution.gwFactor, 3, '1.000'));
     if (evolution.sunsetOpenProbability != null) parts.push('日落开放概率 ' + Math.round(evolution.sunsetOpenProbability * 100) + '%');
     if (evolution.sources && evolution.sources.length) parts.push('源 ' + evolution.sources.join('/'));
     return parts.join(' · ');
@@ -281,28 +300,34 @@
     var clearing = result.clearing_front || {};
     var arrival = motion.arrivalRisk || {};
     var summary = field.summary || {};
-    var note = root.document.createElement('p');
+    var note = root.document.createElement('div');
     note.className = 'detail-note';
-    note.textContent = '公式：' + (regimeState
-      ? 'Score = (Σ 组件×动态权重) × Q × GH + 结构加分 + 过渡加分 − Pweather'
-      : 'Score = P × Q × GH + Bregime − Pweather') +
-      (result.sky_evolution_factor != null ? ' · 全天演化 ×' + result.sky_evolution_factor : '') +
-      (evolution.gwFactor != null ? ' · 黄金窗口 ×' + evolution.gwFactor : '') +
-      '。所有参数为当前生产模型参数，后续基于真实观测校准。';
+    addFormulaLine(note, [
+      ['基础分 Score_engine ', 'term'], ['=', 'operator'], [' ', 'term'], ['(', 'bracket'],
+      ['Σ', 'operator'], [' 组件得分 ', 'term'], ['×', 'operator'], [' 动态权重 W_i', 'term'], [')', 'bracket'],
+      [' ', 'term'], ['×', 'operator'], [' 大气质量修正 Q ', 'term'], ['×', 'operator'], [' 地平线门控 G_H ', 'term'],
+      ['+', 'operator'], [' 结构加分 B_structure ', 'term'], ['+', 'operator'], [' 过渡加分 B_transition ', 'term'],
+      ['−', 'operator'], [' 天气惩罚 P_weather', 'term']
+    ], false);
+    addFormulaLine(note, [
+      ['最终 Score_final ', 'term'], ['=', 'operator'], [' 基础分 Score_engine ', 'term'],
+      ['×', 'operator'], [' 天空演化因子 F_sky ', 'term'], ['×', 'operator'], [' 黄金窗口因子 F_gw', 'term']
+    ], true);
+    var formulaCaption = root.document.createElement('div');
+    formulaCaption.className = 'detail-formula-caption';
+    formulaCaption.textContent = '所有参数为当前生产模型参数，后续基于真实观测校准。';
+    note.appendChild(formulaCaption);
     host.appendChild(note);
     addDetailGroup(host, '📐 评分与模型拆解', [
-      [regimeState ? '组件动态加权合成 P' : '基础物理评分 P', detailPhysicalScore(result)],
+      ['动态权重分布 W_i', dynamicWeightText(regimeState)],
+      ['Σ 组件得分 × 动态权重 W_i', detailPhysicalScore(result)],
       ['大气质量修正 Q', (0.70 + 0.30 * ((result.components && result.components.atmosphere) || 0) / 100).toFixed(2)],
-      ['地平线门控 GH', result.horizon_gate != null ? Number(result.horizon_gate).toFixed(2) : '—'],
-      ['总加分（结构+过渡）', '+' + (result.bonus || 0)],
-      ['天气风险扣分', '-' + (result.penalty || 0)],
-      ['天气型强度', regimeState && regimeState.strength != null ? Math.round(regimeState.strength * 100) + '%' : '—'],
-      ['动态权重分布', dynamicWeightText(regimeState)],
-      ['Regime Transition', regimeState
-        ? (transitionLabels[regimeState.transition] || '—') + ' · 评分 ' + valueOrDash(regimeState.transitionScore) +
-          ' · 加分 ' + ((result.transition_bonus || 0) >= 0 ? '+' : '') + (result.transition_bonus || 0)
-        : '—'],
-      ['WeatherScore 组成', weatherScoreText(result.weather_score)]
+      ['地平线门控 G_H', fixedFactor(result.horizon_gate, 2, '—')],
+      ['结构加分 B_structure', signedDetail(result.structure_bonus, true)],
+      ['过渡加分 B_transition', signedDetail(result.transition_bonus, true)],
+      ['天气惩罚 P_weather', signedDetail(result.penalty, false)],
+      ['天空演化因子 F_sky', fixedFactor(result.sky_evolution_factor, 3, '1.000')],
+      ['黄金窗口因子 F_gw', goldenWindowFactorText(result)]
     ]);
     addDetailGroup(host, '📊 极简基准对照与回测闭环', [
       ['当前动力学模型得分', result.score + ' 分 · ' + result.level],
@@ -311,7 +336,7 @@
       ['模型增益 / 偏差', result.baseline_score != null ? ((result.score - result.baseline_score >= 0 ? '+' : '') + (result.score - result.baseline_score) + ' 分') : '—']
     ]);
     addDetailGroup(host, '🌅 天空演化与风场动力学', [
-      ['全天宏观状态', state.label ? (state.icon || '') + ' ' + state.label + '（演化因子 ×' + (result.sky_evolution_factor || 1) + '）' : '—'],
+      ['全天宏观状态', state.label ? (state.icon || '') + ' ' + state.label + '（天空演化因子 F_sky ' + fixedFactor(result.sky_evolution_factor, 3, '1.000') + '）' : '—'],
       ['全天空平均云量', summary.avgCloudCover != null ? summary.avgCloudCover + '%（低/中/高: ' + summary.avgCloudLow + '/' + summary.avgCloudMid + '/' + summary.avgCloudHigh + '%）' : '—'],
       ['空间云场不均度', summary.spatialVariance != null ? summary.spatialVariance + '（标准差）' : '—'],
       ['风向风速', formatWind(motion.wind)],
