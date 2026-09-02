@@ -10,7 +10,7 @@
     app: '2.3.9',
     model: '2.3.9',
     schema: 3,
-    assetRevision: 'uxfix1',
+    assetRevision: 'scoreformula1',
     cache: 'v237',
     feedbackSchema: 2
   });
