@@ -63,6 +63,10 @@ test('city combobox keeps 16px input at every breakpoint and loads its two modul
   assert.doesNotMatch(html, /user-scalable=no|maximum-scale=1/);
   assert.ok(html.indexOf('src="js/data.js') < html.indexOf('src="js/city_search.js'));
   assert.ok(html.indexOf('src="js/city_search.js') < html.indexOf('src="js/prediction_service.js'));
+  assert.ok(html.indexOf('src="js/feedback_service.js') < html.indexOf('src="js/event_service.js'));
+  assert.ok(html.indexOf('src="js/event_service.js') < html.indexOf('src="js/snapshot_service.js'));
+  assert.ok(html.indexOf('src="js/snapshot_service.js') < html.indexOf('src="js/observation_service.js'));
+  assert.ok(html.indexOf('src="js/observation_service.js') < html.indexOf('src="js/feedback_ui.js'));
   assert.ok(html.indexOf('src="js/city_search_ui.js') < html.indexOf('src="js/app.js'));
 });
 

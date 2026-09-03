@@ -1,4 +1,4 @@
-"""Validate fresh D1 schema and sequential V2.2.2 -> V2.3 migrations."""
+"""Validate fresh D1 schema and sequential V2.2.2 -> V2.4 migrations."""
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
@@ -23,6 +23,8 @@ upgrade.execute(
 )
 upgrade.executescript(sql("migrations/002_feedback_time.sql"))
 upgrade.executescript(sql("migrations/003_feedback_comment.sql"))
+upgrade.executescript(sql("migrations/004_event_dataset.sql"))
+upgrade.executescript(sql("migrations/004_event_dataset.sql"))
 row = upgrade.execute(
     "SELECT created_at_epoch, created_at_utc, app_version, schema_version FROM sunset_feedback"
 ).fetchone()
@@ -35,4 +37,21 @@ columns = {item[1]: item[3] for item in fresh.execute("PRAGMA table_info(sunset_
 for required in ("created_at_epoch", "created_at_utc", "app_version", "schema_version"):
     assert columns.get(required) == 1, f"{required} must be NOT NULL in fresh schema"
 
-print("D1 schema and sequential migrations passed")
+for connection in (upgrade, fresh):
+    tables = {item[0] for item in connection.execute(
+        "SELECT name FROM sqlite_schema WHERE type = 'table'"
+    )}
+    assert {"sunset_feedback", "prediction_snapshots", "sunset_observations"} <= tables
+    snapshot_columns = {item[1]: item[3] for item in connection.execute(
+        "PRAGMA table_info(prediction_snapshots)"
+    )}
+    observation_columns = {item[1]: item[3] for item in connection.execute(
+        "PRAGMA table_info(sunset_observations)"
+    )}
+    for required in ("idempotency_key", "event_id", "sunset_time_utc", "snapshot_source"):
+        assert snapshot_columns.get(required) == 1, f"prediction_snapshots.{required} must be NOT NULL"
+    for required in ("submission_id", "event_id", "submitted_at_utc", "rating_label", "source"):
+        assert observation_columns.get(required) == 1, f"sunset_observations.{required} must be NOT NULL"
+    assert "observed_at_utc" not in observation_columns
+
+print("D1 V2.4 schema and sequential migrations passed")

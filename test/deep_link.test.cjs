@@ -39,13 +39,20 @@ function boot(href) {
     }
   };
   load(runtime, ['js/app.js']);
-  return { queries, replacements, location, submit };
+  return { queries, replacements, location, submit,
+    observationSource: runtime.sandbox.SunsetScore.runtime.observationSource };
 }
 
 test('city deep link is decoded, normalized and submitted through citySearchUi.setQuery', () => {
   assert.deepEqual(boot('https://sunsetscore.ky-ok.com/?city=%E6%B7%B1%E5%9C%B3').queries, ['深圳']);
   assert.deepEqual(boot('https://sunsetscore.ky-ok.com/?city=%20Shenzhen%20').queries, ['Shenzhen']);
   assert.deepEqual(boot('https://sunsetscore.ky-ok.com/?city=22.54%EF%BC%8C114.06').queries, ['22.54,114.06']);
+});
+
+test('observation source deep link is whitelisted and defaults to user', () => {
+  assert.equal(boot('https://sunsetscore.ky-ok.com/?city=深圳&source=rednote_agent').observationSource, 'rednote_agent');
+  assert.equal(boot('https://sunsetscore.ky-ok.com/?city=深圳').observationSource, 'user');
+  assert.equal(boot('https://sunsetscore.ky-ok.com/?city=深圳&source=admin').observationSource, 'user');
 });
 
 test('missing, empty, oversized or invalid deep-link values do not start a query', () => {

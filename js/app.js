@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3.9 - 应用启动器
+ * SunsetScore V2.4.0 - 应用启动器
  * 只负责绑定入口事件，并连接 Prediction Service 与 UI。
  * ============================================================ */
 (function (root) {
@@ -21,6 +21,14 @@
     } catch (error) {
       return null;
     }
+  }
+
+  function getObservationSource() {
+    try {
+      var value = root.location && root.location.href
+        ? new URL(root.location.href).searchParams.get('source') : null;
+      return value === 'rednote_agent' ? 'rednote_agent' : 'user';
+    } catch (error) { return 'user'; }
   }
 
   function syncCityParam(query) {
@@ -61,6 +69,8 @@
   function init() {
     if (initialized) return;
     initialized = true;
+    SS.runtime = SS.runtime || {};
+    SS.runtime.observationSource = getObservationSource();
     var chips = $('quick-chips');
     var details = $('details-toggle');
     var search = SS.citySearchUi.init(predict);
@@ -76,7 +86,7 @@
     if (search && deepLinkCity) search.setQuery(deepLinkCity);
   }
 
-  SS.app = { init: init, predict: predict };
+  SS.app = { init: init, predict: predict, getObservationSource: getObservationSource };
   if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', init);
   else init();
 })(typeof window !== 'undefined' ? window : globalThis);

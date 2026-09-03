@@ -189,6 +189,7 @@
     result.timezone_str = SS.time.formatUtcOffset(context.weather.utcOffsetSeconds);
     result.utc_offset_seconds = context.weather.utcOffsetSeconds;
     result.hours_to_sunset = context.time.minutesToSunset / 60;
+    result.sunset_time_utc = solar.sunset.toISOString();
     result.sunset_time_local = SS.time.formatLocal(solar.sunset, timezone, false);
     result.best_viewing_window = result.best_viewing.start + ' – ' + result.best_viewing.end + ' (峰值 ' + result.best_viewing.peak + ')';
     result.twilight_minutes = Math.round(solar.twilightMinutes);
@@ -197,6 +198,8 @@
     result.app_version = SS.version.app;
     result.model_version = SS.version.model;
     result.schema_version = SS.version.schema;
+    result.location_source = context.location.source || null;
+    result.location_id = context.location.id == null ? null : String(context.location.id);
     return result;
   }
 

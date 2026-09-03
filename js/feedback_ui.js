@@ -7,6 +7,7 @@
   var initialized = false;
   var selectedRating = null;
   var selectedLabel = '';
+  var pendingSubmissionId = null;
   function $(id) { return root.document.getElementById(id); }
   function toast(message, warning) {
     var host = $('toast-container'); if (!host) return;
@@ -17,7 +18,7 @@
     root.setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 3500);
   }
   function reset() {
-    selectedRating = null; selectedLabel = '';
+    selectedRating = null; selectedLabel = ''; pendingSubmissionId = null;
     var group = $('modal-feedback-btn-group');
     if (group) Array.prototype.forEach.call(group.querySelectorAll('.modal-fb-btn'), function (button) { button.classList.remove('active'); });
     if ($('modal-feedback-comment')) $('modal-feedback-comment').value = '';
@@ -59,7 +60,12 @@
     button.disabled = true; button.textContent = '提交中…';
     try {
       var comment = $('modal-feedback-comment') ? $('modal-feedback-comment').value : '';
-      var response = await SS.feedbackService.submit(result, { rating: selectedRating, ratingLabel: selectedLabel, comment: comment });
+      if (!pendingSubmissionId) pendingSubmissionId = SS.observationService.createSubmissionId();
+      var response = await SS.observationService.submit(result, {
+        submissionId: pendingSubmissionId,
+        rating: selectedRating,
+        comment: comment
+      });
       if (response.cooldown || response.error && response.error.indexOf('30 分钟') >= 0) {
         toast(response.error || '提交过于频繁，请稍后再试', true);
         return;
@@ -69,6 +75,7 @@
           (response.local ? '（已在本机备份，请稍后重试）' : ''), true);
         return;
       }
+      SS.feedbackService.markSubmitted(result.city);
       close(); toast('感谢反馈~我们会努力做得更好', false);
     } catch (error) {
       toast(error && error.message ? error.message : '反馈提交失败', true);

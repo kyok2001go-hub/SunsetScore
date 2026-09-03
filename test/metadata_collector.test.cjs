@@ -15,8 +15,8 @@ function prediction(city, values = {}) {
     level: '很差',
     queryId: 'qid-' + city,
     predictionTimeUtc: '2026-08-31T04:13:00.000Z',
-    appVersion: '2.3.9',
-    modelVersion: '2.3.9',
+    appVersion: '2.4.0',
+    modelVersion: '2.4.0',
     latitude: 22.54,
     longitude: 114.06,
     ...values
@@ -94,15 +94,16 @@ test('configuration defaults to fourteen cities, clamps concurrency and supports
   assert.throws(() => collector.readConfig({ METADATA_CITIES: '，,  ', METADATA_SLOT: '1213' }), /valid city/);
 });
 
-test('slot validation accepts only four-digit local times and metadata comments use the active slot', async () => {
+test('slot validation and snapshot submission preserve the explicit business slot', async () => {
   const collector = await collectorPromise;
   for (const slot of ['0000', '1213', '1613', '2359']) assert.equal(collector.validateSlot(slot), slot);
   for (const slot of [undefined, '', '123', '12:13', '2360', '1260', 'abcd']) {
     assert.throws(() => collector.validateSlot(slot), /METADATA_SLOT/);
   }
-  assert.equal(collector.metadataComment('1213'),
-    '[META_ONLY][SLOT:1213] 自动预测快照，仅记录预测元数据，非实况反馈');
-  assert.match(collector.metadataFeedback({ slot: '1613' }).comment, /^\[META_ONLY\]\[SLOT:1613\]/);
+  assert.deepEqual(collector.snapshotSubmission({ trigger: 'schedule', slot: '1213' }),
+    { source: 'github_schedule', scheduledSlot: '1213' });
+  assert.deepEqual(collector.snapshotSubmission({ trigger: 'workflow_dispatch', slot: '1613' }),
+    { source: 'github_manual', scheduledSlot: '1613' });
 });
 
 test('UTC schedules resolve to the planned business slot in the configured timezone', async () => {
@@ -151,29 +152,11 @@ test('prediction completeness preserves a legitimate zero score and rejects inva
   assert.deepEqual(invalid.invalid.sort(), ['appVersion', 'latitude', 'predictionTimeUtc', 'score']);
 });
 
-test('metadata feedback uses the same production payload builder as a manual poor submission', async () => {
+test('metadata collector no longer creates a fake poor observation or META_ONLY comment', async () => {
   const collector = await collectorPromise;
-  const runtime = createRuntime();
-  const SS = load(runtime, [
-    'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
-    'js/baseline.js', 'js/feedback_service.js'
-  ]);
-  const result = {
-    query_id: 'qid-meta', city: '深圳', country: '中国', latitude: 22.54, longitude: 114.06,
-    timezone: 'Asia/Shanghai', date: '2026-08-31', sunset_local: '18:40', sunset_azimuth: 280,
-    score: 0, level: '很差', components: {}, data: {}, cloud_structure: {}, cloud_motion: {},
-    sky_evolution: {}, all_day_sky_state: {}, regime_state: {}, nowcast_active: false
-  };
-  const fixedNow = Date.parse('2026-08-31T04:13:00.000Z');
-  const feedback = { ...collector.metadataFeedback({ slot: '1213' }), nowUtcMs: fixedNow };
-  const automated = SS.feedbackService.buildPayload(result, feedback);
-  const manual = SS.feedbackService.buildPayload(result, {
-    rating: 'poor', ratingLabel: '🌧️ 完全无霞', comment: collector.metadataComment('1213'), nowUtcMs: fixedNow
-  });
-  assert.deepEqual(automated, manual);
-  assert.equal(automated.user_rating, 'poor');
-  assert.equal(automated.user_comment.startsWith('[META_ONLY][SLOT:1213]'), true);
-  assert.equal(automated.predicted_score, 0);
+  const submission = collector.snapshotSubmission({ trigger: 'schedule', slot: '1213' });
+  assert.deepEqual(Object.keys(submission).sort(), ['scheduledSlot', 'source']);
+  assert.doesNotMatch(JSON.stringify(submission), /poor|META_ONLY|rating|comment/);
 });
 
 test('collector emits every required status and dry run never submits', async () => {
@@ -185,8 +168,8 @@ test('collector emits every required status and dry run never submits', async ()
   const submittedAdapter = fakeAdapter();
   const submitted = await collector.collectCity('深圳', 0, config(true), submittedAdapter);
   assert.equal(submitted.status, collector.STATUSES.SUBMITTED);
-  assert.equal(submitted.feedbackId, 'fb-test');
-  assert.deepEqual(submittedAdapter.calls.submit[0].feedback, collector.metadataFeedback(config(true)));
+  assert.equal(submitted.snapshotId, 'fb-test');
+  assert.deepEqual(submittedAdapter.calls.submit[0].feedback, collector.snapshotSubmission(config(true)));
 
   const mismatch = await collector.collectCity('深圳', 0, config(true), fakeAdapter({ prediction: prediction('广州') }));
   assert.equal(mismatch.status, collector.STATUSES.SKIPPED_CITY_MISMATCH);
@@ -353,9 +336,9 @@ test('workflow accepts configurable UTC schedules and cities while preserving ru
   assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.3.9');
-  assert.equal(lock.version, '2.3.9');
-  assert.equal(lock.packages[''].version, '2.3.9');
+  assert.equal(packageJson.version, '2.4.0');
+  assert.equal(lock.version, '2.4.0');
+  assert.equal(lock.packages[''].version, '2.4.0');
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });

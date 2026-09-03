@@ -96,15 +96,10 @@ export function scheduledSlotFromUtcCron(value, timeZone = 'Asia/Shanghai', refe
   return localHour.value.padStart(2, '0') + localMinute.value.padStart(2, '0');
 }
 
-export function metadataComment(slot) {
-  return '[META_ONLY][SLOT:' + validateSlot(slot) + '] 自动预测快照，仅记录预测元数据，非实况反馈';
-}
-
-export function metadataFeedback(config) {
+export function snapshotSubmission(config) {
   return {
-    rating: 'poor',
-    ratingLabel: '🌧️ 完全无霞',
-    comment: metadataComment(config && config.slot)
+    source: config && config.trigger === 'schedule' ? 'github_schedule' : 'github_manual',
+    scheduledSlot: validateSlot(config && config.slot)
   };
 }
 
@@ -168,7 +163,7 @@ function resultRecord(city, index, startedAtMs) {
     startedAtUtc: new Date(startedAtMs).toISOString(),
     finishedAtUtc: null,
     durationMs: null,
-    feedbackId: null,
+    snapshotId: null,
     errorCode: null,
     errorMessage: null,
     screenshot: null
@@ -223,14 +218,14 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
         record.status = STATUSES.DRY_RUN;
       } else {
         stage = 'submission';
-        const response = await adapter.submit(session, metadataFeedback(config), config);
+        const response = await adapter.submit(session, snapshotSubmission(config), config);
         if (!response || response.remote !== true) {
           record.status = STATUSES.FAILED_SUBMISSION;
           record.errorCode = response && response.cooldown ? 'SUBMISSION_COOLDOWN' : 'REMOTE_NOT_CONFIRMED';
           record.errorMessage = safeErrorMessage(response && response.error || '服务器未明确确认保存成功');
         } else {
           record.status = STATUSES.SUBMITTED;
-          record.feedbackId = response.id || null;
+          record.snapshotId = response.id || null;
         }
       }
     }
@@ -381,8 +376,8 @@ export function createPlaywrightAdapter(browser) {
         const result = SS && SS.ui && typeof SS.ui.getCurrentResult === 'function'
           ? SS.ui.getCurrentResult() : null;
         if (result) {
-          if (!SS.feedbackService || typeof SS.feedbackService.submit !== 'function') {
-            return { kind: 'error', message: '反馈服务不可用' };
+          if (!SS.snapshotService || typeof SS.snapshotService.submit !== 'function') {
+            return { kind: 'error', message: '预测快照服务不可用' };
           }
           return { kind: 'result' };
         }
@@ -400,16 +395,16 @@ export function createPlaywrightAdapter(browser) {
       return prediction;
     },
 
-    async submit(session, feedback) {
+    async submit(session, submission) {
       return session.page.evaluate(async (input) => {
         const SS = window.SunsetScore;
         const result = SS && SS.ui && typeof SS.ui.getCurrentResult === 'function'
           ? SS.ui.getCurrentResult() : null;
-        if (!result || !SS.feedbackService || typeof SS.feedbackService.submit !== 'function') {
-          throw new Error('反馈服务或当前预测结果不可用');
+        if (!result || !SS.snapshotService || typeof SS.snapshotService.submit !== 'function') {
+          throw new Error('预测快照服务或当前预测结果不可用');
         }
-        return SS.feedbackService.submit(result, input);
-      }, feedback);
+        return SS.snapshotService.submit(result, input);
+      }, submission);
     },
 
     async screenshot(session, city, index, status, config) {

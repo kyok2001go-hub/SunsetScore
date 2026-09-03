@@ -10,7 +10,7 @@ const SERVICE_FILES = [
   'js/nowcast.js', 'js/evolution.js', 'js/prediction_service.js', 'js/feedback_service.js'
 ];
 
-test('prediction service runs without DOM and returns a valid V2.3 result', async () => {
+test('prediction service runs without DOM and returns a valid V2.4 result', async () => {
   const runtime = createRuntime();
   const SS = load(runtime, SERVICE_FILES);
   const fc = forecast({ cloud: 48, low: 18, mid: 44, high: 62 });
@@ -32,7 +32,8 @@ test('prediction service runs without DOM and returns a valid V2.3 result', asyn
     nowUtcMs: Date.parse('2026-08-26T02:00:00Z')
   });
 
-  assert.equal(result.model_version, '2.3.9');
+  assert.equal(result.model_version, '2.4.0');
+  assert.match(result.sunset_time_utc, /^2026-08-26T/);
   assert.equal(result.timezone, 'Asia/Shanghai');
   assert.equal(result.utc_offset_seconds, 28800);
   assert.ok(Number.isFinite(result.score));

@@ -15,14 +15,14 @@ test('cache writes and reads schema-versioned envelopes', () => {
   assert.equal(SS.cache.get('sample'), null);
 });
 
-test('V2.3.9 keeps the V2.3.7 data cache contract while isolating result versions', () => {
+test('V2.4.0 keeps the V2.3.7 data cache contract while isolating result versions', () => {
   const runtime = createRuntime();
   const SS = load(runtime, ['js/config.js', 'js/cache.js']);
   runtime.storage.set('sunsetscore_v231_sample', JSON.stringify({
     schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: false }
   }));
-  assert.equal(SS.version.model, '2.3.9');
+  assert.equal(SS.version.model, '2.4.0');
   runtime.storage.set('sunsetscore_v231_reliability1_sample', JSON.stringify({
     schemaVersion: 3, createdAt: Date.now(), expiresAt: Date.now() + 60000,
     data: { app_version: '2.3.1', model_version: '2.3.1', nowcast_active: true }
@@ -70,6 +70,7 @@ test('cache startup removes obsolete, expired and malformed cache envelopes only
     schemaVersion: SS.version.schema, createdAt: now, expiresAt: now + 60000, data: { old: true }
   }));
   runtime.storage.set('sunsetscore_feedback_v23', '[{"kept":true}]');
+  runtime.storage.set('ss_observation_backup_submission-1', 'fb_local');
   runtime.storage.set('ss_fb_remote_last_ts_深圳', String(now));
 
   load(runtime, ['js/cache.js']);
@@ -79,6 +80,7 @@ test('cache startup removes obsolete, expired and malformed cache envelopes only
   assert.equal(runtime.storage.has(SS.config.cachePrefix + 'malformed'), false);
   assert.equal(runtime.storage.has('sunsetscore_v235_old'), false);
   assert.ok(runtime.storage.has('sunsetscore_feedback_v23'));
+  assert.ok(runtime.storage.has('ss_observation_backup_submission-1'));
   assert.ok(runtime.storage.has('ss_fb_remote_last_ts_深圳'));
 });
 
