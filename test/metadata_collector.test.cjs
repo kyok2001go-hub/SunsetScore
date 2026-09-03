@@ -15,8 +15,8 @@ function prediction(city, values = {}) {
     level: '很差',
     queryId: 'qid-' + city,
     predictionTimeUtc: '2026-08-31T04:13:00.000Z',
-    appVersion: '2.4.0',
-    modelVersion: '2.4.0',
+    appVersion: '2.4.1',
+    modelVersion: '2.4.1',
     latitude: 22.54,
     longitude: 114.06,
     ...values
@@ -336,9 +336,9 @@ test('workflow accepts configurable UTC schedules and cities while preserving ru
   assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.4.0');
-  assert.equal(lock.version, '2.4.0');
-  assert.equal(lock.packages[''].version, '2.4.0');
+  assert.equal(packageJson.version, '2.4.1');
+  assert.equal(lock.version, '2.4.1');
+  assert.equal(lock.packages[''].version, '2.4.1');
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });

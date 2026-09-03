@@ -1,4 +1,4 @@
-/* SunsetScore V2.4.0 - prediction snapshot service */
+/* SunsetScore V2.4.1 - prediction snapshot service */
 (function (root) {
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};

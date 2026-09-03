@@ -37,7 +37,7 @@ function checkRecord(record, expected) {
     'stage', 'errorCode', 'errorName', 'upstreamStatus', 'responseStatus', 'elapsedMs', 'cfRay'].sort());
   assert.equal(record.event, 'edge_proxy_error');
   assert.equal(record.logSchema, 1);
-  assert.equal(record.appVersion, '2.4.0');
+  assert.equal(record.appVersion, '2.4.1');
   assert.ok(Number.isInteger(record.elapsedMs) && record.elapsedMs >= 0);
   for (const [key, value] of Object.entries(expected)) assert.equal(record[key], value, key);
   assert.doesNotMatch(JSON.stringify(record), new RegExp(FAKE_SECRET + '|private-path|site\\.test|22\\.54|114\\.06|Bearer|authorization|cookie|stack|cause'));

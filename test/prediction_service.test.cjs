@@ -32,7 +32,7 @@ test('prediction service runs without DOM and returns a valid V2.4 result', asyn
     nowUtcMs: Date.parse('2026-08-26T02:00:00Z')
   });
 
-  assert.equal(result.model_version, '2.4.0');
+  assert.equal(result.model_version, '2.4.1');
   assert.match(result.sunset_time_utc, /^2026-08-26T/);
   assert.equal(result.timezone, 'Asia/Shanghai');
   assert.equal(result.utc_offset_seconds, 28800);

@@ -23,7 +23,7 @@ function snapshot(context = eventContext(), overrides = {}) {
     event_context: context,
     snapshot_source: 'github_schedule', scheduled_slot: '1213',
     query_id: 'qid-test', prediction_time_utc: new Date().toISOString(),
-    app_version: '2.4.0', model_version: '2.4.0', schema_version: 3,
+    app_version: '2.4.1', model_version: '2.4.1', schema_version: 3,
     dataset_schema_version: 1, predicted_score: 68, predicted_level: '很好',
     raw_snapshot_json: JSON.stringify({ query: 'qid-test' }),
     ...overrides

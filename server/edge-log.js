@@ -1,5 +1,5 @@
 /** Request-scoped, allowlisted diagnostics. Never serialize an Error or Request. */
-export const EDGE_APP_VERSION = '2.4.0';
+export const EDGE_APP_VERSION = '2.4.1';
 
 const SOURCES = ['qweather', 'rainviewer', 'gibs', 'openmeteo'];
 const STAGES = ['configuration', 'validation', 'fetch', 'upstream_response', 'body_cancel', 'response_forward', 'body_parse'];
