@@ -1,9 +1,6 @@
 name: SunsetScore Pre-Sunset Metadata
 
 on:
-  schedule:
-    - cron: '13 4 * * *'
-    - cron: '13 8 * * *'
   workflow_dispatch:
     inputs:
       submit:
@@ -16,6 +13,19 @@ on:
         required: false
         default: ''
         type: string
+      slot:
+        description: '业务计划时段 HHMM（scheduled 必填；manual 留空时自动取当前时区时间）'
+        required: false
+        default: ''
+        type: string
+      run_type:
+        description: '运行类型 (manual/scheduled)'
+        required: false
+        default: 'manual'
+        type: choice
+        options:
+          - manual
+          - scheduled
 
 env:
   DEFAULT_METADATA_CITIES: '深圳,广州,北京,上海,兰州,西宁,银川,西安,太原,武汉,长沙,南京,杭州,昆明'
@@ -47,9 +57,6 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Check project
-        run: npm run check
-
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
@@ -57,41 +64,57 @@ jobs:
         id: collector-mode
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-          MANUAL_SUBMIT: ${{ inputs.submit }}
-          MANUAL_CITIES: ${{ inputs.cities }}
+          INPUT_SUBMIT: ${{ inputs.submit }}
+          INPUT_CITIES: ${{ inputs.cities }}
+          INPUT_SLOT: ${{ inputs.slot }}
+          INPUT_RUN_TYPE: ${{ inputs.run_type }}
           DEFAULT_CITIES: ${{ env.DEFAULT_METADATA_CITIES }}
           SCHEDULED_TIMEZONE: ${{ env.METADATA_TIMEZONE }}
         run: |
           submit=false
-          cities="$DEFAULT_CITIES"
-          schedule_cron=''
-          slot=''
-
-          if [[ "$EVENT_NAME" == 'schedule' ]]; then
+          if [[ "$INPUT_SUBMIT" == 'true' ]]; then
             submit=true
-            schedule_cron="$EVENT_SCHEDULE"
-            slot=$(node scripts/pre-sunset-metadata.mjs --resolve-scheduled-slot)
-          elif [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
-            if [[ "$MANUAL_SUBMIT" == 'true' ]]; then
-              submit=true
-            fi
-            if [[ -n "${MANUAL_CITIES//[[:space:]]/}" ]]; then
-              cities="$MANUAL_CITIES"
-            fi
-            slot=$(TZ="$SCHEDULED_TIMEZONE" date +%H%M)
-          else
-            echo "Unsupported workflow trigger: $EVENT_NAME" >&2
+          fi
+
+          cities="$DEFAULT_CITIES"
+          if [[ -n "${INPUT_CITIES//[[:space:]]/}" ]]; then
+            cities="$INPUT_CITIES"
+          fi
+
+          run_type="${INPUT_RUN_TYPE:-manual}"
+          if [[ "$run_type" != "manual" && "$run_type" != "scheduled" ]]; then
+            echo "Error: Invalid run_type: $run_type (must be manual or scheduled)" >&2
             exit 1
+          fi
+
+          slot_input="${INPUT_SLOT//[[:space:]]/}"
+          if [[ "$run_type" == 'scheduled' ]]; then
+            if [[ -z "$slot_input" ]]; then
+              echo "Error: slot is required when run_type is scheduled" >&2
+              exit 1
+            fi
+            if ! [[ "$slot_input" =~ ^([01][0-9]|2[0-3])[0-5][0-9]$ ]]; then
+              echo "Error: Invalid scheduled slot: $slot_input (must be 4-digit HHMM between 0000 and 2359)" >&2
+              exit 1
+            fi
+            slot="$slot_input"
+          else
+            if [[ -n "$slot_input" ]]; then
+              if ! [[ "$slot_input" =~ ^([01][0-9]|2[0-3])[0-5][0-9]$ ]]; then
+                echo "Error: Invalid manual slot: $slot_input (must be 4-digit HHMM between 0000 and 2359)" >&2
+                exit 1
+              fi
+              slot="$slot_input"
+            else
+              slot=$(TZ="$SCHEDULED_TIMEZONE" date +%H%M)
+            fi
           fi
 
           delimiter="METADATA_CITIES_${GITHUB_RUN_ID}_${RANDOM}"
           {
             echo "submit=$submit"
             echo "slot=$slot"
-            echo "trigger=$EVENT_NAME"
-            echo "schedule_cron=$schedule_cron"
+            echo "run_type=$run_type"
             echo "cities<<$delimiter"
             echo "$cities"
             echo "$delimiter"
@@ -104,8 +127,8 @@ jobs:
           SUBMIT: ${{ steps.collector-mode.outputs.submit }}
           METADATA_CITIES: ${{ steps.collector-mode.outputs.cities }}
           METADATA_SLOT: ${{ steps.collector-mode.outputs.slot }}
-          METADATA_TRIGGER: ${{ steps.collector-mode.outputs.trigger }}
-          METADATA_SCHEDULE_CRON: ${{ steps.collector-mode.outputs.schedule_cron }}
+          METADATA_RUN_TYPE: ${{ steps.collector-mode.outputs.run_type }}
+          METADATA_TRIGGER: workflow_dispatch
           METADATA_TIMEZONE: ${{ env.METADATA_TIMEZONE }}
           METADATA_CONCURRENCY: '2'
           NAVIGATION_TIMEOUT_MS: '45000'

@@ -1,4 +1,4 @@
-/* SunsetScore V2.4.1 - stable sunset-event identity */
+/* SunsetScore V2.4.2 - stable sunset-event identity */
 (function (root) {
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};

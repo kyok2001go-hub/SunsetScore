@@ -15,8 +15,8 @@ function prediction(city, values = {}) {
     level: '很差',
     queryId: 'qid-' + city,
     predictionTimeUtc: '2026-08-31T04:13:00.000Z',
-    appVersion: '2.4.1',
-    modelVersion: '2.4.1',
+    appVersion: '2.4.2',
+    modelVersion: '2.4.2',
     latitude: 22.54,
     longitude: 114.06,
     ...values
@@ -82,15 +82,16 @@ test('configuration defaults to fourteen cities, clamps concurrency and supports
   assert.equal(defaults.baseUrl, 'https://sunsetscore.pages.dev');
   assert.equal(defaults.slot, '1213');
   assert.equal(defaults.slotLocal, '12:13');
+  assert.equal(defaults.runType, 'manual');
   const subset = collector.readConfig({
     METADATA_CITIES: '深圳，广州,深圳', METADATA_CONCURRENCY: '9', SUBMIT: 'true',
-    METADATA_SLOT: '1613', METADATA_TRIGGER: 'schedule', METADATA_SCHEDULE_CRON: '13 8 * * *'
+    METADATA_SLOT: '1613', METADATA_RUN_TYPE: 'scheduled', METADATA_TRIGGER: 'workflow_dispatch'
   });
   assert.deepEqual(subset.cities, ['深圳', '广州']);
   assert.equal(subset.concurrency, 2);
   assert.equal(subset.submit, true);
-  assert.equal(subset.trigger, 'schedule');
-  assert.equal(subset.scheduleCron, '13 8 * * *');
+  assert.equal(subset.runType, 'scheduled');
+  assert.equal(subset.trigger, 'workflow_dispatch');
   assert.throws(() => collector.readConfig({ METADATA_CITIES: '，,  ', METADATA_SLOT: '1213' }), /valid city/);
 });
 
@@ -100,32 +101,26 @@ test('slot validation and snapshot submission preserve the explicit business slo
   for (const slot of [undefined, '', '123', '12:13', '2360', '1260', 'abcd']) {
     assert.throws(() => collector.validateSlot(slot), /METADATA_SLOT/);
   }
-  assert.deepEqual(collector.snapshotSubmission({ trigger: 'schedule', slot: '1213' }),
+  assert.deepEqual(collector.snapshotSubmission({ runType: 'scheduled', slot: '1213' }),
     { source: 'github_schedule', scheduledSlot: '1213' });
-  assert.deepEqual(collector.snapshotSubmission({ trigger: 'workflow_dispatch', slot: '1613' }),
+  assert.deepEqual(collector.snapshotSubmission({ runType: 'manual', slot: '1613' }),
     { source: 'github_manual', scheduledSlot: '1613' });
+  assert.deepEqual(collector.snapshotSubmission({ slot: '1213' }),
+    { source: 'github_manual', scheduledSlot: '1213' });
 });
 
-test('UTC schedules resolve to the planned business slot in the configured timezone', async () => {
+test('run_type controls snapshot source and validates allowed modes strictly', async () => {
   const collector = await collectorPromise;
-  const reference = new Date('2026-09-01T00:00:00Z');
-  assert.equal(collector.scheduledSlotFromUtcCron('13 4 * * *', 'Asia/Shanghai', reference), '1213');
-  assert.equal(collector.scheduledSlotFromUtcCron('13 8 * * *', 'Asia/Shanghai', reference), '1613');
-  assert.equal(collector.scheduledSlotFromUtcCron('05 23 * * *', 'Asia/Shanghai', reference), '0705');
-  assert.throws(() => collector.scheduledSlotFromUtcCron('13 4,8 * * *', 'Asia/Shanghai', reference),
-    /Unsupported schedule cron/);
-  assert.throws(() => collector.scheduledSlotFromUtcCron('60 4 * * *', 'Asia/Shanghai', reference),
-    /Unsupported schedule time/);
-  assert.throws(() => collector.scheduledSlotFromUtcCron('13 4 * * *', 'Invalid\/Timezone', reference),
-    /Unsupported METADATA_TIMEZONE/);
-
-  const execution = spawnSync(process.execPath,
-    [join(__dirname, '..', 'scripts', 'pre-sunset-metadata.mjs'), '--resolve-scheduled-slot'], {
-      env: { ...process.env, EVENT_SCHEDULE: '13 4 * * *', SCHEDULED_TIMEZONE: 'Asia/Shanghai' },
-      encoding: 'utf8'
-    });
-  assert.equal(execution.status, 0, execution.stderr);
-  assert.equal(execution.stdout.trim(), '1213');
+  assert.equal(collector.validateRunType('scheduled'), 'scheduled');
+  assert.equal(collector.validateRunType('manual'), 'manual');
+  assert.equal(collector.validateRunType('SCHEDULED'), 'scheduled');
+  assert.equal(collector.validateRunType('MANUAL'), 'manual');
+  assert.equal(collector.validateRunType(''), 'manual');
+  assert.equal(collector.validateRunType(undefined), 'manual');
+  assert.equal(collector.validateRunType(null, 'scheduled'), 'scheduled');
+  assert.throws(() => collector.validateRunType('cron'), /METADATA_RUN_TYPE/);
+  assert.throws(() => collector.validateRunType('unknown'), /METADATA_RUN_TYPE/);
+  assert.throws(() => collector.readConfig({ METADATA_SLOT: '1213', METADATA_RUN_TYPE: 'invalid' }), /METADATA_RUN_TYPE/);
 });
 
 test('city count is limited after normalization and deduplication', async () => {
@@ -257,14 +252,14 @@ test('two-worker pool never exceeds concurrency, continues after failure and res
   assert.equal(results[4].status, collector.STATUSES.DRY_RUN);
 });
 
-test('report records trigger, planned slot, requested cities, actual timing and ordered Markdown', async () => {
+test('report records run type, planned slot, requested cities, actual timing and ordered Markdown', async () => {
   const collector = await collectorPromise;
   const results = [
     { requestedCity: '深圳', actualCity: '深圳', score: 68, level: '很好', predictionTimeUtc: '2026-08-31T04:13:00Z', status: 'DRY_RUN' },
     { requestedCity: '广州', actualCity: null, score: null, level: null, predictionTimeUtc: null, status: 'FAILED_PREDICTION' }
   ];
   const report = collector.buildReport({
-    submit: false, trigger: 'schedule', scheduleCron: '13 4 * * *', slot: '1213', slotLocal: '12:13',
+    submit: false, trigger: 'workflow_dispatch', runType: 'scheduled', slot: '1213', slotLocal: '12:13',
     scheduledTimezone: 'Asia/Shanghai', concurrency: 2, cities: ['深圳', '广州']
   },
     Date.parse('2026-08-31T04:13:00Z'), Date.parse('2026-08-31T04:14:00Z'), results,
@@ -272,8 +267,9 @@ test('report records trigger, planned slot, requested cities, actual timing and 
   assert.equal(report.durationMs, 60000);
   assert.equal(report.slot, '1213');
   assert.equal(report.slotLocal, '12:13');
-  assert.equal(report.trigger, 'schedule');
-  assert.equal(report.scheduleCron, '13 4 * * *');
+  assert.equal(report.trigger, 'workflow_dispatch');
+  assert.equal(report.runType, 'scheduled');
+  assert.equal('scheduleCron' in report, false);
   assert.deepEqual(report.requestedCities, ['深圳', '广州']);
   assert.equal(report.workflowRunId, '123');
   const markdown = collector.summaryMarkdown(report);
@@ -291,54 +287,50 @@ test('error summaries redact URLs and common credential names without serializin
   assert.match(message, /\[URL\]|\[REDACTED\]/);
 });
 
-test('workflow accepts configurable UTC schedules and cities while preserving runtime controls', async () => {
-  const collector = await collectorPromise;
+test('workflow enforces Cloudflare cron dispatch inputs without native schedule and CI workflow is standalone', async () => {
   const root = join(__dirname, '..');
   const workflow = readFileSync(join(root, '.github', 'workflows', 'pre-sunset-metadata.yml'), 'utf8');
+  const ciWorkflow = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
 
-  const scheduleCrons = Array.from(
-    workflow.matchAll(/^\s*-\s*cron:\s*(['"]?)([^'"\r\n]+)\1\s*$/gm),
-    (match) => match[2].trim()
-  );
-  const timezoneMatch = workflow.match(/^\s*METADATA_TIMEZONE:\s*(['"])(.*?)\1\s*$/m);
-  const cityMatch = workflow.match(/^\s*DEFAULT_METADATA_CITIES:\s*(['"])(.*?)\1\s*$/m);
-  assert.ok(scheduleCrons.length > 0, 'Workflow must define at least one schedule');
-  assert.equal(new Set(scheduleCrons).size, scheduleCrons.length, 'Workflow schedules must be unique');
-  assert.ok(timezoneMatch, 'Workflow must define METADATA_TIMEZONE');
-  assert.ok(cityMatch, 'Workflow must define DEFAULT_METADATA_CITIES');
-  const slots = scheduleCrons.map((cron) => collector.scheduledSlotFromUtcCron(
-    cron, timezoneMatch[2], new Date('2026-09-01T00:00:00Z')
-  ));
-  assert.equal(new Set(slots).size, slots.length, 'Workflow business slots must be unique');
-  const configuredCities = collector.parseCities(cityMatch[2]);
-  assert.ok(configuredCities.length > 0, 'Workflow must define at least one valid city');
-  assert.ok(configuredCities.length <= collector.MAX_METADATA_CITIES,
-    'Workflow cities must not exceed the collector limit');
-  assert.doesNotMatch(workflow, /^\s+timezone:/m);
-  assert.match(workflow, /timeout-minutes:\s*60/);
-  assert.match(workflow, /SUNSETSCORE_URL:\s*https:\/\/sunsetscore\.pages\.dev/);
-  assert.match(workflow, /METADATA_CONCURRENCY:\s*'2'/);
-  assert.match(workflow, /NAVIGATION_TIMEOUT_MS:\s*'45000'/);
-  assert.match(workflow, /PREDICTION_TIMEOUT_MS:\s*'120000'/);
+  // Ensure no native schedule exists in pre-sunset-metadata.yml
+  assert.doesNotMatch(workflow, /^\s*schedule:\s*$/m, 'Workflow must not define native schedule');
+  assert.doesNotMatch(workflow, /-\s*cron:/, 'Workflow must not contain cron triggers');
+
+  // Verify inputs contract
+  assert.match(workflow, /workflow_dispatch:\s*\n\s*inputs:/);
   assert.match(workflow, /submit:\s*\n\s*description:[\s\S]*?default:\s*false/);
   assert.match(workflow, /cities:\s*\n\s*description:[\s\S]*?default:\s*''/);
-  assert.doesNotMatch(workflow, /city_scope|\n\s+slot:\s*\n\s+description:/);
-  assert.match(workflow, /EVENT_SCHEDULE:\s*\$\{\{ github\.event\.schedule \}\}/);
-  assert.match(workflow, /slot=\$\(node scripts\/pre-sunset-metadata\.mjs --resolve-scheduled-slot\)/);
-  assert.match(workflow, /slot=\$\(TZ="\$SCHEDULED_TIMEZONE" date \+%H%M\)/);
-  assert.match(workflow, /METADATA_CITIES:\s*\$\{\{ steps\.collector-mode\.outputs\.cities \}\}/);
+  assert.match(workflow, /slot:\s*\n\s*description:[\s\S]*?type:\s*string/);
+  assert.match(workflow, /run_type:\s*\n\s*description:[\s\S]*?type:\s*choice[\s\S]*?-\s*manual[\s\S]*?-\s*scheduled/);
+
+  // Verify collector environment and steps
+  assert.doesNotMatch(workflow, /npm run check/, 'Metadata workflow must not execute check');
+  assert.match(workflow, /run:\s*npm ci/);
+  assert.match(workflow, /npx playwright install --with-deps chromium/);
   assert.match(workflow, /METADATA_SLOT:\s*\$\{\{ steps\.collector-mode\.outputs\.slot \}\}/);
-  assert.match(workflow, /METADATA_TRIGGER:\s*\$\{\{ steps\.collector-mode\.outputs\.trigger \}\}/);
-  assert.match(workflow, /METADATA_SCHEDULE_CRON:\s*\$\{\{ steps\.collector-mode\.outputs\.schedule_cron \}\}/);
+  assert.match(workflow, /METADATA_RUN_TYPE:\s*\$\{\{ steps\.collector-mode\.outputs\.run_type \}\}/);
+  assert.match(workflow, /METADATA_CITIES:\s*\$\{\{ steps\.collector-mode\.outputs\.cities \}\}/);
+  assert.match(workflow, /METADATA_TIMEZONE:\s*\$\{\{ env\.METADATA_TIMEZONE \}\}/);
+  assert.match(workflow, /SUNSETSCORE_URL:\s*https:\/\/sunsetscore\.pages\.dev/);
+  assert.match(workflow, /timeout-minutes:\s*60/);
   assert.match(workflow, /actions\/checkout@v6/);
   assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
+
+  // Verify standalone CI workflow
+  assert.match(ciWorkflow, /^\s*push:\s*$/m);
+  assert.match(ciWorkflow, /pull_request:/);
+  assert.match(ciWorkflow, /workflow_dispatch:/);
+  assert.match(ciWorkflow, /run:\s*npm ci/);
+  assert.match(ciWorkflow, /run:\s*npm run check/);
+
+  // Verify package versions
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.4.1');
-  assert.equal(lock.version, '2.4.1');
-  assert.equal(lock.packages[''].version, '2.4.1');
+  assert.equal(packageJson.version, '2.4.2');
+  assert.equal(lock.version, '2.4.2');
+  assert.equal(lock.packages[''].version, '2.4.2');
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });

@@ -28,8 +28,12 @@ function prediction(overrides = {}) {
 
 test('browser event service uses provider identity, not display city aliases', async () => {
   const SS = load(createRuntime(), FILES);
-  const first = await SS.eventService.context(prediction());
-  const alias = await SS.eventService.context(prediction({ city: 'Shenzhen', location_id: '101280601' }));
+  const fixedPrediction = prediction({
+    sunset_time_utc: '2026-09-03T10:39:00.000Z',
+    date: '2026-09-03'
+  });
+  const first = await SS.eventService.context(fixedPrediction);
+  const alias = await SS.eventService.context({ ...fixedPrediction, city: 'Shenzhen', location_id: '101280601' });
   const server = await import('../server/event-dataset.js');
   const verified = await server.normalizeEventContext(first);
   assert.equal(first.location_key, 'qweather:101280601');

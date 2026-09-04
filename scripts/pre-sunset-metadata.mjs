@@ -59,46 +59,17 @@ export function validateSlot(value) {
   return slot;
 }
 
-export function scheduledSlotFromUtcCron(value, timeZone = 'Asia/Shanghai', referenceDate = new Date()) {
-  const cron = String(value || '').trim();
-  const match = cron.match(/^([0-9]{1,2})\s+([0-9]{1,2})\s+\*\s+\*\s+\*$/);
-  if (!match) throw new Error('Unsupported schedule cron: ' + cron);
-
-  const minute = Number(match[1]);
-  const hour = Number(match[2]);
-  if (!Number.isInteger(minute) || minute < 0 || minute > 59 ||
-      !Number.isInteger(hour) || hour < 0 || hour > 23) {
-    throw new Error('Unsupported schedule time: ' + cron);
-  }
-
-  const zone = String(timeZone || '').trim();
-  if (!zone) throw new Error('METADATA_TIMEZONE must not be empty');
-  const date = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
-  if (!Number.isFinite(date.getTime())) throw new Error('Invalid schedule reference date');
-  const scheduledUtc = new Date(Date.UTC(
-    date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hour, minute, 0, 0
-  ));
-
-  let parts;
-  try {
-    parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: zone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23'
-    }).formatToParts(scheduledUtc);
-  } catch {
-    throw new Error('Unsupported METADATA_TIMEZONE: ' + zone);
-  }
-  const localHour = parts.find((part) => part.type === 'hour');
-  const localMinute = parts.find((part) => part.type === 'minute');
-  if (!localHour || !localMinute) throw new Error('Unable to resolve scheduled SLOT');
-  return localHour.value.padStart(2, '0') + localMinute.value.padStart(2, '0');
+export function validateRunType(value, fallback = 'manual') {
+  const raw = String(value == null ? '' : value).trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === 'manual' || raw === 'scheduled') return raw;
+  throw new Error('METADATA_RUN_TYPE must be manual or scheduled');
 }
 
 export function snapshotSubmission(config) {
+  const runType = validateRunType(config && config.runType);
   return {
-    source: config && config.trigger === 'schedule' ? 'github_schedule' : 'github_manual',
+    source: runType === 'scheduled' ? 'github_schedule' : 'github_manual',
     scheduledSlot: validateSlot(config && config.slot)
   };
 }
@@ -316,6 +287,7 @@ export function readConfig(env = process.env) {
   const slot = validateSlot(env.METADATA_SLOT);
   const scheduledTimezone = String(env.METADATA_TIMEZONE || 'Asia/Shanghai').trim();
   if (!scheduledTimezone) throw new Error('METADATA_TIMEZONE must not be empty');
+  const runType = validateRunType(env.METADATA_RUN_TYPE);
   return {
     baseUrl: baseUrl.href.replace(/\/$/, ''),
     cities,
@@ -324,8 +296,8 @@ export function readConfig(env = process.env) {
     predictionTimeoutMs: boundedInteger(env.PREDICTION_TIMEOUT_MS, 120000, 1000, 180000),
     navigationTimeoutMs: boundedInteger(env.NAVIGATION_TIMEOUT_MS, 45000, 1000, 120000),
     artifactsDir: path.resolve(String(env.ARTIFACTS_DIR || 'artifacts')),
-    trigger: String(env.METADATA_TRIGGER || env.GITHUB_EVENT_NAME || 'local').trim() || 'local',
-    scheduleCron: String(env.METADATA_SCHEDULE_CRON || '').trim() || null,
+    trigger: String(env.METADATA_TRIGGER || env.GITHUB_EVENT_NAME || 'workflow_dispatch').trim() || 'workflow_dispatch',
+    runType,
     slot,
     slotLocal: slot.slice(0, 2) + ':' + slot.slice(2),
     scheduledTimezone
@@ -430,7 +402,7 @@ export function buildReport(config, startedAtMs, finishedAtMs, results, env = pr
     workflowSha: env.GITHUB_SHA || null,
     mode: config.submit ? 'SUBMIT' : 'DRY_RUN',
     trigger: config.trigger || null,
-    scheduleCron: config.scheduleCron || null,
+    runType: config.runType || 'manual',
     slot: config.slot,
     slotLocal: config.slotLocal,
     scheduledTimezone: config.scheduledTimezone,
@@ -452,7 +424,7 @@ export function summaryMarkdown(report) {
     '# SunsetScore Pre-Sunset Metadata', '',
     '- Mode: **' + report.mode + '**',
     '- Trigger: **' + markdown(report.trigger) + '**',
-    '- Schedule: **' + markdown(report.scheduleCron) + '**',
+    '- Run type: **' + markdown(report.runType) + '**',
     '- Slot: **' + report.slotLocal + ' ' + report.scheduledTimezone + '**',
     '- Requested cities: **' + report.requestedCities.length + '**',
     '- Actual start: **' + report.startedAtUtc + '**',
@@ -490,6 +462,7 @@ export async function main(env = process.env) {
   console.log('SunsetScore Pre-Sunset Metadata');
   console.log('Mode:', config.submit ? 'SUBMIT' : 'DRY RUN');
   console.log('Trigger:', config.trigger);
+  console.log('Run Type:', config.runType);
   console.log('Slot:', config.slot, config.scheduledTimezone);
   console.log('Cities:', config.cities.join(', '));
   console.log('Concurrency:', config.concurrency);
@@ -540,16 +513,7 @@ export async function main(env = process.env) {
 
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 if (isMain) {
-  const command = process.argv[2];
-  const operation = command === '--resolve-scheduled-slot'
-    ? Promise.resolve().then(() => {
-      process.stdout.write(scheduledSlotFromUtcCron(
-        process.env.EVENT_SCHEDULE,
-        process.env.SCHEDULED_TIMEZONE || process.env.METADATA_TIMEZONE || 'Asia/Shanghai'
-      ) + '\n');
-    })
-    : main();
-  operation.catch((error) => {
+  main().catch((error) => {
     console.error(safeErrorMessage(error));
     process.exitCode = 1;
   });
