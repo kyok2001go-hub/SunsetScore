@@ -328,9 +328,9 @@ test('workflow enforces Cloudflare cron dispatch inputs without native schedule 
 
   // Verify package versions
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.4.2');
-  assert.equal(lock.version, '2.4.2');
-  assert.equal(lock.packages[''].version, '2.4.2');
+  assert.equal(packageJson.version, '2.4.3');
+  assert.equal(lock.version, '2.4.3');
+  assert.equal(lock.packages[''].version, '2.4.3');
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });

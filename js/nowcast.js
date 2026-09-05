@@ -83,7 +83,10 @@
   function fetchQWeatherMinutePrecip(lat, lon, options) {
     var qw = SS.modelConfig.nowcast.qweather;
     var url = qw.endpoint + '?lat=' + encodeURIComponent(lat.toFixed(4)) + '&lon=' + encodeURIComponent(lon.toFixed(4));
-    return fetchJson(url, Object.assign({}, options, { init: { cache: 'no-cache' } })).then(function (json) {
+    return fetchJson(url, Object.assign({}, options, {
+      timeoutMs: SS.modelConfig.network.minutePrecipTimeoutMs,
+      init: { cache: 'no-cache' }
+    })).then(function (json) {
       /* 注意：QWeather 业务错误也返回 HTTP 200，需检查业务状态码 */
       if (!json || String(json.code) !== '200') {
         var code = json && json.code != null && /^[a-zA-Z0-9_.-]{1,40}$/.test(String(json.code)) ? String(json.code) : null;
@@ -111,7 +114,9 @@
     var url = SS.modelConfig.api.forecast +
       '?latitude=' + lat.toFixed(4) + '&longitude=' + lon.toFixed(4) +
       '&minutely_15=precipitation&forecast_minutely_15=120&timezone=auto';
-    return fetchJson(url, options).then(function (json) {
+    return fetchJson(url, Object.assign({}, options, {
+      timeoutMs: SS.modelConfig.network.minutePrecipTimeoutMs
+    })).then(function (json) {
       var m15 = json && json.minutely_15;
       if (!m15 || !Array.isArray(m15.time) || !Array.isArray(m15.precipitation) || m15.time.length < 8) {
         throw precipError('PrecipDataError', 'Open-Meteo 分钟序列缺失或不足8条');
@@ -328,10 +333,11 @@
     }
     var entry, observedQWeather = null;
     try {
-      var series = await SS.network.run(function (signal) {
-        return SS.nowcast.fetchMinutePrecip(ctx.lat, ctx.lon, { signal: signal, nowUtcMs: nowMs,
-          onQWeatherStatus: function (state) { observedQWeather = state; } });
-      }, { signal: options.signal, timeoutMs: SS.modelConfig.network.sourceTimeoutMs });
+      var series = await SS.nowcast.fetchMinutePrecip(ctx.lat, ctx.lon, {
+        signal: options.signal,
+        nowUtcMs: nowMs,
+        onQWeatherStatus: function (state) { observedQWeather = state; }
+      });
       var analysis = analyzePrecip(series, nowMs);
       entry = {
         series: analysis ? series : null, status: analysis ? 'OK' : 'NO_DATA',
@@ -742,9 +748,12 @@
         var key = SS.cacheKeys.nowcast(type, ctx.dateStr, ctx.lat, ctx.lon);
         var fresh = SS.cache.get(key);
         if (fresh) return Promise.resolve(fresh);
+        var sourceTimeoutMs = type === 'radar'
+          ? SS.modelConfig.network.radarSourceTimeoutMs
+          : SS.modelConfig.network.satelliteSourceTimeoutMs;
         return SS.network.run(function (signal) {
           return fetcher({ signal: signal });
-        }, { signal: options.signal, timeoutMs: SS.modelConfig.network.sourceTimeoutMs }).then(function (v) {
+        }, { signal: options.signal, timeoutMs: sourceTimeoutMs }).then(function (v) {
           SS.network.throwIfAborted(options.signal);
           if (v) SS.cache.set(key, v, ttl[type]);
           return v;

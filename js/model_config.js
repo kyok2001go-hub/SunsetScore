@@ -27,6 +27,17 @@
       satellite: cfg.nowcast.satellite.enabled,
       goldenWindow: cfg.goldenWindow,
       sampling: cfg.sampling.enabled,
+      batchRetry: cfg.sampling.batchRetry,
+      networkPolicy: {
+        localForecastTimeoutMs: cfg.network.localForecastTimeoutMs,
+        spatialBatchTimeoutMs: cfg.network.spatialBatchTimeoutMs,
+        airQualityTimeoutMs: cfg.network.airQualityTimeoutMs,
+        minutePrecipTimeoutMs: cfg.network.minutePrecipTimeoutMs,
+        observationTimeoutMs: cfg.network.observationTimeoutMs,
+        tileTimeoutMs: cfg.network.tileTimeoutMs,
+        radarSourceTimeoutMs: cfg.network.radarSourceTimeoutMs,
+        satelliteSourceTimeoutMs: cfg.network.satelliteSourceTimeoutMs
+      },
       levels: cfg.levels
     });
   };

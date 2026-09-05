@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3 - 无 UI 依赖的预测业务编排层
+ * SunsetScore V2.4.3 - 无 UI 依赖的预测业务编排层
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -7,6 +7,37 @@
 
   function progress(options, message) {
     if (options && typeof options.onProgress === 'function') options.onProgress(message);
+  }
+
+  function clockMs() {
+    return root.performance && typeof root.performance.now === 'function' ? root.performance.now() : Date.now();
+  }
+
+  function elapsedMs(start) {
+    return Math.max(0, Math.round(clockMs() - start));
+  }
+
+  function createTiming() {
+    return {
+      geocode_ms: null,
+      local_forecast_ms: null,
+      cache_check_ms: null,
+      air_quality_ms: null,
+      minute_precip_ms: null,
+      spatial_batch_ms: null,
+      compute_ms: null,
+      nowcast_ms: null,
+      total_ms: null
+    };
+  }
+
+  async function timed(timing, key, operation) {
+    var startedAt = clockMs();
+    try {
+      return await operation();
+    } finally {
+      timing[key] = elapsedMs(startedAt);
+    }
   }
 
   function parseCoordinates(text) {
@@ -66,6 +97,46 @@
       sunsetAzimuthDeg: value.sunsetAzimuthDeg,
       twilightMinutes: value.twilightMinutes
     };
+  }
+
+  function resultCacheKey(query, location, localDate) {
+    return query.toLowerCase().replace(/\s+/g, '_') + '_' +
+      SS.cacheKeys.resultLocation(location) + '_' + localDate;
+  }
+
+  function cachedLocationMatches(cached, location) {
+    var cachedSource = cached.location_source || 'coordinates';
+    var cachedId = cached.location_id == null ? 'coordinates' : String(cached.location_id);
+    var source = location.source || 'coordinates';
+    var id = location.id == null ? 'coordinates' : String(location.id);
+    return cachedSource === source && cachedId === id &&
+      Number.isFinite(cached.latitude) && Number.isFinite(cached.longitude) &&
+      SS.cacheKeys.coord(cached.latitude, cached.longitude) === SS.cacheKeys.coord(location.latitude, location.longitude);
+  }
+
+  function readEarlyResultCache(location, nowUtcMs) {
+    var locationKey = SS.cacheKeys.resultLocation(location);
+    var indexKey = SS.cacheKeys.resultIndex(location);
+    var index = SS.cache.get(indexKey);
+    if (!index || index.locationKey !== locationKey || typeof index.resultKey !== 'string') return null;
+    var cached = SS.cache.get(index.resultKey);
+    if (!cached) {
+      SS.cache.remove(indexKey);
+      return null;
+    }
+    if (cached.app_version !== SS.version.app || cached.model_version !== SS.version.model ||
+        cached.runtime_config_key !== SS.modelConfigKey() || !cachedLocationMatches(cached, location) ||
+        typeof cached.timezone !== 'string' || !cached.timezone || cached.timezone === 'auto') return null;
+    var localDate;
+    try { localDate = SS.time.formatDate(nowUtcMs, cached.timezone); } catch (error) { return null; }
+    if (cached.date !== localDate) return null;
+    var sunsetUtcMs = Date.parse(cached.sunset_time_utc);
+    if (!Number.isFinite(sunsetUtcMs) ||
+        (cached.minute_refresh_at_ms && Date.now() >= cached.minute_refresh_at_ms) ||
+        (cached.minute_coverage_end_ms && nowUtcMs >= cached.minute_coverage_end_ms)) return null;
+    var time = { minutesToSunset: (sunsetUtcMs - nowUtcMs) / 60000 };
+    if (cached.nowcast_active !== SS.evolution.isGoldenWindowActive({ time: time })) return null;
+    return cached;
   }
 
   async function gatherSpatial(nodes, localForecast, cacheKey, ttlMinutes, options) {
@@ -203,7 +274,7 @@
     return result;
   }
 
-  async function applySunsetEvolution(result, context, options) {
+  async function applySunsetEvolution(result, context, options, timing) {
     var factor = SS.domain.clamp(result.sky_evolution_factor, 0.65, 1.15, 1);
     result.base_score = result.score;
     if (!SS.evolution.isGoldenWindowActive(context)) {
@@ -228,9 +299,14 @@
     // Reuse this query's prefetch, including failure diagnostics; do not request twice.
     nowcastContext.precipResult = context.nowcast.precipResult;
     var fusion = null;
-    try { fusion = await SS.nowcast.run(nowcastContext, options); } catch (error) {
-      SS.network.throwIfAborted(options && options.signal);
-      fusion = null;
+    var nowcastStartedAt = clockMs();
+    try {
+      try { fusion = await SS.nowcast.run(nowcastContext, options); } catch (error) {
+        SS.network.throwIfAborted(options && options.signal);
+        fusion = null;
+      }
+    } finally {
+      timing.nowcast_ms = elapsedMs(nowcastStartedAt);
     }
     if (fusion) {
       fusion.goldenWindow = SS.evolution.constrainGoldenWindow(fusion.goldenWindow,
@@ -267,6 +343,8 @@
   }
 
   async function predict(query, options) {
+    var totalStartedAt = clockMs();
+    var timing = createTiming();
     var normalizedQuery = String(query || '').trim();
     if (!normalizedQuery) throw new Error('请输入城市或经纬度');
     options = options || {};
@@ -275,22 +353,40 @@
     progress(options, '正在解析地理位置…');
 
     // Candidate selection is already resolved: never geocode its name a second time.
-    var location = options.location ? SS.citySearch.toLocation(options.location) : parseCoordinates(normalizedQuery);
-    if (options.location && !location) throw new Error('城市候选无效，请重新选择');
-    if (!location) {
-      // Share the candidate cache; a separate seven-day first-hit cache could
-      // disagree with the current dropdown or resurrect a bad historical match.
-      location = await SS.data.geocode(normalizedQuery, options);
+    var location = await timed(timing, 'geocode_ms', async function () {
+      var resolved = options.location ? SS.citySearch.toLocation(options.location) : parseCoordinates(normalizedQuery);
+      if (options.location && !resolved) throw new Error('城市候选无效，请重新选择');
+      if (!resolved) {
+        // Share the candidate cache; a separate seven-day first-hit cache could
+        // disagree with the current dropdown or resurrect a bad historical match.
+        resolved = await SS.data.geocode(normalizedQuery, options);
+      }
+      return resolved;
+    });
+
+    var cacheStartedAt = clockMs();
+    var earlyCachedResult;
+    try { earlyCachedResult = readEarlyResultCache(location, nowUtcMs); }
+    finally { timing.cache_check_ms = elapsedMs(cacheStartedAt); }
+    if (earlyCachedResult) {
+      timing.total_ms = elapsedMs(totalStartedAt);
+      return Object.assign({}, earlyCachedResult, {
+        result_cache_status: 'HIT',
+        performance_timing: timing
+      });
     }
 
     progress(options, '正在获取本地天气与时区…');
     var roughDate = SS.time.formatDate(nowUtcMs, location.timezone || 'UTC');
-    var forecastResult = await fetchWithCache(
-      SS.cacheKeys.forecast(roughDate, location.latitude, location.longitude),
-      SS.modelConfig.cache.ttlForecastMinutes,
-      SS.modelConfig.cache.staleMaxAgeHours,
-      function () { return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500, options); }, options
-    );
+    var localOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.localForecastTimeoutMs });
+    var forecastResult = await timed(timing, 'local_forecast_ms', function () {
+      return fetchWithCache(
+        SS.cacheKeys.forecast(roughDate, location.latitude, location.longitude),
+        SS.modelConfig.cache.ttlForecastMinutes,
+        SS.modelConfig.cache.staleMaxAgeHours,
+        function () { return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500, localOptions); }, localOptions
+      );
+    });
     var localForecast = forecastResult.value;
     var offsetSeconds = localForecast.utc_offset_seconds || 0;
     var timezone = SS.time.normalizeTimezone(localForecast.timezone || location.timezone, 'UTC');
@@ -319,34 +415,47 @@
       sunsetLocalText: SS.time.formatLocal(solar.sunset, timezone, false),
       minutesToSunset: (solar.sunset.valueOf() - nowUtcMs) / 60000
     };
-    // Homonymous cities must not share an entire prediction (even with the same query).
-    var resultCacheKey = normalizedQuery.toLowerCase().replace(/\s+/g, '_') + '_' +
-      (location.source || 'coordinates') + '_' + (location.id || 'coordinates') + '_' + SS.cacheKeys.coord(location.latitude, location.longitude) + '_' + localDate;
-    var cachedResult = SS.cache.get(resultCacheKey);
-    // A fresh TTL alone is insufficient when the query crosses the golden-window gate.
-    if (cachedResult && cachedResult.app_version === SS.version.app &&
-        cachedResult.model_version === SS.version.model &&
-        cachedResult.runtime_config_key === SS.modelConfigKey() &&
-        (!cachedResult.minute_refresh_at_ms || Date.now() < cachedResult.minute_refresh_at_ms) &&
-        (!cachedResult.minute_coverage_end_ms || nowUtcMs < cachedResult.minute_coverage_end_ms) &&
-        cachedResult.nowcast_active === SS.evolution.isGoldenWindowActive({ time: time })) {
-      return Object.assign({}, cachedResult, { result_cache_status: 'HIT' });
-    }
+    // Homonymous cities and geocoding sources keep independent full-result keys and indices.
+    var cacheKey = resultCacheKey(normalizedQuery, location, localDate);
 
-    progress(options, '正在获取空气质量…');
-    var airQuality = null;
-    try {
-      var airResult = await fetchWithCache(
+    var localShiftedSunset = SS.time.toLocalShifted(solar.sunset, offsetSeconds);
+    var regime = SS.sampling.estimateLocalRegime({
+      localForecast: localForecast,
+      utcOffsetSeconds: offsetSeconds,
+      nowUtc: new Date(nowUtcMs),
+      sunsetLocal: localShiftedSunset
+    });
+    var mode = SS.modelConfig.sampling.enabled ? SS.sampling.decideSamplingMode(regime) : 'FULL';
+    var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
+      time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
+    var batchAttempts = 0;
+    var airOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.airQualityTimeoutMs });
+    var spatialOptions = Object.assign({}, options, {
+      timeoutMs: SS.modelConfig.network.spatialBatchTimeoutMs,
+      onBatchAttempt: function () { batchAttempts++; }
+    });
+
+    progress(options, '正在并行获取空气质量、分钟降水与全天空云场…');
+    var airPromise = timed(timing, 'air_quality_ms', function () {
+      return fetchWithCache(
         SS.cacheKeys.air(localDate, location.latitude, location.longitude),
         SS.modelConfig.cache.ttlAirQualityMinutes,
         SS.modelConfig.cache.staleMaxAgeHours,
-        function () { return SS.data.fetchAirQuality(location.latitude, location.longitude, options); }, options
+        function () { return SS.data.fetchAirQuality(location.latitude, location.longitude, airOptions); }, airOptions
       );
-      airQuality = airResult.value;
-    } catch (error) {
-      SS.network.throwIfAborted(options && options.signal);
-      airQuality = null;
-    }
+    });
+    var precipPromise = fetchNowcast
+      ? timed(timing, 'minute_precip_ms', function () { return minutePrecip(location, localDate, nowUtcMs, options); })
+      : Promise.resolve(null);
+    var spatialPromise = timed(timing, 'spatial_batch_ms', function () {
+      return gatherSky(mode, location, solar, localForecast, localDate, ttlMinutes, spatialOptions);
+    });
+    var settled = await Promise.allSettled([airPromise, precipPromise, spatialPromise]);
+    SS.network.throwIfAborted(options.signal);
+    var airQuality = settled[0].status === 'fulfilled' ? settled[0].value.value : null;
+    var precipResult = settled[1].status === 'fulfilled' ? settled[1].value : null;
+    if (settled[2].status === 'rejected') throw settled[2].reason;
+    var spatial = settled[2].value;
 
     var context = SS.domain.createPredictionContext({
       query: normalizedQuery,
@@ -358,23 +467,10 @@
       weather: { localForecast: localForecast, utcOffsetSeconds: offsetSeconds },
       airQuality: airQuality
     });
-
-    var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
-      time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
-    context.nowcast.precipResult = fetchNowcast ? await minutePrecip(location, localDate, nowUtcMs, options) : null;
+    context.nowcast.precipResult = precipResult;
     context.nowcast.minutePrecip = context.nowcast.precipResult ? context.nowcast.precipResult.analysis : null;
 
-    var localShiftedSunset = SS.time.toLocalShifted(solar.sunset, offsetSeconds);
-    var regime = SS.sampling.estimateLocalRegime({
-      localForecast: localForecast,
-      utcOffsetSeconds: offsetSeconds,
-      nowUtc: new Date(nowUtcMs),
-      sunsetLocal: localShiftedSunset
-    });
-    var mode = SS.modelConfig.sampling.enabled ? SS.sampling.decideSamplingMode(regime) : 'FULL';
-    progress(options, '正在获取全天空 360° 云场与风场动力学…');
-    var spatial = await gatherSky(mode, location, solar, localForecast, localDate, ttlMinutes, options);
-
+    var computeStartedAt = clockMs();
     context.sky.currentField = SS.cloudField.buildCloudField(spatial.skySamples, nowUtcMs);
     context.sky.sunsetField = SS.cloudField.buildCloudField(spatial.skySamples, solar.sunset);
     context.wind.motionForecast = SS.cloudMotion.forecast({
@@ -420,14 +516,31 @@
     result.latitude = location.latitude;
     result.longitude = location.longitude;
     addDisplayFields(result, context);
-    result = await applySunsetEvolution(result, context, options);
+    result = await applySunsetEvolution(result, context, options, timing);
+    timing.compute_ms = Math.max(0, elapsedMs(computeStartedAt) - (timing.nowcast_ms || 0));
     SS.domain.assertPredictionResult(result);
     SS.network.throwIfAborted(options.signal);
     result.runtime_config_key = SS.modelConfigKey();
     result.minute_refresh_at_ms = context.nowcast.precipResult ? context.nowcast.precipResult.refreshAtMs : null;
     result.minute_coverage_end_ms = context.nowcast.minutePrecip ? context.nowcast.minutePrecip.coverageEndMs : null;
     result.result_cache_status = 'MISS';
-    SS.cache.set(resultCacheKey, result);
+    result.spatial_cache_status = spatial.cacheStatus;
+    result.spatial_final_mode = spatial.finalMode;
+    result.batch_attempts = batchAttempts;
+    var sourceStatus = result.nowcast && result.nowcast.sourcesStatus;
+    var qweather = sourceStatus && sourceStatus.qweather
+      ? sourceStatus.qweather
+      : (precipResult && precipResult.qweather ? precipResult.qweather : null);
+    result.qweather_status = qweather ? qweather.status : (fetchNowcast ? 'UNKNOWN' : 'NOT_REQUESTED');
+    result.radar_status = sourceStatus && sourceStatus.radar ? sourceStatus.radar.status : 'NOT_REQUESTED';
+    result.satellite_status = sourceStatus && sourceStatus.satellite ? sourceStatus.satellite.status : 'NOT_REQUESTED';
+    timing.total_ms = elapsedMs(totalStartedAt);
+    result.performance_timing = timing;
+    SS.cache.set(cacheKey, result);
+    SS.cache.set(SS.cacheKeys.resultIndex(location), {
+      locationKey: SS.cacheKeys.resultLocation(location),
+      resultKey: cacheKey
+    });
     return result;
   }
 

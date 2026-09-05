@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.4.2 - 当前生产参数配置
+ * SunsetScore V2.4.3 - 当前生产参数配置
  * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
  * ============================================================ */
 (function (root) {
@@ -7,10 +7,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.4.2',
-    model: '2.4.2',
+    app: '2.4.3',
+    model: '2.4.3',
     schema: 3,
-    assetRevision: 'cron1',
+    assetRevision: 'perf1',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 1
@@ -193,8 +193,8 @@
       nodeWeights: { local: 1.0, corridor: 0.9, bank: 0.6 },
       /* LOCAL_ONLY 直判（方案 8.3 节）：浓厚阴天时空间采样价值低 */
       localOnly: { cloudCoverMin: 90, visibilityMaxKm: 5, precipitationMinMm: 0.3 },
-      /* 批量请求失败：指数退避重试（方案 14.1 节） */
-      batchRetry: { maxAttempts: 2, baseDelayMs: 1500, backoffFactor: 2 }
+      /* 批量请求失败：总计两次尝试，固定短退避降低长尾。 */
+      batchRetry: { totalAttempts: 2, baseDelayMs: 800 }
     },
 
     /* ---------- 缓存策略（方案 10-11、15 章） ---------- */
@@ -356,7 +356,19 @@
     },
 
     /* 每次网络操作包含响应体读取；查询取消会中止重试和后续降级请求。 */
-    network: { queryTimeoutMs: 90000, sourceTimeoutMs: 30000, requestTimeoutMs: 15000, observationTimeoutMs: 10000, tileTimeoutMs: 8000, feedbackTimeoutMs: 15000 },
+    network: {
+      queryTimeoutMs: 90000,
+      requestTimeoutMs: 15000,
+      localForecastTimeoutMs: 10000,
+      spatialBatchTimeoutMs: 10000,
+      airQualityTimeoutMs: 5000,
+      minutePrecipTimeoutMs: 5000,
+      observationTimeoutMs: 5000,
+      tileTimeoutMs: 6000,
+      radarSourceTimeoutMs: 10000,
+      satelliteSourceTimeoutMs: 10000,
+      feedbackTimeoutMs: 15000
+    },
     /* 检索策略，不参与天气评分。PPL没有城市/村庄细分，人口门槛仅用于候选筛选。 */
     citySearch: { debounceMs: 300, resultLimit: 8, requestCount: 50, cacheMinutes: 5, maxCacheEntries: 30, minTownPopulation: 10000 },
 

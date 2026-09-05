@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.3 - 调试视图
+ * SunsetScore V2.4.3 - 调试视图
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -19,6 +19,15 @@
       versions: { app: result.app_version, model: result.model_version, schema: result.schema_version },
       sampling: result.sampling_mode,
       cache: { result: result.result_cache_status || 'MISS', spatial: result.cache_status },
+      performance_timing: result.performance_timing || null,
+      pipeline_status: {
+        spatial_cache: result.spatial_cache_status,
+        spatial_final_mode: result.spatial_final_mode,
+        batch_attempts: result.batch_attempts,
+        qweather: result.qweather_status,
+        radar: result.radar_status,
+        satellite: result.satellite_status
+      },
       score: result.score,
       components: result.components,
       distance_diagnostics: {

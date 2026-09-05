@@ -21,17 +21,21 @@
     });
   }
 
-  /* V1.8 指数退避重试（方案 14.1 节）：针对 429 / 网络错误 */
-  function fetchBatchForecastWithRetry(nodes, options) {
+  /* V2.4.3：totalAttempts 表示总请求次数，失败两次后立即交给上层降级。 */
+  async function fetchBatchForecastWithRetry(nodes, options) {
     var rc = SS.modelConfig.sampling.batchRetry;
-    function attempt(n, delayMs) {
-      return SS.data.fetchBatchForecast(nodes, options).catch(function (err) {
+    for (var attempt = 1; attempt <= rc.totalAttempts; attempt++) {
+      SS.network.throwIfAborted(options && options.signal);
+      if (options && typeof options.onBatchAttempt === 'function') options.onBatchAttempt(attempt);
+      try {
+        return await SS.data.fetchBatchForecast(nodes, options);
+      } catch (error) {
         SS.network.throwIfAborted(options && options.signal);
-        if (n >= rc.maxAttempts) throw err;
-        return SS.network.sleep(delayMs, options).then(function () { return attempt(n + 1, delayMs * rc.backoffFactor); });
-      });
+        if (attempt >= rc.totalAttempts) throw error;
+        await SS.network.sleep(rc.baseDelayMs, options);
+      }
     }
-    return attempt(0, rc.baseDelayMs);
+    throw new Error('批量天气请求未执行');
   }
 
   /* 已知起点、方位角、距离，求目标点经纬度 */

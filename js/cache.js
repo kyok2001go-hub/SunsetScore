@@ -126,7 +126,14 @@
     nowcast: function (type, date, lat, lon) { return 'nowcast_' + type + '_' + date + '_' + SS.cacheKeys.coord(lat, lon) +
         (type === 'precip' ? '_qw_' + SS.config.nowcast.qweather.enabled : ''); },
     /* V2.1 全天空 360° 云场缓存 */
-    cloudField: function (date, lat, lon) { return 'cloudfield_' + date + '_' + SS.cacheKeys.coord(lat, lon); }
+    cloudField: function (date, lat, lon) { return 'cloudfield_' + date + '_' + SS.cacheKeys.coord(lat, lon); },
+    /* V2.4.3：不依赖当地日期，用于在 Forecast 之前定位该地点最新完整结果。 */
+    resultLocation: function (location) {
+      var source = location && location.source ? String(location.source) : 'coordinates';
+      var id = location && location.id != null ? String(location.id) : 'coordinates';
+      return source + '_' + id + '_' + SS.cacheKeys.coord(location.latitude, location.longitude);
+    },
+    resultIndex: function (location) { return 'result_index_' + SS.cacheKeys.resultLocation(location); }
   };
 
   SS.cache = {

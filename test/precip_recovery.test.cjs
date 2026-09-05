@@ -164,8 +164,7 @@ test('both-source failure retains the original QWeather cause and retries after 
 test('source deadline during fallback retains the already-observed QWeather HTTP error', async () => {
   const { SS, ctx } = runtime(async url => url.startsWith('/api/qweather')
     ? new Response('502', { status: 502 }) : new Promise(() => {}));
-  SS.config.network.sourceTimeoutMs = 25;
-  SS.config.network.observationTimeoutMs = 1000;
+  SS.config.network.minutePrecipTimeoutMs = 25;
   const result = await SS.nowcast.run(ctx());
   assert.equal(result.sourcesStatus.precip.status, 'TIMEOUT');
   assert.equal(result.sourcesStatus.qweather.status, 'HTTP_ERROR');
@@ -174,7 +173,7 @@ test('source deadline during fallback retains the already-observed QWeather HTTP
 
 test('a genuine QWeather request deadline falls back with a TIMEOUT diagnostic', async () => {
   const { SS, ctx } = runtime(async url => url.startsWith('/api/qweather') ? new Promise(() => {}) : omResponse());
-  SS.config.network.observationTimeoutMs = 25;
+  SS.config.network.minutePrecipTimeoutMs = 25;
   const result = await SS.nowcast.run(ctx());
   assert.equal(result.detail.precip.source, 'openmeteo');
   assert.equal(result.sourcesStatus.qweather.status, 'TIMEOUT');

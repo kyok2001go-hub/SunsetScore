@@ -32,15 +32,33 @@ test('prediction service runs without DOM and returns a valid V2.4 result', asyn
     nowUtcMs: Date.parse('2026-08-26T02:00:00Z')
   });
 
-  assert.equal(result.model_version, '2.4.2');
+  assert.equal(result.model_version, '2.4.3');
+  assert.equal(result.score, 80);
+  assert.equal(result.level, '很好');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.components)), {
+    sky_canvas: 82, horizon: 82, illumination: 67, atmosphere: 93, weather: 70
+  });
   assert.match(result.sunset_time_utc, /^2026-08-26T/);
   assert.equal(result.timezone, 'Asia/Shanghai');
   assert.equal(result.utc_offset_seconds, 28800);
   assert.ok(Number.isFinite(result.score));
   assert.ok(result.score >= 0 && result.score <= 100);
   assert.equal(result.cloud_field.schemaVersion, 1);
+  assert.equal(result.spatial_cache_status, 'MISS');
+  assert.equal(result.spatial_final_mode, 'FULL_SKY_33');
+  assert.equal(result.batch_attempts, 0);
+  assert.equal(result.result_cache_status, 'MISS');
+  assert.deepEqual(Object.keys(result.performance_timing).sort(), [
+    'air_quality_ms', 'cache_check_ms', 'compute_ms', 'geocode_ms', 'local_forecast_ms',
+    'minute_precip_ms', 'nowcast_ms', 'spatial_batch_ms', 'total_ms'
+  ]);
+  assert.equal(result.performance_timing.minute_precip_ms, null);
+  assert.equal(result.performance_timing.nowcast_ms, null);
+  assert.ok(result.performance_timing.total_ms >= 0);
   assert.deepEqual(Object.keys(result.cloud_motion.predictions).sort(), ['m120', 'm30', 'm60']);
   assert.doesNotThrow(() => SS.domain.assertPredictionResult(result));
+  const rawSnapshot = JSON.parse(SS.feedbackService.buildPayload(result, { rating: 'poor' }).raw_snapshot_json);
+  assert.equal(rawSnapshot.performance_timing, undefined);
 });
 
 test('selected homonymous cities keep their own coordinates and result caches without re-geocoding', async () => {
@@ -64,6 +82,10 @@ test('selected homonymous cities keep their own coordinates and result caches wi
   assert.equal(again.query_id, first.query_id);
   assert.equal(first.result_cache_status, 'MISS');
   assert.equal(again.result_cache_status, 'HIT');
+  assert.equal(again.performance_timing.local_forecast_ms, null, 'early hit skips Local Forecast');
+  assert.equal(again.performance_timing.air_quality_ms, null, 'early hit skips Air Quality');
+  assert.equal(again.performance_timing.spatial_batch_ms, null, 'early hit skips Sky Batch');
+  assert.deepEqual(coordinates, [[22.54, 114.06], [24.48, 118.08]], 'cache hit performs no weather I/O');
   const domestic = { ...location, id: 'qweather:1', source: 'qweather', country_code: 'CN',
     feature_code: 'QW_CITY', coordinate_system: 'WGS84', rank: 30 };
   const fromQWeather = await SS.prediction.predict(location.name, { nowUtcMs, location: domestic });

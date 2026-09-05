@@ -62,7 +62,8 @@ test('a never-loading tile reaches its deadline', async () => {
   let img;
   class FakeImage { constructor() { img=this; } }
   const SS = load(createRuntime({Image:FakeImage}),FILES);
-  await assert.rejects(SS.network.loadImage('/tile',{timeoutMs:10}),{name:'TimeoutError'});
+  SS.modelConfig.network.tileTimeoutMs = 10;
+  await assert.rejects(SS.network.loadImage('/tile'),{name:'TimeoutError'});
   assert.equal(img.onload,null);
   assert.equal(img.src,'');
 });
