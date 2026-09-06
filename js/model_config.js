@@ -23,6 +23,12 @@
       nowcast: cfg.nowcast.enabled,
       qweather: cfg.nowcast.qweather.enabled,
       precipRetryMinutes: cfg.nowcast.precipRetryMinutes,
+      precipCoveragePolicy: {
+        version: cfg.nowcast.coveragePolicyVersion,
+        fetchBeforeSunsetMinutes: cfg.nowcast.fetchBeforeSunsetMinutes,
+        analysisHorizonMinutes: cfg.nowcast.analysisHorizonMinutes,
+        coverageFadeMinutes: cfg.nowcast.coverageFadeMinutes
+      },
       radar: cfg.nowcast.radar.enabled,
       satellite: cfg.nowcast.satellite.enabled,
       goldenWindow: cfg.goldenWindow,

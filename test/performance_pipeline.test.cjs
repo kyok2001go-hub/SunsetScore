@@ -86,6 +86,49 @@ test('Air and Minute failures degrade without failing a prediction', async () =>
   assert.equal(result.qweather_status, 'UNKNOWN');
 });
 
+test('minute precipitation is not requested beyond the 180-minute prefetch boundary', async () => {
+  const SS = load(createRuntime(), SERVICE_FILES);
+  const fc = fixedForecast();
+  const nowUtcMs = Date.parse('2026-08-26T09:00:00Z');
+  let minuteCalls = 0;
+  SS.data.fetchForecastWithRetry = async () => fc;
+  SS.data.fetchAirQuality = async () => null;
+  SS.nowcast.getMinutePrecip = async () => { minuteCalls++; return null; };
+  SS.data.gather = async nodes => ({ samples: nodes.map(point => ({ point, forecast: fc })) });
+  SS.solar.getSunEvents = () => ({
+    sunset: new Date(nowUtcMs + 181 * 60000), civilDusk: new Date(nowUtcMs + 206 * 60000),
+    sunsetAzimuthDeg: 282, twilightMinutes: 25
+  });
+
+  const result = await SS.prediction.predict('22.54,114.06', { nowUtcMs });
+  assert.equal(minuteCalls, 0);
+  assert.equal(result.qweather_status, 'NOT_REQUESTED');
+  assert.equal(result.performance_timing.minute_precip_ms, null);
+});
+
+test('minute precipitation is still requested at the exact 180-minute boundary', async () => {
+  const SS = load(createRuntime(), SERVICE_FILES);
+  const fc = fixedForecast();
+  const nowUtcMs = Date.parse('2026-08-26T09:00:00Z');
+  let minuteCalls = 0;
+  SS.data.fetchForecastWithRetry = async () => fc;
+  SS.data.fetchAirQuality = async () => null;
+  SS.nowcast.getMinutePrecip = async () => {
+    minuteCalls++;
+    return { analysis: null, status: 'NO_DATA', qweather: { status: 'NO_DATA' } };
+  };
+  SS.data.gather = async nodes => ({ samples: nodes.map(point => ({ point, forecast: fc })) });
+  SS.solar.getSunEvents = () => ({
+    sunset: new Date(nowUtcMs + 180 * 60000), civilDusk: new Date(nowUtcMs + 205 * 60000),
+    sunsetAzimuthDeg: 282, twilightMinutes: 25
+  });
+
+  const result = await SS.prediction.predict('22.54,114.06', { nowUtcMs });
+  assert.equal(minuteCalls, 1);
+  assert.equal(result.qweather_status, 'NO_DATA');
+  assert.ok(result.performance_timing.minute_precip_ms >= 0);
+});
+
 test('Batch retry performs exactly two total attempts and one delay', async () => {
   const SS = load(createRuntime(), ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/data.js']);
   let calls = 0, sleeps = 0;

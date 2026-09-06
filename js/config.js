@@ -10,7 +10,7 @@
     app: '2.4.3',
     model: '2.4.3',
     schema: 3,
-    assetRevision: 'perf1',
+    assetRevision: 'coverage1',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 1
@@ -224,9 +224,12 @@
         dryThresholdMm: 0.1,     /* [TUNE] 视为无雨的降水上限（mm） */
         dryStreakMinutes: 20     /* [TUNE] 连续无雨多久（分钟）才判定雨停 */
       },
-      /* 仅诊断趋势，不加到最终分数；预取范围独立于黄金窗口。 */
+      /* 分钟降水与黄金窗口同时进入；原始序列仅在其实际覆盖范围内参与融合。 */
       trendScale: 30,
-      fetchBeforeSunsetMinutes: 240,
+      fetchBeforeSunsetMinutes: 180,
+      analysisHorizonMinutes: 120,
+      coverageFadeMinutes: 30,
+      coveragePolicyVersion: 1,
       /* 雷达源：RainViewer Weather Maps API（免费公开接口，无需注册与密钥）。
          双帧雷达瓦片 → 日落走廊回波覆盖率 / 质心运动 / 到达风险。
          注意：v2 API 最大 zoom=7；帧间隔 10 分钟，past 保留 2 小时 */

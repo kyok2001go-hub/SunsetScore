@@ -320,6 +320,8 @@
       radar: fusion && fusion.detail ? fusion.detail.radar : null,
       satellite: fusion && fusion.detail ? fusion.detail.satellite : null,
       motionForecast: result.cloud_motion,
+      sunsetCloudCover: context.sky.sunsetField && context.sky.sunsetField.summary
+        ? context.sky.sunsetField.summary.avgCloudCover : null,
       nowMs: context.time.nowUtcMs,
       sunsetMs: context.time.sunsetUtcMs,
       sourcesStatus: fusion ? fusion.sourcesStatus : null
@@ -426,7 +428,7 @@
       sunsetLocal: localShiftedSunset
     });
     var mode = SS.modelConfig.sampling.enabled ? SS.sampling.decideSamplingMode(regime) : 'FULL';
-    var fetchNowcast = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
+    var fetchMinutePrecip = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
       time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
     var batchAttempts = 0;
     var airOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.airQualityTimeoutMs });
@@ -435,7 +437,9 @@
       onBatchAttempt: function () { batchAttempts++; }
     });
 
-    progress(options, '正在并行获取空气质量、分钟降水与全天空云场…');
+    progress(options, fetchMinutePrecip
+      ? '正在并行获取空气质量、分钟降水与全天空云场…'
+      : '正在并行获取空气质量与全天空云场…');
     var airPromise = timed(timing, 'air_quality_ms', function () {
       return fetchWithCache(
         SS.cacheKeys.air(localDate, location.latitude, location.longitude),
@@ -444,7 +448,7 @@
         function () { return SS.data.fetchAirQuality(location.latitude, location.longitude, airOptions); }, airOptions
       );
     });
-    var precipPromise = fetchNowcast
+    var precipPromise = fetchMinutePrecip
       ? timed(timing, 'minute_precip_ms', function () { return minutePrecip(location, localDate, nowUtcMs, options); })
       : Promise.resolve(null);
     var spatialPromise = timed(timing, 'spatial_batch_ms', function () {
@@ -531,7 +535,7 @@
     var qweather = sourceStatus && sourceStatus.qweather
       ? sourceStatus.qweather
       : (precipResult && precipResult.qweather ? precipResult.qweather : null);
-    result.qweather_status = qweather ? qweather.status : (fetchNowcast ? 'UNKNOWN' : 'NOT_REQUESTED');
+    result.qweather_status = qweather ? qweather.status : (fetchMinutePrecip ? 'UNKNOWN' : 'NOT_REQUESTED');
     result.radar_status = sourceStatus && sourceStatus.radar ? sourceStatus.radar.status : 'NOT_REQUESTED';
     result.satellite_status = sourceStatus && sourceStatus.satellite ? sourceStatus.satellite.status : 'NOT_REQUESTED';
     timing.total_ms = elapsedMs(totalStartedAt);

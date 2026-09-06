@@ -4,7 +4,7 @@
  *   1. 指数衰减模型：FutureCoverage(t) = C0·e^(−kt)（k 由覆盖率序列趋势拟合），
  *      趋势上行时按线性增长外推；不确定度 σ(t)=σ0+γ·t 随时间线性增大，
  *      P_open(t) = logistic((阈值 − FC(t)) / σ(t))，概率截断 [0.02, 0.98]——无伪精确
- *   2. QWeather 雨停置信度曲线：CorridorOpenProbability = P_radar × RainStopConfidence
+ *   2. QWeather 雨停置信度曲线：按 coverageEndMs 对各时距降权，覆盖外回归中性
  *   3. 卫星云覆盖演化（无降雨场景）：futureCoverage / cloudArrivalRisk
  *   4. 五态 Sky Evolution State 状态机 + 置信度
  *   5. Golden Window V3：Score × (floor + (1−floor) × P_open(日落时刻))
@@ -93,10 +93,19 @@
     return clamp(1 - logistic(margin / rc.marginWidthMin), 0.05, 0.98);
   }
 
+  /* 分钟降水只在自身覆盖范围内参与目标时距判断。覆盖末端前逐步降权，
+     避免把边界附近的数据当作完整未来信息；覆盖范围外权重为 0。 */
+  function precipCoverageWeight(precip, nowMs, tMin) {
+    if (!precip || !precip.available || !valid(precip.coverageEndMs) || !valid(nowMs)) return 0;
+    var remainingMinutes = (precip.coverageEndMs - nowMs) / 60000;
+    var fadeMinutes = Math.max(1, Number(SS.modelConfig.nowcast.coverageFadeMinutes) || 30);
+    return clamp((remainingMinutes - tMin) / fadeMinutes, 0, 1);
+  }
+
   /* 走廊开放概率融合（方案 7 章）：
      CorridorOpenProbability(t) = P_radar(t) × RainStopConfidence(t)。
      雷达缺失时以卫星覆盖率演化替代（无降雨场景），再缺失则仅雨停置信度 */
-  function corridorOpenProbability(radarEvo, satelliteEvo, precip, motionForecast) {
+  function corridorOpenProbability(radarEvo, satelliteEvo, precip, motionForecast, nowMs) {
     var cfg = SS.modelConfig.evolution;
     var out = {};
     HORIZONS.forEach(function (h) {
@@ -114,9 +123,16 @@
           p = logistic((cfg.openCoverageThreshold - cPred) / (cfg.sigma0 + cfg.sigmaPerMin * h));
         }
       }
-      if (p == null) p = 0.5;
-      p = safeProbability(p, 0.5) * safeProbability(rainStopConfidence(precip, h), 0.5);
-      if (radarEvo == null && satelliteEvo == null && motionForecast == null) p = rainStopConfidence(precip, h);
+      var hasCloudSignal = p != null;
+      var rainConfidence = safeProbability(rainStopConfidence(precip, h), 0.5);
+      var precipWeight = precipCoverageWeight(precip, nowMs, h);
+      if (hasCloudSignal) {
+        /* 将降水惩罚从完整影响平滑回归中性乘数 1。 */
+        p = safeProbability(p, 0.5) * (1 - precipWeight * (1 - rainConfidence));
+      } else {
+        /* 只有分钟降水时，覆盖范围外回归中性概率 0.5。 */
+        p = 0.5 + precipWeight * (rainConfidence - 0.5);
+      }
       out[h + 'm'] = Math.round(clamp(safeProbability(p, 0.5), cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
     });
     return out;
@@ -197,9 +213,10 @@
     /* 卫星演化仅在无降雨场景参与（避免降水回波与云覆盖双重计） */
     if (satEvo && precip && precip.available && precip.rainingNow) satEvo = null;
 
-    if (!radarEvo && !satEvo && !(precip && precip.available) && !sources.motionForecast) return null;
+    if (!radarEvo && !satEvo && !(precip && precip.available) && !sources.motionForecast &&
+        !valid(sources.sunsetCloudCover)) return null;
 
-    var openProb = corridorOpenProbability(radarEvo, satEvo, precip, sources.motionForecast);
+    var openProb = corridorOpenProbability(radarEvo, satEvo, precip, sources.motionForecast, sources.nowMs);
 
     /* 小时背景概率（方案 12 章 background 权重）：由小时云量趋势给出弱先验 */
     var bgP = valid(sources.forecastTrend)
@@ -221,7 +238,7 @@
     var trend = radarEvo ? radarEvo.trend : (satEvo ? satEvo.trend : null);
 
     /* 置信度：源可用性加权 × (1 − 归一化 σ(60)) */
-    var srcFactor = (radarEvo ? 0.5 : 0) + (precip && precip.available ? 0.3 : 0) +
+    var srcFactor = (radarEvo ? 0.5 : 0) + 0.3 * precipCoverageWeight(precip, sources.nowMs, 60) +
       (satEvo ? 0.2 : 0) + (sources.motionForecast ? 0.25 : 0);
     var sigma60 = cfg.sigma0 + cfg.sigmaPerMin * 60;
     var sigmaNorm = clamp(sigma60 / cfg.stateMachine.maxSigma60, 0, 1);
@@ -236,7 +253,7 @@
     };
     if (radarEvo) evo.sources.push('radar');
     if (satEvo) evo.sources.push('satellite');
-    if (precip && precip.available) evo.sources.push('precip');
+    if (precipCoverageWeight(precip, sources.nowMs, HORIZONS[0]) > 0) evo.sources.push('precip');
     if (sources.motionForecast) evo.sources.push('cloud_motion');
     if (valid(sources.forecastTrend)) evo.sources.push('forecast');
     evo.sources.push('background');
@@ -247,14 +264,35 @@
 
     /* Golden Window V3/V4：日落时刻的走廊开放概率与乘法因子 */
     if (valid(sources.sunsetMs)) {
-      var tSunset = clamp((sources.sunsetMs - (sources.nowMs || Date.now())) / 60000, 0, 120);
-      /* 四时距概率在日落时距处的插值（就近取档） */
+      var tSunset = Math.max(0, (sources.sunsetMs - (sources.nowMs || Date.now())) / 60000);
+      var maxEvolutionHorizon = Math.min(Number(SS.modelConfig.nowcast.analysisHorizonMinutes) ||
+        HORIZONS[HORIZONS.length - 1], HORIZONS[HORIZONS.length - 1]);
+      /* 分钟数据/云场运动支持的时距内按四档取值；超过支持范围时改用日落时刻的 NWP 云场。 */
       var pSunset;
-      if (tSunset <= 30) pSunset = fused['30m'];
-      else if (tSunset <= 60) pSunset = fused['60m'];
-      else if (tSunset <= 90) pSunset = fused['90m'];
-      else pSunset = fused['120m'];
-      pSunset = safeProbability(pSunset, 0.5);
+      if (tSunset > maxEvolutionHorizon) {
+        if (valid(sources.sunsetCloudCover)) {
+          var sunsetNwpProbability = logistic((cfg.openCoverageThreshold - sources.sunsetCloudCover) /
+            (cfg.sigma0 + cfg.sigmaPerMin * tSunset));
+          pSunset = wBg * bgP + (1 - wBg) * sunsetNwpProbability;
+          evo.sunsetProbabilitySource = 'NWP_SUNSET';
+        } else {
+          pSunset = bgP;
+          evo.sunsetProbabilitySource = 'FORECAST_BACKGROUND';
+        }
+      } else if (tSunset <= 30) {
+        pSunset = fused['30m'];
+        evo.sunsetProbabilitySource = 'EVOLUTION_30M';
+      } else if (tSunset <= 60) {
+        pSunset = fused['60m'];
+        evo.sunsetProbabilitySource = 'EVOLUTION_60M';
+      } else if (tSunset <= 90) {
+        pSunset = fused['90m'];
+        evo.sunsetProbabilitySource = 'EVOLUTION_90M';
+      } else {
+        pSunset = fused['120m'];
+        evo.sunsetProbabilitySource = 'EVOLUTION_120M';
+      }
+      pSunset = Math.round(safeProbability(pSunset, 0.5) * 100) / 100;
       evo.sunsetOpenProbability = pSunset;
       evo.sunsetMinutesAway = Math.round(tSunset);
       var floor = SS.modelConfig.goldenWindow.floor;
@@ -281,6 +319,7 @@
         source: precip.source,
         rainingNow: precip.rainingNow,
         stopMin: precip.stopMin,
+        coverageEndMs: precip.coverageEndMs,
         summary: precip.summary
       } : null
     };
@@ -325,6 +364,7 @@
     openProbabilityAt: openProbabilityAt,
     radarOpenProbability: radarOpenProbability,
     rainStopConfidence: rainStopConfidence,
+    precipCoverageWeight: precipCoverageWeight,
     satelliteEvolution: satelliteEvolution,
     calculateOpenProbability: corridorOpenProbability,
     calculateRainStopConfidence: rainStopConfidence,

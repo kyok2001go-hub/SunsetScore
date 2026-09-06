@@ -233,13 +233,14 @@
     while (start < times.length && starts[start] + stepMs <= nowMs) start++;
     if (start >= times.length || starts[start] > nowMs || !valid(p[start]) || p[start] < 0) return null;
 
-    // Open-Meteo returns 120 *steps*, not 120 minutes. Analyse only the next two
-    // hours of contiguous known data, never infer a rain stop across a data gap.
+    // Open-Meteo returns 120 *steps*, not 120 minutes. Analyse only the configured
+    // contiguous horizon and never infer a rain stop across a data gap.
+    var analysisHorizonMinutes = Math.max(1, Number(SS.modelConfig.nowcast.analysisHorizonMinutes) || 120);
     var end = start;
-    while (end < times.length && starts[end] < nowMs + 120 * 60000 &&
+    while (end < times.length && starts[end] < nowMs + analysisHorizonMinutes * 60000 &&
         valid(p[end]) && p[end] >= 0 &&
         (end === start || starts[end] === starts[end - 1] + stepMs)) end++;
-    var coverageEndMs = Math.min(nowMs + 120 * 60000, starts[end - 1] + stepMs);
+    var coverageEndMs = Math.min(nowMs + analysisHorizonMinutes * 60000, starts[end - 1] + stepMs);
 
     function isDry(v) { return valid(v) && v >= 0 && v < rc.dryThresholdMm; }
 

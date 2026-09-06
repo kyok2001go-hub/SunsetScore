@@ -32,6 +32,7 @@ test('prediction uses five levels and exposes accessible observation guidance fr
     { min: 0, label: '很差' }
   ]);
   assert.match(SS.modelConfigKey(), /"levels":/);
+  assert.match(SS.modelConfigKey(), /"precipCoveragePolicy":\{"version":1,"fetchBeforeSunsetMinutes":180,"analysisHorizonMinutes":120,"coverageFadeMinutes":30\}/);
   assert.doesNotMatch(readFileSync(join(__dirname, '..', 'js', 'ui.js'), 'utf8'), /不错/);
   assert.match(html, /id="score-ring" role="button" tabindex="0"[\s\S]*aria-controls="score-help-modal"/);
   assert.match(html, /id="r-level" class="level-badge score-level-badge"[\s\S]*id="r-level-text"[\s\S]*score-help-icon/);
