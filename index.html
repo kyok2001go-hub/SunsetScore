@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.4.3-coverage1">
+  <link rel="stylesheet" href="css/style.css?v=2.4.4-rating5">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -281,20 +281,24 @@
 
       <!-- 弹窗中间选项 (点击仅选中，不提交) -->
       <div class="feedback-modal-options" id="modal-feedback-btn-group">
-        <button type="button" class="modal-fb-btn" data-rating="great" title="壮丽晚霞，满天彩霞">
-          <span class="modal-fb-label">🔥 极佳彩霞</span>
+        <button type="button" class="modal-fb-btn" data-rating="excellent" title="大范围鲜艳彩霞，色彩强烈且层次丰富">
+          <span class="modal-fb-label">🔥 极佳</span>
           <span class="fb-btn-radio"></span>
         </button>
-        <button type="button" class="modal-fb-btn" data-rating="good" title="局部有霞，值得观赏">
-          <span class="modal-fb-label">✨ 普通有霞</span>
+        <button type="button" class="modal-fb-btn" data-rating="very_good" title="明显且较丰富的彩霞，具有较高观赏价值">
+          <span class="modal-fb-label">🌇 很好</span>
           <span class="fb-btn-radio"></span>
         </button>
-        <button type="button" class="modal-fb-btn" data-rating="fair" title="云层平淡，微弱红光">
-          <span class="modal-fb-label">⛅ 仅微霞</span>
+        <button type="button" class="modal-fb-btn" data-rating="good" title="可见普通晚霞，色彩和范围中等">
+          <span class="modal-fb-label">✨ 普通</span>
           <span class="fb-btn-radio"></span>
         </button>
-        <button type="button" class="modal-fb-btn" data-rating="poor" title="阴沉遮挡/下雨，完全无霞">
-          <span class="modal-fb-label">🌧️ 完全无霞</span>
+        <button type="button" class="modal-fb-btn" data-rating="fair" title="仅有微弱、局部或短暂霞光">
+          <span class="modal-fb-label">🌤 微霞</span>
+          <span class="fb-btn-radio"></span>
+        </button>
+        <button type="button" class="modal-fb-btn" data-rating="poor" title="完全未见霞光或被阴雨云层遮挡">
+          <span class="modal-fb-label">☁️ 无霞</span>
           <span class="fb-btn-radio"></span>
         </button>
       </div>
@@ -317,42 +321,42 @@
   <div id="toast-container" class="toast-container"></div>
 
   <footer class="footer">
-    数据来源：QWeather（国内城市 / 分钟降水）· Open-Meteo（天气 / 空气质量 / 探空风 / 国外地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.4.3<br>
+    数据来源：QWeather（国内城市 / 分钟降水）· Open-Meteo（天气 / 空气质量 / 探空风 / 国外地理编码）· RainViewer（雷达）· NASA GIBS（卫星）· 模型版本 sunset-score-v2.4.4<br>
     晚霞指数不是概率，而是"值不值得去看"的综合评分
   </footer>
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-<script src="js/config.js?v=2.4.3-coverage1"></script>
-<script src="js/model_config.js?v=2.4.3-coverage1"></script>
-<script src="js/network.js?v=2.4.3-coverage1"></script>
-<script src="js/domain.js?v=2.4.3-coverage1"></script>
-<script src="js/time.js?v=2.4.3-coverage1"></script>
-<script src="js/vendor/suncalc.js?v=2.4.3-coverage1"></script>
-<script src="js/solar.js?v=2.4.3-coverage1"></script>
-<script src="js/baseline.js?v=2.4.3-coverage1"></script>
-<script src="js/cache.js?v=2.4.3-coverage1"></script>
-<script src="js/data.js?v=2.4.3-coverage1"></script>
-<script src="js/city_search.js?v=2.4.3-coverage1"></script>
-<script src="js/cloud_field.js?v=2.4.3-coverage1"></script>
-<script src="js/wind.js?v=2.4.3-coverage1"></script>
-<script src="js/cloud_motion.js?v=2.4.3-coverage1"></script>
-<script src="js/sky_state.js?v=2.4.3-coverage1"></script>
-<script src="js/engine.js?v=2.4.3-coverage1"></script>
-<script src="js/sampling.js?v=2.4.3-coverage1"></script>
-<script src="js/corridor.js?v=2.4.3-coverage1"></script>
-<script src="js/nowcast.js?v=2.4.3-coverage1"></script>
-<script src="js/evolution.js?v=2.4.3-coverage1"></script>
-<script src="js/prediction_service.js?v=2.4.3-coverage1"></script>
-<script src="js/feedback_service.js?v=2.4.3-coverage1"></script>
-<script src="js/event_service.js?v=2.4.3-coverage1"></script>
-<script src="js/snapshot_service.js?v=2.4.3-coverage1"></script>
-<script src="js/observation_service.js?v=2.4.3-coverage1"></script>
-<script src="js/radar_view.js?v=2.4.3-coverage1"></script>
-<script src="js/debug.js?v=2.4.3-coverage1"></script>
-<script src="js/ui.js?v=2.4.3-coverage1"></script>
-<script src="js/feedback_ui.js?v=2.4.3-coverage1"></script>
-<script src="js/city_search_ui.js?v=2.4.3-coverage1"></script>
-<script src="js/app.js?v=2.4.3-coverage1"></script>
+<script src="js/config.js?v=2.4.4-rating5"></script>
+<script src="js/model_config.js?v=2.4.4-rating5"></script>
+<script src="js/network.js?v=2.4.4-rating5"></script>
+<script src="js/domain.js?v=2.4.4-rating5"></script>
+<script src="js/time.js?v=2.4.4-rating5"></script>
+<script src="js/vendor/suncalc.js?v=2.4.4-rating5"></script>
+<script src="js/solar.js?v=2.4.4-rating5"></script>
+<script src="js/baseline.js?v=2.4.4-rating5"></script>
+<script src="js/cache.js?v=2.4.4-rating5"></script>
+<script src="js/data.js?v=2.4.4-rating5"></script>
+<script src="js/city_search.js?v=2.4.4-rating5"></script>
+<script src="js/cloud_field.js?v=2.4.4-rating5"></script>
+<script src="js/wind.js?v=2.4.4-rating5"></script>
+<script src="js/cloud_motion.js?v=2.4.4-rating5"></script>
+<script src="js/sky_state.js?v=2.4.4-rating5"></script>
+<script src="js/engine.js?v=2.4.4-rating5"></script>
+<script src="js/sampling.js?v=2.4.4-rating5"></script>
+<script src="js/corridor.js?v=2.4.4-rating5"></script>
+<script src="js/nowcast.js?v=2.4.4-rating5"></script>
+<script src="js/evolution.js?v=2.4.4-rating5"></script>
+<script src="js/prediction_service.js?v=2.4.4-rating5"></script>
+<script src="js/feedback_service.js?v=2.4.4-rating5"></script>
+<script src="js/event_service.js?v=2.4.4-rating5"></script>
+<script src="js/snapshot_service.js?v=2.4.4-rating5"></script>
+<script src="js/observation_service.js?v=2.4.4-rating5"></script>
+<script src="js/radar_view.js?v=2.4.4-rating5"></script>
+<script src="js/debug.js?v=2.4.4-rating5"></script>
+<script src="js/ui.js?v=2.4.4-rating5"></script>
+<script src="js/feedback_ui.js?v=2.4.4-rating5"></script>
+<script src="js/city_search_ui.js?v=2.4.4-rating5"></script>
+<script src="js/app.js?v=2.4.4-rating5"></script>
 </body>
 </html>

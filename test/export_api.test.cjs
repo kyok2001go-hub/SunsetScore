@@ -39,8 +39,8 @@ function insertObservation(sqlite) {
   `).run(
     'obs-export-1', 'submission-export-1', 'evt-export-1', '2026-09-03', 'qweather:101190401',
     '苏州', 31.2989, 120.5853, 'Asia/Shanghai', '2026-09-03T10:20:00.000Z', '2026-09-03 18:20',
-    '2026-09-03T11:00:00.000Z', 1788433200000, 'good', '✨ 普通有霞', '西侧有霞',
-    'user', 'private-ip-hash', 'private-user-agent', 1
+    '2026-09-03T11:00:00.000Z', 1788433200000, 'very_good', '🌇 很好彩霞', '西侧有霞',
+    'user', 'private-ip-hash', 'private-user-agent', 2
   );
 }
 
@@ -108,7 +108,9 @@ test('public observations export excludes client fingerprint fields', async () =
     const json = await exporter.onRequestGet(exportContext(DB, 'dataset=sunset_observations&format=json'));
     assert.equal(json.status, 200);
     const rows = await json.json();
-    assert.equal(rows[0].rating, 'good');
+    assert.equal(rows[0].rating, 'very_good');
+    assert.equal(rows[0].rating_label, '🌇 很好彩霞');
+    assert.equal(rows[0].dataset_schema_version, 2);
     assert.equal(rows[0].comment, '西侧有霞');
     assert.equal('user_ip_hash' in rows[0], false);
     assert.equal('client_ua' in rows[0], false);

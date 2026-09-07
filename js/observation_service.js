@@ -1,4 +1,4 @@
-/* SunsetScore V2.4.2 - human/agent observation service */
+/* SunsetScore V2.4.4 - human/agent observation service */
 (function (root) {
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};
@@ -14,7 +14,7 @@
 
   async function buildPayload(result, feedback) {
     var input = feedback || {};
-    if (['great', 'good', 'fair', 'poor'].indexOf(input.rating) < 0) throw new Error('请选择实际晚霞等级');
+    if (['excellent', 'very_good', 'good', 'fair', 'poor'].indexOf(input.rating) < 0) throw new Error('请选择实际晚霞等级');
     var eventContext = await SS.eventService.context(result);
     var sid = String(input.submissionId || '').trim();
     if (!sid) throw new Error('缺少反馈提交标识');
@@ -47,7 +47,7 @@
     var localId = null;
     try { localId = root.localStorage.getItem(markerKey); } catch (error) { /* storage is optional */ }
     var localRecord = localId ? { id: localId } : SS.baseline.saveFeedback({
-        dataset: 'event_observation_v1',
+        dataset: 'event_observation_v2',
         submission_id: payload.observation.submission_id,
         observation: payload.observation,
         snapshot: payload.snapshot

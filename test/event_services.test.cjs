@@ -50,7 +50,7 @@ test('snapshot service emits explicit source/slot and no fake observation fields
   assert.equal(payload.snapshot_source, 'github_schedule');
   assert.equal(payload.scheduled_slot, '1613');
   assert.match(payload.idempotency_key, /^snap_v1_[a-f0-9]{64}$/);
-  assert.equal(payload.dataset_schema_version, 1);
+  assert.equal(payload.dataset_schema_version, 2);
   assert.equal('user_rating' in payload, false);
   assert.equal('user_comment' in payload, false);
   assert.doesNotMatch(JSON.stringify(payload), /META_ONLY/);
@@ -69,7 +69,7 @@ test('observation retry reuses its caller submission id and source comes from th
   const SS = load(runtime, FILES);
   SS.runtime = { observationSource: 'rednote_agent' };
   const response = await SS.observationService.submit(prediction(), {
-    submissionId: 'same-on-manual-retry', rating: 'great', comment: '现场照片'
+    submissionId: 'same-on-manual-retry', rating: 'excellent', comment: '现场照片'
   });
   assert.equal(response.remote, true);
   assert.equal(submitted[0].url, '/api/observation');
@@ -78,7 +78,8 @@ test('observation retry reuses its caller submission id and source comes from th
   assert.equal('rating_label' in submitted[0].body.observation, false);
   assert.equal(submitted[0].body.snapshot.snapshot_source, 'user_feedback');
   await SS.observationService.submit(prediction(), {
-    submissionId: 'same-on-manual-retry', rating: 'great', comment: '现场照片'
+    submissionId: 'same-on-manual-retry', rating: 'excellent', comment: '现场照片'
   });
   assert.equal(SS.baseline.getFeedbackList().length, 1, 'manual retry must not duplicate the local backup');
+  assert.equal(SS.baseline.getFeedbackList()[0].dataset, 'event_observation_v2');
 });

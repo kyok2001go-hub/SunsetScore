@@ -50,10 +50,11 @@ const OBSERVATION_INPUT_FIELDS = new Set([
 ]);
 
 export const RATING_LABELS = Object.freeze({
-  great: '🔥 极佳彩霞',
+  excellent: '🔥 极佳彩霞',
+  very_good: '🌇 很好彩霞',
   good: '✨ 普通有霞',
-  fair: '⛅ 仅微霞',
-  poor: '🌧️ 完全无霞'
+  fair: '🌤 仅有微霞',
+  poor: '☁️ 完全无霞'
 });
 
 export class ValidationError extends Error {
@@ -317,7 +318,7 @@ export async function buildObservationRow(input, options = {}) {
     evidence_count: integer(payload.evidence_count, 'evidence_count', 0, 10000),
     user_ip_hash: options.userIpHash || null,
     client_ua: options.clientUa || null,
-    dataset_schema_version: options.datasetSchemaVersion || 1,
+    dataset_schema_version: options.datasetSchemaVersion || 2,
     sunset_epoch: event.sunset_epoch
   };
 }

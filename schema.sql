@@ -1,5 +1,5 @@
 -- ============================================================
--- SunsetScore V2.4.2 - Cloudflare D1 数据库完整全量结构定义
+-- SunsetScore V2.4.4 - Cloudflare D1 数据库完整全量结构定义
 -- 包含：历史反馈兼容表、事件级预测快照、事件级真实观测
 -- ============================================================
 
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS sunset_observations (
     sunset_time_local TEXT NOT NULL,
     submitted_at_utc TEXT NOT NULL,
     submitted_at_epoch INTEGER NOT NULL,
-    rating TEXT NOT NULL CHECK (rating IN ('great', 'good', 'fair', 'poor')),
+    rating TEXT NOT NULL CHECK (rating IN ('excellent', 'very_good', 'good', 'fair', 'poor')),
     rating_label TEXT NOT NULL,
     comment TEXT,
     source TEXT NOT NULL CHECK (source IN ('user', 'rednote_agent')),
