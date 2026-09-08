@@ -1,4 +1,4 @@
-/* SunsetScore V2.4.4 - human/agent observation service */
+/* SunsetScore V2.4.5 - human/agent observation service */
 (function (root) {
   'use strict';
   var SS = root.SunsetScore = root.SunsetScore || {};

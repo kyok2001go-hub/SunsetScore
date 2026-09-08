@@ -1,4 +1,4 @@
-"""Validate fresh D1 schema and sequential V2.2.2 -> V2.4.4 migrations."""
+"""Validate fresh D1 schema and sequential V2.2.2 -> V2.4.5 migrations."""
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
@@ -11,7 +11,10 @@ def sql(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def insert_observation(connection, suffix: str, rating: str, label: str, schema_version: int) -> None:
+def insert_observation(
+    connection, suffix: str, rating: str, label: str, schema_version: int,
+    source: str = "user", event_id: str = "evt-test",
+) -> None:
     connection.execute(
         """INSERT INTO sunset_observations(
             id, submission_id, event_id, event_date_local, location_key,
@@ -20,10 +23,10 @@ def insert_observation(connection, suffix: str, rating: str, label: str, schema_
             dataset_schema_version
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            f"obs-{suffix}", f"submission-{suffix}", "evt-test", "2026-09-07", "test:location",
+            f"obs-{suffix}", f"submission-{suffix}", event_id, "2026-09-07", "test:location",
             "深圳", 22.5431, 114.0579, "Asia/Shanghai", "2026-09-07T10:30:00.000Z",
             "2026-09-07 18:30", "2026-09-07T11:00:00.000Z", 1788778800000,
-            rating, label, "user", schema_version,
+            rating, label, source, schema_version,
         ),
     )
 
@@ -48,6 +51,15 @@ upgrade.executescript(sql("migrations/005_observation_rating_v2.sql"))
 assert upgrade.execute("SELECT COUNT(*) FROM sunset_observations").fetchone()[0] == 0
 assert upgrade.execute("SELECT COUNT(*) FROM sunset_observations_v1_archive").fetchone()[0] == 1
 assert upgrade.execute("SELECT rating FROM sunset_observations_v1_archive").fetchone()[0] == "great"
+insert_observation(upgrade, "preserved-v2", "very_good", "🌇 很好彩霞", 2)
+preserved_before = upgrade.execute(
+    "SELECT id, submission_id, rating, source, dataset_schema_version FROM sunset_observations"
+).fetchall()
+upgrade.executescript(sql("migrations/006_observation_manual_source.sql"))
+assert upgrade.execute(
+    "SELECT id, submission_id, rating, source, dataset_schema_version FROM sunset_observations"
+).fetchall() == preserved_before
+assert upgrade.execute("SELECT COUNT(*) FROM sunset_observations_v1_archive").fetchone()[0] == 1
 row = upgrade.execute(
     "SELECT created_at_epoch, created_at_utc, app_version, schema_version FROM sunset_feedback"
 ).fetchone()
@@ -64,7 +76,10 @@ for connection in (upgrade, fresh):
     tables = {item[0] for item in connection.execute(
         "SELECT name FROM sqlite_schema WHERE type = 'table'"
     )}
-    assert {"sunset_feedback", "prediction_snapshots", "sunset_observations"} <= tables
+    assert {
+        "sunset_feedback", "prediction_snapshots", "sunset_observations",
+        "observation_admin_audit",
+    } <= tables
     snapshot_columns = {item[1]: item[3] for item in connection.execute(
         "PRAGMA table_info(prediction_snapshots)"
     )}
@@ -80,9 +95,15 @@ for connection in (upgrade, fresh):
     indexes = {item[1] for item in connection.execute("PRAGMA index_list(sunset_observations)")}
     expected_indexes = {
         "idx_observation_event", "idx_observation_submission", "idx_observation_rate_limit",
-        "idx_observation_rating", "idx_observation_source",
+        "idx_observation_rating", "idx_observation_source", "idx_observation_manual_event",
     }
     assert expected_indexes <= indexes, indexes
+    snapshot_indexes = {item[1] for item in connection.execute("PRAGMA index_list(prediction_snapshots)")}
+    assert "idx_snapshot_city_date" in snapshot_indexes, snapshot_indexes
+    audit_indexes = {item[1] for item in connection.execute("PRAGMA index_list(observation_admin_audit)")}
+    assert {
+        "idx_admin_audit_request", "idx_admin_audit_event", "idx_admin_audit_actor",
+    } <= audit_indexes, audit_indexes
 
     ratings = (
         ("excellent", "🔥 极佳彩霞"),
@@ -92,16 +113,38 @@ for connection in (upgrade, fresh):
         ("poor", "☁️ 完全无霞"),
     )
     for index, (rating, label) in enumerate(ratings):
-        insert_observation(connection, f"new-{index}", rating, label, 2)
+        insert_observation(connection, f"new-{index}", rating, label, 3)
     try:
-        insert_observation(connection, "rejected-great", "great", "🔥 极佳彩霞", 2)
+        insert_observation(connection, "rejected-great", "great", "🔥 极佳彩霞", 3)
     except sqlite3.IntegrityError:
         pass
     else:
         raise AssertionError("sunset_observations must reject the legacy great rating")
 
+    insert_observation(
+        connection, "manual", "very_good", "🌇 很好彩霞", 3,
+        source="rednote_manual", event_id="evt-manual",
+    )
+    try:
+        insert_observation(
+            connection, "manual-duplicate", "good", "✨ 普通有霞", 3,
+            source="rednote_manual", event_id="evt-manual",
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("rednote_manual must be unique per event")
+    insert_observation(
+        connection, "manual-user-same-event", "good", "✨ 普通有霞", 3,
+        source="user", event_id="evt-manual",
+    )
+
 upgrade_signature = list(upgrade.execute("PRAGMA table_info(sunset_observations)"))
 fresh_signature = list(fresh.execute("PRAGMA table_info(sunset_observations)"))
 assert upgrade_signature == fresh_signature, "fresh and migrated Observation schemas differ"
 
-print("D1 V2.4.4 schema and sequential migrations passed")
+upgrade_audit_signature = list(upgrade.execute("PRAGMA table_info(observation_admin_audit)"))
+fresh_audit_signature = list(fresh.execute("PRAGMA table_info(observation_admin_audit)"))
+assert upgrade_audit_signature == fresh_audit_signature, "fresh and migrated audit schemas differ"
+
+print("D1 V2.4.5 schema and sequential migrations passed")

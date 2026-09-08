@@ -123,6 +123,23 @@ test('public observations export excludes client fingerprint fields', async () =
   } finally { sqlite.close(); }
 });
 
+test('manual Observations are exported while administrator audit stays private', async () => {
+  const exporter = await import('../functions/api/export.js');
+  const { DB, sqlite } = database();
+  try {
+    insertObservation(sqlite);
+    sqlite.prepare("UPDATE sunset_observations SET source = 'rednote_manual', dataset_schema_version = 3").run();
+    const response = await exporter.onRequestGet(exportContext(DB, 'dataset=sunset_observations&format=json'));
+    const rows = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(rows[0].source, 'rednote_manual');
+    assert.equal(rows[0].dataset_schema_version, 3);
+
+    const audit = await exporter.onRequestGet(exportContext(DB, 'dataset=observation_admin_audit&format=json'));
+    assert.equal(audit.status, 400);
+  } finally { sqlite.close(); }
+});
+
 test('export accepts only fixed datasets and csv/json format', async () => {
   const exporter = await import('../functions/api/export.js');
   const { DB, sqlite } = database();

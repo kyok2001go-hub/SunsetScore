@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>SunsetScore · 历史反馈补录</title>
+  <link rel="stylesheet" href="/css/admin.css?v=2.4.5-backfill1">
+</head>
+<body>
+  <main class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <p class="eyebrow">SunsetScore V2.4.5</p>
+        <h1>历史反馈补录</h1>
+        <p>仅为已有 Prediction Snapshot 的 Sunset Event 新增五级真实 Observation。</p>
+      </div>
+      <div class="guardrail">不会创建或修改 Snapshot</div>
+    </header>
+
+    <section class="panel" aria-labelledby="entry-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="entry-title">补录项目</h2>
+          <p>城市和日期只用于搜索；预览后必须确认具体 Event。单次最多 20 行。</p>
+        </div>
+        <button id="add-row" class="button secondary" type="button">新增一行</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">城市</th>
+              <th scope="col">日期</th>
+              <th scope="col">等级</th>
+              <th scope="col">置信度</th>
+              <th scope="col">证据数</th>
+              <th scope="col">备注</th>
+              <th scope="col">匹配结果</th>
+              <th scope="col"><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="backfill-rows"></tbody>
+        </table>
+      </div>
+
+      <div class="actions">
+        <button id="preview" class="button secondary" type="button">预览并校验</button>
+        <button id="commit" class="button primary" type="button" disabled>确认提交</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite">尚未预览。</p>
+    </section>
+
+    <section class="panel notes" aria-labelledby="notice-title">
+      <h2 id="notice-title">提交约束</h2>
+      <ul>
+        <li>任一行校验失败时整批不会写入。</li>
+        <li>同一 Event 只能存在一条管理员补录，V1 不支持覆盖或删除。</li>
+        <li>备注会进入 Observation 公开导出，请勿填写账号、链接令牌等敏感信息。</li>
+      </ul>
+    </section>
+  </main>
+
+  <template id="row-template">
+    <tr>
+      <td><label><span class="sr-only">城市</span><input data-field="city" maxlength="100" autocomplete="off" required></label></td>
+      <td><label><span class="sr-only">日期</span><input data-field="event_date_local" type="date" required></label></td>
+      <td><label><span class="sr-only">晚霞等级</span><select data-field="rating" required>
+        <option value="excellent">🔥 极佳彩霞</option>
+        <option value="very_good">🌇 很好彩霞</option>
+        <option value="good" selected>✨ 普通有霞</option>
+        <option value="fair">🌤 仅有微霞</option>
+        <option value="poor">☁️ 完全无霞</option>
+      </select></label></td>
+      <td><label><span class="sr-only">置信度</span><input data-field="confidence" type="number" min="0" max="1" step="0.01" inputmode="decimal"></label></td>
+      <td><label><span class="sr-only">证据数量</span><input data-field="evidence_count" type="number" min="0" max="10000" step="1" inputmode="numeric"></label></td>
+      <td><label><span class="sr-only">备注</span><textarea data-field="comment" maxlength="200" rows="2"></textarea></label></td>
+      <td class="match-cell"><span class="match-status">待预览</span><div class="candidate-slot"></div></td>
+      <td><button class="remove-row" type="button" aria-label="删除此行">删除</button></td>
+    </tr>
+  </template>
+  <script src="/js/admin_backfill.js?v=2.4.5-backfill1"></script>
+</body>
+</html>

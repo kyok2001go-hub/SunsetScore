@@ -37,6 +37,12 @@ export const OBSERVATION_FIELDS = Object.freeze([
   'user_ip_hash', 'client_ua', 'dataset_schema_version'
 ]);
 
+export const ADMIN_AUDIT_FIELDS = Object.freeze([
+  'id', 'request_id', 'request_fingerprint', 'observation_id', 'event_id',
+  'action', 'actor_type', 'actor_subject', 'actor_email', 'created_at_utc',
+  'created_at_epoch'
+]);
+
 const SNAPSHOT_INPUT_FIELDS = new Set(SNAPSHOT_FIELDS.filter((field) => ![
   'id', 'event_id', 'event_date_local', 'location_key',
   'city', 'country', 'admin1', 'latitude', 'longitude', 'location_source',
@@ -288,8 +294,9 @@ export async function buildObservationRow(input, options = {}) {
   const event = await normalizeEventContext(payload.event_context);
   const rating = text(payload.rating, 'rating', 10, true);
   if (!RATING_LABELS[rating]) throw new ValidationError('rating 非法');
-  const source = text(payload.source, 'source', 30, true);
-  if (!['user', 'rednote_agent'].includes(source)) throw new ValidationError('source 非法');
+  const source = options.source || text(payload.source, 'source', 30, true);
+  const allowedSources = options.allowedSources || ['user', 'rednote_agent'];
+  if (!allowedSources.includes(source)) throw new ValidationError('source 非法');
   const submittedAt = options.submittedAt || new Date();
   return {
     id: options.id || 'obs_' + submittedAt.getTime() + '_' + crypto.randomUUID(),
@@ -318,7 +325,7 @@ export async function buildObservationRow(input, options = {}) {
     evidence_count: integer(payload.evidence_count, 'evidence_count', 0, 10000),
     user_ip_hash: options.userIpHash || null,
     client_ua: options.clientUa || null,
-    dataset_schema_version: options.datasetSchemaVersion || 2,
+    dataset_schema_version: options.datasetSchemaVersion || 3,
     sunset_epoch: event.sunset_epoch
   };
 }

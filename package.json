@@ -1,6 +1,6 @@
 {
   "name": "sunsetscore",
-  "version": "2.4.4",
+  "version": "2.4.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "playwright": "^1.62.1"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
   }
 }

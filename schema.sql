@@ -1,5 +1,5 @@
 -- ============================================================
--- SunsetScore V2.4.4 - Cloudflare D1 数据库完整全量结构定义
+-- SunsetScore V2.4.5 - Cloudflare D1 数据库完整全量结构定义
 -- 包含：历史反馈兼容表、事件级预测快照、事件级真实观测
 -- ============================================================
 
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS sunset_observations (
     rating TEXT NOT NULL CHECK (rating IN ('excellent', 'very_good', 'good', 'fair', 'poor')),
     rating_label TEXT NOT NULL,
     comment TEXT,
-    source TEXT NOT NULL CHECK (source IN ('user', 'rednote_agent')),
+    source TEXT NOT NULL CHECK (source IN ('user', 'rednote_agent', 'rednote_manual')),
     confidence REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
     evidence_count INTEGER CHECK (evidence_count IS NULL OR evidence_count >= 0),
     user_ip_hash TEXT,
@@ -224,8 +224,30 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_event ON prediction_snapshots(event_id, 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_idempotency ON prediction_snapshots(idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_snapshot_source_slot ON prediction_snapshots(snapshot_source, scheduled_slot, event_date_local);
 CREATE INDEX IF NOT EXISTS idx_snapshot_model ON prediction_snapshots(model_version);
+CREATE INDEX IF NOT EXISTS idx_snapshot_city_date ON prediction_snapshots(city COLLATE NOCASE, event_date_local, event_id);
 CREATE INDEX IF NOT EXISTS idx_observation_event ON sunset_observations(event_id, submitted_at_epoch);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_submission ON sunset_observations(submission_id);
 CREATE INDEX IF NOT EXISTS idx_observation_rate_limit ON sunset_observations(user_ip_hash, city, submitted_at_epoch);
 CREATE INDEX IF NOT EXISTS idx_observation_rating ON sunset_observations(rating);
 CREATE INDEX IF NOT EXISTS idx_observation_source ON sunset_observations(source);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_manual_event
+ON sunset_observations(event_id)
+WHERE source = 'rednote_manual';
+
+CREATE TABLE IF NOT EXISTS observation_admin_audit (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    observation_id TEXT NOT NULL UNIQUE,
+    event_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action = 'create'),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'service')),
+    actor_subject TEXT NOT NULL,
+    actor_email TEXT,
+    created_at_utc TEXT NOT NULL,
+    created_at_epoch INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_request ON observation_admin_audit(request_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_event ON observation_admin_audit(event_id, created_at_epoch);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_actor ON observation_admin_audit(actor_subject, created_at_epoch);

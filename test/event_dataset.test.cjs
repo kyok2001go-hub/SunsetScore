@@ -24,7 +24,7 @@ function snapshot(context = eventContext(), overrides = {}) {
     snapshot_source: 'github_schedule', scheduled_slot: '1213',
     query_id: 'qid-test', prediction_time_utc: new Date().toISOString(),
     app_version: '2.4.2', model_version: '2.4.2', schema_version: 3,
-    dataset_schema_version: 2, predicted_score: 68, predicted_level: '很好',
+    dataset_schema_version: 3, predicted_score: 68, predicted_level: '很好',
     raw_snapshot_json: JSON.stringify({ query: 'qid-test' }),
     ...overrides
   };
@@ -91,11 +91,11 @@ test('observation API derives label and server time, atomically saves an in-wind
     const observation = sqlite.prepare('SELECT * FROM sunset_observations').get();
     const storedSnapshot = sqlite.prepare('SELECT * FROM prediction_snapshots').get();
     assert.equal(observation.rating_label, '✨ 普通有霞');
-    assert.equal(observation.dataset_schema_version, 2);
+    assert.equal(observation.dataset_schema_version, 3);
     assert.equal(observation.source, 'rednote_agent');
     assert.equal(observation.snapshot_id, storedSnapshot.id);
     assert.equal(storedSnapshot.snapshot_source, 'user_feedback');
-    assert.equal(storedSnapshot.dataset_schema_version, 2);
+    assert.equal(storedSnapshot.dataset_schema_version, 3);
     assert.equal(storedSnapshot.scheduled_slot, null);
     assert.ok(Date.now() - observation.submitted_at_epoch < 5000);
     const retry = await api.onRequestPost({ request: request(payload, '/api/observation'), env: { DB } });
@@ -133,7 +133,7 @@ test('observation API accepts exactly five ordered ratings and derives their lab
     const rows = sqlite.prepare('SELECT rating, rating_label, dataset_schema_version FROM sunset_observations ORDER BY submitted_at_epoch, rating').all();
     assert.equal(rows.length, 5);
     assert.deepEqual(new Map(rows.map((row) => [row.rating, row.rating_label])), new Map(ratings));
-    assert.ok(rows.every((row) => row.dataset_schema_version === 2));
+    assert.ok(rows.every((row) => row.dataset_schema_version === 3));
 
     const rejectedPayload = {
       observation: { submission_id: 'submission-rating-great', event_context: context, rating: 'great', source: 'user' },

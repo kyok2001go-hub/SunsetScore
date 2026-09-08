@@ -50,7 +50,7 @@ test('snapshot service emits explicit source/slot and no fake observation fields
   assert.equal(payload.snapshot_source, 'github_schedule');
   assert.equal(payload.scheduled_slot, '1613');
   assert.match(payload.idempotency_key, /^snap_v1_[a-f0-9]{64}$/);
-  assert.equal(payload.dataset_schema_version, 2);
+  assert.equal(payload.dataset_schema_version, 3);
   assert.equal('user_rating' in payload, false);
   assert.equal('user_comment' in payload, false);
   assert.doesNotMatch(JSON.stringify(payload), /META_ONLY/);
