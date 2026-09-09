@@ -72,6 +72,10 @@ function finite(value, label, min = -1e12, max = 1e12, nullable = false) {
   return value;
 }
 
+function epochMs(value, label) {
+  return finite(value, label, 0, 8.64e15);
+}
+
 function iso(value, label, nullable = false) {
   if (nullable && value == null) return null;
   requiredString(value, label, 40);
@@ -178,12 +182,12 @@ function validateMinute(value) {
   if (typeof value.available !== 'boolean') throw new ValidationError('minute_precip.available 非法');
   if (!value.available) return;
   if (value.time_axis !== 'utc_epoch_ms') throw new ValidationError('minute_precip 时间轴非法');
-  finite(value.coverage_start, 'coverage_start'); finite(value.coverage_end, 'coverage_end');
+  epochMs(value.coverage_start, 'coverage_start'); epochMs(value.coverage_end, 'coverage_end');
   finite(value.step_ms, 'step_ms', 1); requiredString(value.interval_anchor, 'interval_anchor', 30);
   const series = object(value.minute_series, 'minute_series');
   const times = series.time_utc_ms, precip = series.precipitation_mm;
   if (!Array.isArray(times) || !Array.isArray(precip) || !times.length || times.length !== precip.length || times.length > 600) throw new ValidationError('minute_series 数组长度非法');
-  times.forEach((item, index) => finite(item, 'minute time ' + index));
+  times.forEach((item, index) => epochMs(item, 'minute time ' + index));
   precip.forEach((item, index) => { if (item != null) finite(item, 'minute precip ' + index, 0); });
 }
 
@@ -194,7 +198,7 @@ function validateVisual(value, label) {
   if (!Array.isArray(value.coverage_series) || value.coverage_series.length > 100) throw new ValidationError(label + '.coverage_series 非法');
   value.coverage_series.forEach((entry, index) => {
     object(entry, label + ' coverage'); exactKeys(entry, new Set(['t', 'pct']), label + ' coverage');
-    finite(entry.t, label + ' t ' + index); finite(entry.pct, label + ' pct ' + index, 0, 100);
+    epochMs(entry.t, label + ' t ' + index); finite(entry.pct, label + ' pct ' + index, 0, 100);
   });
 }
 

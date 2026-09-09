@@ -136,6 +136,36 @@ test('Replay endpoint writes PENDING -> READY, stores gzip in R2 and deduplicate
   } finally { sqlite.close(); }
 });
 
+test('Replay accepts current epoch-ms timelines for precipitation and visual sources', async () => {
+  const api = await import('../functions/api/replay-snapshot.js');
+  const { DB, sqlite } = database();
+  const R2 = bucket();
+  try {
+    const payload = await envelope({
+      minute_precip: {
+        available: true, source: 'qweather', time_axis: 'utc_epoch_ms',
+        coverage_start: 1788948000000, coverage_end: 1788948060000,
+        step_ms: 60000, interval_anchor: 'interval_start',
+        minute_series: { time_utc_ms: [1788948000000], precipitation_mm: [0] }
+      },
+      radar: {
+        available: true, source: 'rainviewer', source_status: 'OK', layer: null,
+        coverage_series: [{ t: 1788948000000, pct: 0 }]
+      },
+      satellite: {
+        available: true, source: 'nasa-gibs', source_status: 'OK', layer: 'fixture',
+        coverage_series: [{ t: 1788948000000, pct: 42 }]
+      }
+    });
+    const response = await api.onRequestPost({ request: replayRequest(payload), env: {
+      DB, REPLAY_BUCKET: R2, REPLAY_INGEST_SECRET: 'fixture-secret'
+    } });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).replayStatus, 'READY');
+    assert.equal(R2.objects.size, 1);
+  } finally { sqlite.close(); }
+});
+
 test('Replay endpoint preserves Snapshot and retries FAILED R2 writes to READY', async () => {
   const api = await import('../functions/api/replay-snapshot.js');
   const { DB, sqlite } = database();
