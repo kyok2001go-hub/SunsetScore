@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.4.5 - 应用启动器
+ * SunsetScore V2.4.6 - 应用启动器
  * 只负责绑定入口事件，并连接 Prediction Service 与 UI。
  * ============================================================ */
 (function (root) {
@@ -31,6 +31,12 @@
     } catch (error) { return 'user'; }
   }
 
+  function replayCaptureRequested() {
+    try {
+      return root.location && root.location.href && new URL(root.location.href).searchParams.get('replay') === '1';
+    } catch (error) { return false; }
+  }
+
   function syncCityParam(query) {
     try {
       if (!root.location || !root.location.href || !root.history || !root.history.replaceState) return;
@@ -51,7 +57,8 @@
     activeQuery = controller;
     SS.ui.beginPrediction();
     try {
-      var result = await SS.prediction.predict(normalized, { location: location, signal: controller.signal, onProgress: function (message) {
+      var result = await SS.prediction.predict(normalized, { location: location, signal: controller.signal,
+        captureReplay: replayCaptureRequested(), onProgress: function (message) {
         if (activeQuery === controller) SS.ui.setLoading(message);
       } });
       if (activeQuery === controller && !controller.signal.aborted) {

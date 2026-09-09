@@ -115,5 +115,14 @@
     return send(await buildPayload(result, options));
   }
 
-  SS.snapshotService = { buildPayload: buildPayload, send: send, submit: submit };
+  async function buildReplayEnvelope(result, options) {
+    var source = String(options && options.source || '');
+    if (source !== 'github_schedule' && source !== 'github_manual') throw new Error('Replay 仅支持 GitHub 采集来源');
+    if (!result || !result.replay_payload || result.replay_payload.replay_schema_version !== 1) {
+      throw new Error('FAILED_REPLAY_CAPTURE');
+    }
+    return { snapshot: await buildPayload(result, options), replay: result.replay_payload };
+  }
+
+  SS.snapshotService = { buildPayload: buildPayload, buildReplayEnvelope: buildReplayEnvelope, send: send, submit: submit };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -135,6 +135,9 @@ function resultRecord(city, index, startedAtMs) {
     finishedAtUtc: null,
     durationMs: null,
     snapshotId: null,
+    replayStatus: null,
+    replaySizeBytes: null,
+    replaySha256Prefix: null,
     errorCode: null,
     errorMessage: null,
     screenshot: null
@@ -197,6 +200,9 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
         } else {
           record.status = STATUSES.SUBMITTED;
           record.snapshotId = response.id || null;
+          record.replayStatus = response.replayStatus || 'READY';
+          record.replaySizeBytes = Number.isFinite(response.replaySizeBytes) ? response.replaySizeBytes : null;
+          record.replaySha256Prefix = response.replaySha256 ? String(response.replaySha256).slice(0, 12) : null;
         }
       }
     }
@@ -288,10 +294,20 @@ export function readConfig(env = process.env) {
   const scheduledTimezone = String(env.METADATA_TIMEZONE || 'Asia/Shanghai').trim();
   if (!scheduledTimezone) throw new Error('METADATA_TIMEZONE must not be empty');
   const runType = validateRunType(env.METADATA_RUN_TYPE);
+  const submit = booleanValue(env.SUBMIT);
+  const replayIngestSecret = String(env.REPLAY_INGEST_SECRET || '');
+  if (submit && !replayIngestSecret) throw new Error('REPLAY_INGEST_SECRET is required when SUBMIT=true');
+  const scheduledReplayEnabled = booleanValue(env.ENABLE_SCHEDULED_REPLAY);
+  if (submit && runType === 'scheduled' && !scheduledReplayEnabled) {
+    throw new Error('Scheduled Replay is disabled until ENABLE_SCHEDULED_REPLAY=true');
+  }
   return {
     baseUrl: baseUrl.href.replace(/\/$/, ''),
     cities,
-    submit: booleanValue(env.SUBMIT),
+    submit,
+    replayIngestSecret,
+    engineBuildSha: String(env.GITHUB_SHA || '').trim() || null,
+    scheduledReplayEnabled,
     concurrency: boundedInteger(env.METADATA_CONCURRENCY, 2, 1, 2),
     predictionTimeoutMs: boundedInteger(env.PREDICTION_TIMEOUT_MS, 120000, 1000, 180000),
     navigationTimeoutMs: boundedInteger(env.NAVIGATION_TIMEOUT_MS, 45000, 1000, 120000),
@@ -333,6 +349,7 @@ export function createPlaywrightAdapter(browser) {
     async navigate(session, city, config) {
       const url = new URL('/', config.baseUrl + '/');
       url.searchParams.set('city', city);
+      url.searchParams.set('replay', '1');
       const response = await session.page.goto(url.href, {
         waitUntil: 'domcontentloaded',
         timeout: config.navigationTimeoutMs
@@ -348,9 +365,10 @@ export function createPlaywrightAdapter(browser) {
         const result = SS && SS.ui && typeof SS.ui.getCurrentResult === 'function'
           ? SS.ui.getCurrentResult() : null;
         if (result) {
-          if (!SS.snapshotService || typeof SS.snapshotService.submit !== 'function') {
-            return { kind: 'error', message: '预测快照服务不可用' };
+          if (!SS.snapshotService || typeof SS.snapshotService.buildReplayEnvelope !== 'function') {
+            return { kind: 'error', message: 'Replay 快照构建器不可用' };
           }
+          if (!result.replay_payload) return { kind: 'error', message: '预测结果缺少 Replay 数据' };
           return { kind: 'result' };
         }
         const errorNode = document.getElementById('error');
@@ -367,16 +385,40 @@ export function createPlaywrightAdapter(browser) {
       return prediction;
     },
 
-    async submit(session, submission) {
-      return session.page.evaluate(async (input) => {
+    async submit(session, submission, config) {
+      // The browser builds the envelope but never receives the ingest secret.
+      const envelope = await session.page.evaluate(async (input) => {
         const SS = window.SunsetScore;
         const result = SS && SS.ui && typeof SS.ui.getCurrentResult === 'function'
           ? SS.ui.getCurrentResult() : null;
-        if (!result || !SS.snapshotService || typeof SS.snapshotService.submit !== 'function') {
-          throw new Error('预测快照服务或当前预测结果不可用');
+        if (!result || !SS.snapshotService || typeof SS.snapshotService.buildReplayEnvelope !== 'function') {
+          throw new Error('Replay 快照构建器或当前预测结果不可用');
         }
-        return SS.snapshotService.submit(result, input);
+        return SS.snapshotService.buildReplayEnvelope(result, input);
       }, submission);
+      if (config.engineBuildSha) envelope.replay.identity.engine_build_sha = config.engineBuildSha;
+      let response;
+      try {
+        response = await fetch(config.baseUrl + '/api/replay-snapshot', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.replayIngestSecret },
+          body: JSON.stringify(envelope),
+          signal: AbortSignal.timeout(30000)
+        });
+      } catch (error) {
+        return { remote: false, error: error && error.name === 'TimeoutError'
+          ? 'Replay 提交超时；请使用同一任务重试' : '无法连接 Replay 服务' };
+      }
+      const raw = await response.text();
+      if (raw.length > 20000) return { remote: false, error: 'Replay 服务响应过大' };
+      let data;
+      try { data = JSON.parse(raw); } catch { return { remote: false, error: 'Replay 服务响应不是有效 JSON' }; }
+      if (!response.ok || data.success !== true || data.replaySaved !== true || data.replayStatus !== 'READY') {
+        return { remote: false, error: data.errorCode || data.error || ('HTTP ' + response.status), id: data.id || null };
+      }
+      return { remote: true, id: data.id, replayStatus: data.replayStatus,
+        replaySizeBytes: data.replaySizeBytes, replaySha256: data.replaySha256,
+        deduplicated: !!data.deduplicated };
     },
 
     async screenshot(session, city, index, status, config) {

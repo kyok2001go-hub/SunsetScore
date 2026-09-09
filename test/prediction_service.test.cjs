@@ -7,7 +7,7 @@ const SERVICE_FILES = [
   'js/vendor/suncalc.js', 'js/solar.js', 'js/baseline.js', 'js/cache.js',
   'js/data.js', 'js/city_search.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js',
   'js/sky_state.js', 'js/engine.js', 'js/sampling.js', 'js/corridor.js',
-  'js/nowcast.js', 'js/evolution.js', 'js/prediction_service.js', 'js/feedback_service.js'
+  'js/nowcast.js', 'js/evolution.js', 'js/replay_service.js', 'js/prediction_service.js', 'js/feedback_service.js'
 ];
 
 test('prediction service runs without DOM and returns a valid V2.4 result', async () => {
@@ -32,7 +32,7 @@ test('prediction service runs without DOM and returns a valid V2.4 result', asyn
     nowUtcMs: Date.parse('2026-08-26T02:00:00Z')
   });
 
-  assert.equal(result.model_version, '2.4.5');
+  assert.equal(result.model_version, '2.4.6');
   assert.equal(result.score, 80);
   assert.equal(result.level, '很好');
   assert.deepEqual(JSON.parse(JSON.stringify(result.components)), {
@@ -59,6 +59,49 @@ test('prediction service runs without DOM and returns a valid V2.4 result', asyn
   assert.doesNotThrow(() => SS.domain.assertPredictionResult(result));
   const rawSnapshot = JSON.parse(SS.feedbackService.buildPayload(result, { rating: 'poor' }).raw_snapshot_json);
   assert.equal(rawSnapshot.performance_timing, undefined);
+});
+
+test('Replay capture bypasses result cache, uses UTC axes and passes server schema validation', async () => {
+  const runtime = createRuntime();
+  const SS = load(runtime, SERVICE_FILES);
+  const fc = forecast({ cloud: 48, low: 18, mid: 44, high: 62 });
+  fc.timezone = 'Asia/Shanghai';
+  fc.utc_offset_seconds = 28800;
+  SS.data.fetchForecastWithRetry = async () => fc;
+  SS.data.fetchAirQuality = async () => null;
+  SS.data.gather = async (nodes) => ({ samples: nodes.map((point) => ({ point, forecast: fc })), successCount: nodes.length });
+  const nowUtcMs = Date.parse('2026-08-26T02:00:00Z');
+  const ordinary = await SS.prediction.predict('31.23,121.47', { nowUtcMs });
+  const replayResult = await SS.prediction.predict('31.23,121.47', { nowUtcMs, captureReplay: true });
+  assert.equal(ordinary.result_cache_status, 'MISS');
+  assert.equal(replayResult.result_cache_status, 'MISS');
+  assert.equal(replayResult.replay_payload.replay_schema_version, 1);
+  assert.equal(replayResult.replay_payload.context.dataset_schema_version, 3);
+  assert.equal(replayResult.replay_payload.nwp.nodes.length, 33);
+  assert.ok(replayResult.replay_payload.nwp.nodes[0].time_utc.every((value) => /Z$/.test(value)));
+  assert.equal('expected_output' in replayResult.replay_payload, false);
+  assert.equal(replayResult.replay_payload.engine_inputs.actual_corridor_nodes.length, 13);
+  assert.match(replayResult.replay_payload.identity.config_hash, /^[a-f0-9]{64}$/);
+  const stored = SS.cache.get(SS.cacheKeys.resultIndex({ latitude: 31.23, longitude: 121.47 }));
+  if (stored) {
+    const cachedResult = SS.cache.get(stored.resultKey);
+    assert.equal(cachedResult && cachedResult.replay_payload, undefined);
+  }
+
+  const eventDate = replayResult.date;
+  const server = await import('../server/event-dataset.js');
+  const schema = await import('../server/replay-schema.js');
+  const row = await server.buildSnapshotRow({
+    event_context: { event_date_local: eventDate, city: replayResult.city, admin1: replayResult.admin1,
+      country: replayResult.country, latitude: replayResult.latitude, longitude: replayResult.longitude,
+      timezone: replayResult.timezone, sunset_time_utc: replayResult.sunset_time_utc,
+      sunset_time_local: replayResult.sunset_time_local },
+    snapshot_source: 'github_manual', scheduled_slot: '1213', query_id: replayResult.query_id,
+    prediction_time_utc: replayResult.prediction_time_utc, app_version: replayResult.app_version,
+    model_version: replayResult.model_version, schema_version: replayResult.schema_version,
+    dataset_schema_version: 3, asset_revision: 'replay1', predicted_score: replayResult.score, predicted_level: replayResult.level
+  });
+  await assert.doesNotReject(schema.validateReplayPayload(replayResult.replay_payload, row));
 });
 
 test('selected homonymous cities keep their own coordinates and result caches without re-geocoding', async () => {

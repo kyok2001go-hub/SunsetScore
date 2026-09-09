@@ -1,5 +1,5 @@
 -- ============================================================
--- SunsetScore V2.4.5 - Cloudflare D1 数据库完整全量结构定义
+-- SunsetScore V2.4.6 - Cloudflare D1 数据库完整全量结构定义
 -- 包含：历史反馈兼容表、事件级预测快照、事件级真实观测
 -- ============================================================
 
@@ -187,8 +187,22 @@ CREATE TABLE IF NOT EXISTS prediction_snapshots (
     dyn_weight_illum REAL,
     dyn_weight_atmo REAL,
     dyn_weight_weather REAL,
-    raw_snapshot_json TEXT
+    raw_snapshot_json TEXT,
+    replay_status TEXT NOT NULL DEFAULT 'NONE' CHECK (replay_status IN ('NONE', 'PENDING', 'READY', 'FAILED')),
+    replay_schema_version INTEGER CHECK (replay_schema_version IS NULL OR replay_schema_version >= 1),
+    replay_object_key TEXT,
+    replay_size_bytes INTEGER CHECK (replay_size_bytes IS NULL OR replay_size_bytes >= 0),
+    replay_sha256 TEXT,
+    replay_object_etag TEXT,
+    replay_compression TEXT CHECK (replay_compression IS NULL OR replay_compression = 'gzip'),
+    replay_saved_at_utc TEXT,
+    replay_updated_at_utc TEXT,
+    replay_error_code TEXT,
+    replay_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (replay_attempt_count >= 0)
 );
+
+CREATE INDEX IF NOT EXISTS idx_snapshot_replay_status
+ON prediction_snapshots(replay_status, replay_updated_at_utc);
 
 CREATE TABLE IF NOT EXISTS sunset_observations (
     id TEXT PRIMARY KEY,

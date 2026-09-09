@@ -5,7 +5,7 @@
  * Binding: env.DB (D1 database)
  * Optional auth: env.ADMIN_SECRET (Authorization: Bearer <SECRET>)
  */
-import { OBSERVATION_FIELDS, SNAPSHOT_FIELDS } from '../../server/event-dataset.js';
+import { OBSERVATION_FIELDS, SNAPSHOT_PUBLIC_EXPORT_FIELDS } from '../../server/event-dataset.js';
 import { feedbackColumns, feedbackEpochSql, feedbackSelectSql } from '../../server/feedback-db.js';
 
 const MAX_EXPORT_ROWS = 5000;
@@ -114,7 +114,7 @@ const PUBLIC_OBSERVATION_COLUMNS = Object.freeze(
 const DATASETS = Object.freeze({
   prediction_snapshots: Object.freeze({
     table: 'prediction_snapshots',
-    columns: SNAPSHOT_FIELDS,
+    columns: SNAPSHOT_PUBLIC_EXPORT_FIELDS,
     orderBy: 'submitted_at_epoch DESC, id DESC'
   }),
   sunset_observations: Object.freeze({

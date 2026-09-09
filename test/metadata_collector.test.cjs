@@ -85,13 +85,19 @@ test('configuration defaults to fourteen cities, clamps concurrency and supports
   assert.equal(defaults.runType, 'manual');
   const subset = collector.readConfig({
     METADATA_CITIES: '深圳，广州,深圳', METADATA_CONCURRENCY: '9', SUBMIT: 'true',
-    METADATA_SLOT: '1613', METADATA_RUN_TYPE: 'scheduled', METADATA_TRIGGER: 'workflow_dispatch'
+    METADATA_SLOT: '1613', METADATA_RUN_TYPE: 'scheduled', METADATA_TRIGGER: 'workflow_dispatch',
+    REPLAY_INGEST_SECRET: 'test-secret', ENABLE_SCHEDULED_REPLAY: 'true'
   });
   assert.deepEqual(subset.cities, ['深圳', '广州']);
   assert.equal(subset.concurrency, 2);
   assert.equal(subset.submit, true);
   assert.equal(subset.runType, 'scheduled');
   assert.equal(subset.trigger, 'workflow_dispatch');
+  assert.equal(subset.replayIngestSecret, 'test-secret');
+  assert.equal(subset.scheduledReplayEnabled, true);
+  assert.throws(() => collector.readConfig({ METADATA_SLOT: '1213', SUBMIT: 'true' }), /REPLAY_INGEST_SECRET/);
+  assert.throws(() => collector.readConfig({ METADATA_SLOT: '1213', SUBMIT: 'true',
+    METADATA_RUN_TYPE: 'scheduled', REPLAY_INGEST_SECRET: 'test-secret' }), /Scheduled Replay is disabled/);
   assert.throws(() => collector.readConfig({ METADATA_CITIES: '，,  ', METADATA_SLOT: '1213' }), /valid city/);
 });
 
@@ -328,9 +334,11 @@ test('workflow enforces Cloudflare cron dispatch inputs without native schedule 
 
   // Verify package versions
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.4.5');
-  assert.equal(lock.version, '2.4.5');
-  assert.equal(lock.packages[''].version, '2.4.5');
+  assert.equal(packageJson.version, '2.4.6');
+  assert.equal(lock.version, '2.4.6');
+  assert.equal(lock.packages[''].version, '2.4.6');
+  assert.match(workflow, /REPLAY_INGEST_SECRET:\s*\$\{\{ secrets\.REPLAY_INGEST_SECRET \}\}/);
+  assert.match(workflow, /ENABLE_SCHEDULED_REPLAY:\s*\$\{\{ vars\.ENABLE_SCHEDULED_REPLAY \}\}/);
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');
   assert.equal(typeof lock.packages['node_modules/playwright'].version, 'string');
 });

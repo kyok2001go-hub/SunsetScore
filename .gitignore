@@ -11,6 +11,7 @@ node_modules/
 artifacts/
 playwright-report/
 test-results/
+dataset/
 *.zip
 *.trace
 

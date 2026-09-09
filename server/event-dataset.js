@@ -4,7 +4,7 @@ const EVENT_CONTEXT_FIELDS = new Set([
   'sunset_time_utc', 'sunset_time_local'
 ]);
 
-export const SNAPSHOT_FIELDS = Object.freeze([
+export const SNAPSHOT_INSERT_FIELDS = Object.freeze([
   'id', 'idempotency_key', 'event_id', 'event_date_local', 'location_key',
   'city', 'country', 'admin1', 'latitude', 'longitude', 'location_source',
   'location_id', 'timezone', 'sunset_time_utc', 'sunset_time_local',
@@ -28,6 +28,19 @@ export const SNAPSHOT_FIELDS = Object.freeze([
   'dyn_weight_atmo', 'dyn_weight_weather', 'raw_snapshot_json'
 ]);
 
+// Replay lifecycle metadata is internal-only. It is intentionally excluded from
+// both the browser snapshot input contract and the public dataset export.
+export const SNAPSHOT_REPLAY_METADATA_FIELDS = Object.freeze([
+  'replay_status', 'replay_schema_version', 'replay_object_key',
+  'replay_size_bytes', 'replay_sha256', 'replay_object_etag',
+  'replay_compression', 'replay_saved_at_utc', 'replay_updated_at_utc',
+  'replay_error_code', 'replay_attempt_count'
+]);
+
+export const SNAPSHOT_PUBLIC_EXPORT_FIELDS = Object.freeze(Array.from(SNAPSHOT_INSERT_FIELDS));
+// Backward-compatible name for snapshot/observation writers.
+export const SNAPSHOT_FIELDS = SNAPSHOT_INSERT_FIELDS;
+
 export const OBSERVATION_FIELDS = Object.freeze([
   'id', 'submission_id', 'event_id', 'event_date_local', 'location_key',
   'snapshot_id', 'city', 'country', 'admin1', 'latitude', 'longitude',
@@ -43,7 +56,7 @@ export const ADMIN_AUDIT_FIELDS = Object.freeze([
   'created_at_epoch'
 ]);
 
-const SNAPSHOT_INPUT_FIELDS = new Set(SNAPSHOT_FIELDS.filter((field) => ![
+const SNAPSHOT_INPUT_FIELDS = new Set(SNAPSHOT_INSERT_FIELDS.filter((field) => ![
   'id', 'event_id', 'event_date_local', 'location_key',
   'city', 'country', 'admin1', 'latitude', 'longitude', 'location_source',
   'location_id', 'timezone', 'sunset_time_utc', 'sunset_time_local',

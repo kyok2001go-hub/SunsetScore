@@ -1,5 +1,5 @@
 /* ============================================================
- * SunsetScore V2.4.5 - 无 UI 依赖的预测业务编排层
+ * SunsetScore V2.4.6 - 无 UI 依赖的预测业务编排层
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -370,7 +370,7 @@
     var earlyCachedResult;
     try { earlyCachedResult = readEarlyResultCache(location, nowUtcMs); }
     finally { timing.cache_check_ms = elapsedMs(cacheStartedAt); }
-    if (earlyCachedResult) {
+    if (earlyCachedResult && !options.captureReplay) {
       timing.total_ms = elapsedMs(totalStartedAt);
       return Object.assign({}, earlyCachedResult, {
         result_cache_status: 'HIT',
@@ -540,11 +540,19 @@
     result.satellite_status = sourceStatus && sourceStatus.satellite ? sourceStatus.satellite.status : 'NOT_REQUESTED';
     timing.total_ms = elapsedMs(totalStartedAt);
     result.performance_timing = timing;
+    // Replay capture must use this request's raw inputs, never a result-cache
+    // object. Keep the potentially large payload out of localStorage.
     SS.cache.set(cacheKey, result);
     SS.cache.set(SS.cacheKeys.resultIndex(location), {
       locationKey: SS.cacheKeys.resultLocation(location),
       resultKey: cacheKey
     });
+    if (options.captureReplay) {
+      if (!SS.replayService || typeof SS.replayService.capture !== 'function') throw new Error('FAILED_REPLAY_CAPTURE_SERVICE');
+      result.replay_payload = await SS.replayService.capture({
+        result: result, context: context, spatial: spatial, engineInput: engineInput
+      });
+    }
     return result;
   }
 

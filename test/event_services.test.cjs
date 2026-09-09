@@ -56,6 +56,19 @@ test('snapshot service emits explicit source/slot and no fake observation fields
   assert.doesNotMatch(JSON.stringify(payload), /META_ONLY/);
 });
 
+test('snapshot Replay envelope requires GitHub source and captured schema v1', async () => {
+  const SS = load(createRuntime(), FILES);
+  const result = prediction({ replay_payload: { replay_schema_version: 1, identity: { config_hash: 'fixture' } } });
+  const envelope = await SS.snapshotService.buildReplayEnvelope(result, {
+    source: 'github_manual', scheduledSlot: '1613'
+  });
+  assert.equal(envelope.snapshot.snapshot_source, 'github_manual');
+  assert.equal(envelope.replay, result.replay_payload);
+  await assert.rejects(SS.snapshotService.buildReplayEnvelope(result, {
+    source: 'user_feedback'
+  }), /GitHub/);
+});
+
 test('observation retry reuses its caller submission id and source comes from the URL runtime', async () => {
   const submitted = [];
   const runtime = createRuntime({

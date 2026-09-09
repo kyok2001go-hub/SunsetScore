@@ -134,6 +134,8 @@ jobs:
           NAVIGATION_TIMEOUT_MS: '45000'
           PREDICTION_TIMEOUT_MS: '120000'
           ARTIFACTS_DIR: artifacts
+          REPLAY_INGEST_SECRET: ${{ secrets.REPLAY_INGEST_SECRET }}
+          ENABLE_SCHEDULED_REPLAY: ${{ vars.ENABLE_SCHEDULED_REPLAY }}
 
       - name: Upload report and screenshots
         if: always()

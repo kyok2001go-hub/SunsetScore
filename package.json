@@ -1,13 +1,15 @@
 {
   "name": "sunsetscore",
-  "version": "2.4.5",
+  "version": "2.4.6",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
     "test": "node --test test/*.test.cjs",
     "check": "node scripts/check-js.cjs && npm test",
-    "metadata:collect": "node scripts/pre-sunset-metadata.mjs"
+    "metadata:collect": "node scripts/pre-sunset-metadata.mjs",
+    "replay": "node tools/replay/replay-runner.mjs",
+    "replay:download": "node tools/replay/download-replay.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

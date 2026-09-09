@@ -1,4 +1,4 @@
-"""Validate fresh D1 schema and sequential V2.2.2 -> V2.4.5 migrations."""
+"""Validate fresh D1 schema and sequential V2.2.2 -> V2.4.6 migrations."""
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
@@ -60,6 +60,7 @@ assert upgrade.execute(
     "SELECT id, submission_id, rating, source, dataset_schema_version FROM sunset_observations"
 ).fetchall() == preserved_before
 assert upgrade.execute("SELECT COUNT(*) FROM sunset_observations_v1_archive").fetchone()[0] == 1
+upgrade.executescript(sql("migrations/007_prediction_replay.sql"))
 row = upgrade.execute(
     "SELECT created_at_epoch, created_at_utc, app_version, schema_version FROM sunset_feedback"
 ).fetchone()
@@ -88,6 +89,9 @@ for connection in (upgrade, fresh):
     )}
     for required in ("idempotency_key", "event_id", "sunset_time_utc", "snapshot_source"):
         assert snapshot_columns.get(required) == 1, f"prediction_snapshots.{required} must be NOT NULL"
+    assert snapshot_columns.get("replay_status") == 1
+    assert snapshot_columns.get("replay_attempt_count") == 1
+    assert snapshot_columns.get("replay_schema_version") == 0
     for required in ("submission_id", "event_id", "submitted_at_utc", "rating_label", "source"):
         assert observation_columns.get(required) == 1, f"sunset_observations.{required} must be NOT NULL"
     assert "observed_at_utc" not in observation_columns
@@ -100,6 +104,7 @@ for connection in (upgrade, fresh):
     assert expected_indexes <= indexes, indexes
     snapshot_indexes = {item[1] for item in connection.execute("PRAGMA index_list(prediction_snapshots)")}
     assert "idx_snapshot_city_date" in snapshot_indexes, snapshot_indexes
+    assert "idx_snapshot_replay_status" in snapshot_indexes, snapshot_indexes
     audit_indexes = {item[1] for item in connection.execute("PRAGMA index_list(observation_admin_audit)")}
     assert {
         "idx_admin_audit_request", "idx_admin_audit_event", "idx_admin_audit_actor",
@@ -147,4 +152,8 @@ upgrade_audit_signature = list(upgrade.execute("PRAGMA table_info(observation_ad
 fresh_audit_signature = list(fresh.execute("PRAGMA table_info(observation_admin_audit)"))
 assert upgrade_audit_signature == fresh_audit_signature, "fresh and migrated audit schemas differ"
 
-print("D1 V2.4.5 schema and sequential migrations passed")
+upgrade_snapshot_signature = list(upgrade.execute("PRAGMA table_info(prediction_snapshots)"))
+fresh_snapshot_signature = list(fresh.execute("PRAGMA table_info(prediction_snapshots)"))
+assert upgrade_snapshot_signature == fresh_snapshot_signature, "fresh and migrated Snapshot schemas differ"
+
+print("D1 V2.4.6 schema and sequential migrations passed")

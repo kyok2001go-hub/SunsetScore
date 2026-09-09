@@ -62,7 +62,8 @@ test('snapshot API rejects tampered identity, invalid source/slot and unknown fi
       snapshot(eventContext(), { idempotency_key: 'snap_v1_tampered' }),
       snapshot(eventContext(), { snapshot_source: 'attacker' }),
       snapshot(eventContext(), { scheduled_slot: '25:00' }),
-      { ...snapshot(), rating: 'poor' }
+      { ...snapshot(), rating: 'poor' },
+      { snapshot: snapshot(), replay: { replay_schema_version: 1 } }
     ]) {
       const response = await api.onRequestPost({ request: request(payload, '/api/snapshot'), env: { DB } });
       assert.equal(response.status, 400, await response.clone().text());
