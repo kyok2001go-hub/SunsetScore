@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (m) => m.slice(1))), '..', '..');
-const RUNTIME_FILES = [
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const REPLAY_RUNTIME_FILES = Object.freeze([
   'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
   'js/data.js', 'js/cloud_field.js', 'js/wind.js', 'js/cloud_motion.js', 'js/sky_state.js',
   'js/nowcast.js', 'js/evolution.js', 'js/engine.js', 'js/baseline.js', 'js/sampling.js'
-];
+]);
 
-let runtimeLoaded = false;
-async function runtime() {
-  if (!runtimeLoaded) {
-    for (const file of RUNTIME_FILES) await import(pathToFileURL(path.join(ROOT, file)).href);
-    runtimeLoaded = true;
+let runtimeRoot = null;
+async function runtime(engineRoot = ROOT) {
+  const resolvedRoot = path.resolve(engineRoot);
+  if (runtimeRoot && runtimeRoot !== resolvedRoot) {
+    throw new Error('MULTIPLE_ENGINE_ROOTS_UNSUPPORTED');
+  }
+  if (!runtimeRoot) {
+    delete globalThis.SunsetScore;
+    for (const file of REPLAY_RUNTIME_FILES) await import(pathToFileURL(path.join(resolvedRoot, file)).href);
+    runtimeRoot = resolvedRoot;
   }
   return globalThis.SunsetScore;
 }
@@ -80,9 +85,83 @@ function levelOf(SS, score) {
   return levels.find((item) => score >= item.min)?.label || levels[levels.length - 1].label;
 }
 
+const COMPONENT_FIELDS = Object.freeze([
+  ['sky_canvas', 'comp_sky_canvas'],
+  ['horizon', 'comp_horizon'],
+  ['illumination', 'comp_illumination'],
+  ['atmosphere', 'comp_atmosphere'],
+  ['weather', 'comp_weather']
+]);
+
+function referenceMap(expected) {
+  return {
+    score: expected.predicted_score,
+    level: expected.predicted_level,
+    baseline_score: expected.baseline_score,
+    baseline_level: expected.baseline_level,
+    regime_label: expected.regime_label,
+    regime_strength: expected.regime_strength,
+    sky_evolution_state: expected.sky_evolution_state,
+    sky_evolution_factor: expected.sky_evolution_factor,
+    gw_factor: expected.gw_factor,
+    components: Object.fromEntries(COMPONENT_FIELDS.map(([actual, stored]) => [actual, expected[stored]]))
+  };
+}
+
+function compareReference(actual, expected) {
+  const reference = referenceMap(expected);
+  const issues = [];
+  const deltas = { components: {} };
+
+  function number(name, tolerance, inclusive = true) {
+    const actualValue = actual[name], expectedValue = reference[name];
+    if (!Number.isFinite(actualValue) || !Number.isFinite(expectedValue)) {
+      issues.push('INVALID_REFERENCE_FIELD:' + name);
+      deltas[name] = null;
+      return false;
+    }
+    const delta = actualValue - expectedValue;
+    deltas[name] = delta;
+    return inclusive ? Math.abs(delta) <= tolerance : Math.abs(delta) < tolerance;
+  }
+
+  function exact(name) {
+    if (typeof actual[name] !== 'string' || !actual[name] || typeof reference[name] !== 'string' || !reference[name]) {
+      issues.push('INVALID_REFERENCE_FIELD:' + name);
+      return false;
+    }
+    return actual[name] === reference[name];
+  }
+
+  const checks = [
+    number('score', 1), exact('level'),
+    number('baseline_score', 1), exact('baseline_level'),
+    exact('regime_label'), number('regime_strength', 0.01),
+    exact('sky_evolution_state'), number('sky_evolution_factor', 0.01, false),
+    number('gw_factor', 0.01, false)
+  ];
+  let pass = checks.every(Boolean);
+
+  for (const [name] of COMPONENT_FIELDS) {
+    const actualValue = actual.components && actual.components[name];
+    const expectedValue = reference.components[name];
+    if (!Number.isFinite(actualValue) || !Number.isFinite(expectedValue)) {
+      issues.push('INVALID_REFERENCE_FIELD:components.' + name);
+      deltas.components[name] = null;
+      pass = false;
+      continue;
+    }
+    const delta = actualValue - expectedValue;
+    deltas.components[name] = delta;
+    if (Math.abs(delta) > 1) pass = false;
+  }
+
+  return { pass: pass && issues.length === 0, reference, deltas, issues };
+}
+
 export async function runReplay(replay, options = {}) {
   if (!replay || replay.replay_schema_version !== 1) throw new Error('Only replay_schema_version=1 is supported');
-  const SS = await runtime();
+  const SS = await runtime(options.engineRoot);
   const current = SS.modelConfig;
   const captured = deepMerge(replay.effective_config, options.configOverride || {});
   const scoring = deepMerge(current.scoring, captured.scoring || {});
@@ -126,7 +205,7 @@ export async function runReplay(replay, options = {}) {
     result.baseline_score = baseline.score;
     result.baseline_level = baseline.level;
     result.sky_evolution_factor = skyState.factor;
-    let gwFactor = null;
+    let gwFactor = 1;
     const time = { nowUtcMs: nowMs, sunsetUtcMs: sunsetMs, minutesToSunset: (sunsetMs - nowMs) / 60000 };
     if (SS.evolution.isGoldenWindowActive({ time })) {
       const radar = restoreVisual(replay.radar);
@@ -154,30 +233,12 @@ export async function runReplay(replay, options = {}) {
       regime_strength: result.regime_state && result.regime_state.strength,
       sky_evolution_state: skyState.state, sky_evolution_factor: result.sky_evolution_factor, gw_factor: gwFactor
     };
-    const expected = options.reference || null;
-    const deltas = {};
-    const referenceMap = expected ? {
-      score: expected.predicted_score, level: expected.predicted_level,
-      baseline_score: expected.baseline_score, baseline_level: expected.baseline_level,
-      regime_label: expected.regime_label, regime_strength: expected.regime_strength,
-      sky_evolution_state: expected.sky_evolution_state, sky_evolution_factor: expected.sky_evolution_factor,
-      gw_factor: expected.gw_factor,
-      components: { sky_canvas: expected.comp_sky_canvas, horizon: expected.comp_horizon,
-        illumination: expected.comp_illumination, atmosphere: expected.comp_atmosphere, weather: expected.comp_weather }
-    } : null;
-    for (const key of ['score', 'baseline_score', 'regime_strength', 'sky_evolution_factor', 'gw_factor']) {
-      deltas[key] = !referenceMap || referenceMap[key] == null || actual[key] == null ? null : actual[key] - referenceMap[key];
-    }
-    const componentDeltas = {};
-    for (const key of Object.keys(actual.components || {})) {
-      componentDeltas[key] = !referenceMap || referenceMap.components[key] == null ? null : actual.components[key] - referenceMap.components[key];
-    }
-    const pass = !referenceMap ? null : Math.abs(deltas.score) <= 1 &&
-      Object.values(componentDeltas).every((value) => value == null || Math.abs(value) <= 1) &&
-      actual.regime_label === referenceMap.regime_label && actual.sky_evolution_state === referenceMap.sky_evolution_state &&
-      (deltas.gw_factor == null || Math.abs(deltas.gw_factor) < 0.01);
-    return { mode: options.configOverride ? 'candidate' : 'reference', pass, actual,
-      reference: referenceMap, deltas: { ...deltas, components: componentDeltas } };
+    const comparison = options.reference ? compareReference(actual, options.reference) : null;
+    return { mode: options.configOverride ? 'candidate' : 'reference',
+      pass: comparison ? comparison.pass : null, actual,
+      reference: comparison ? comparison.reference : null,
+      deltas: comparison ? comparison.deltas : {},
+      comparison_errors: comparison ? comparison.issues : [] };
   } finally {
     SS.modelConfig = current;
   }
@@ -191,16 +252,24 @@ async function readReplay(file) {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (!args.length) throw new Error('Usage: node tools/replay/replay-runner.mjs <replay.json[.gz]> --reference snapshot.json [--config candidate.json]');
-  const configIndex = args.indexOf('--config');
-  const referenceIndex = args.indexOf('--reference');
-  const configOverride = configIndex >= 0 ? JSON.parse(await readFile(args[configIndex + 1], 'utf8')) : null;
-  const reference = referenceIndex >= 0 ? JSON.parse(await readFile(args[referenceIndex + 1], 'utf8')) : null;
-  const report = await runReplay(await readReplay(args[0]), { configOverride, reference });
+  if (!args.length || args[0].startsWith('--')) {
+    throw new Error('Usage: node tools/replay/replay-runner.mjs <replay.json[.gz]> --reference snapshot.json [--config candidate.json] [--engine-root path]');
+  }
+  const options = { replayFile: args[0], referenceFile: null, configFile: null, engineRoot: ROOT };
+  for (let index = 1; index < args.length; index += 2) {
+    const name = args[index], value = args[index + 1];
+    if (!value || !['--reference', '--config', '--engine-root'].includes(name)) throw new Error('Invalid Replay Runner arguments');
+    if (name === '--reference') options.referenceFile = value;
+    if (name === '--config') options.configFile = value;
+    if (name === '--engine-root') options.engineRoot = path.resolve(value);
+  }
+  const configOverride = options.configFile ? JSON.parse(await readFile(options.configFile, 'utf8')) : null;
+  const reference = options.referenceFile ? JSON.parse(await readFile(options.referenceFile, 'utf8')) : null;
+  const report = await runReplay(await readReplay(options.replayFile), { configOverride, reference, engineRoot: options.engineRoot });
   console.log(JSON.stringify(report, null, 2));
   if (report.pass === false) process.exitCode = 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (m) => m.slice(1)))) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

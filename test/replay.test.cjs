@@ -49,7 +49,7 @@ async function envelope(overrides = {}) {
     replay: {
       replay_schema_version: 1,
       identity: { prediction_time_utc: '2026-09-09T04:13:00.000Z', model_version: '2.4.6',
-        engine_code_version: '2.4.6', engine_build_sha: 'replay1', config_hash: configHash },
+        engine_code_version: '2.4.6', engine_build_sha: 'a'.repeat(40), config_hash: configHash },
       context: { city: '深圳', admin1: '广东', country: '中国', latitude: 22.5431, longitude: 114.0579,
         timezone: 'Asia/Shanghai', utc_offset_seconds: 28800, sunset_time_utc: '2026-09-09T10:30:00.000Z',
         civil_dusk_utc: '2026-09-09T10:55:00.000Z', golden_hour_start_utc: '2026-09-09T09:55:00.000Z',
@@ -84,6 +84,12 @@ function replayRequest(payload, secret = 'fixture-secret') {
 test('Replay endpoint authenticates before ingest and fails closed when bindings are missing', async () => {
   const api = await import('../functions/api/replay-snapshot.js');
   const payload = await envelope();
+  const missingSecret = await api.onRequestPost({ request: replayRequest(payload), env: {} });
+  assert.equal(missingSecret.status, 503);
+  assert.equal((await missingSecret.json()).errorCode, 'REPLAY_AUTH_NOT_CONFIGURED');
+  assert.equal((await api.onRequestPost({ request: request(payload, '/api/replay-snapshot'), env: {
+    REPLAY_INGEST_SECRET: 'fixture-secret'
+  } })).status, 401);
   assert.equal((await api.onRequestPost({ request: replayRequest(payload, 'wrong'), env: {
     REPLAY_INGEST_SECRET: 'fixture-secret'
   } })).status, 401);
@@ -92,8 +98,9 @@ test('Replay endpoint authenticates before ingest and fails closed when bindings
   } })).status, 503);
   const { DB, sqlite } = database();
   try {
+    const { REPLAY_MAX_BODY_BYTES } = await import('../server/replay-schema.js');
     const oversized = new Request('https://example.test/api/replay-snapshot', { method: 'POST',
-      headers: { authorization: 'Bearer fixture-secret', 'content-type': 'application/json', 'content-length': String(2 * 1024 * 1024) },
+      headers: { authorization: 'Bearer fixture-secret', 'content-type': 'application/json', 'content-length': String(REPLAY_MAX_BODY_BYTES + 1) },
       body: '{}' });
     const response = await api.onRequestPost({ request: oversized, env: {
       DB, REPLAY_BUCKET: bucket(), REPLAY_INGEST_SECRET: 'fixture-secret'
@@ -207,6 +214,73 @@ test('R2 success with READY update failure stays PENDING and stale retry recover
   } finally { sqlite.close(); }
 });
 
+test('recent PENDING retry does not increment attempts or write R2 again', async () => {
+  const api = await import('../functions/api/replay-snapshot.js');
+  const { DB, sqlite } = database();
+  const R2 = bucket();
+  const env = { DB, REPLAY_BUCKET: R2, REPLAY_INGEST_SECRET: 'fixture-secret' };
+  try {
+    sqlite.exec("CREATE TRIGGER fail_ready_recent BEFORE UPDATE OF replay_status ON prediction_snapshots WHEN NEW.replay_status = 'READY' BEGIN SELECT RAISE(ABORT, 'fixture ready failure'); END");
+    const payload = await envelope();
+    const first = await api.onRequestPost({ request: replayRequest(payload), env });
+    assert.equal((await first.json()).replayStatus, 'PENDING');
+    const retry = await api.onRequestPost({ request: replayRequest(payload), env });
+    const retryBody = await retry.json();
+    assert.equal(retryBody.replayStatus, 'PENDING');
+    assert.equal(retryBody.deduplicated, true);
+    assert.equal(R2.puts, 1);
+    const row = sqlite.prepare('SELECT replay_status, replay_attempt_count, replay_error_code FROM prediction_snapshots').get();
+    assert.equal(row.replay_status, 'PENDING');
+    assert.equal(row.replay_attempt_count, 1);
+    assert.equal(row.replay_error_code, null);
+  } finally { sqlite.close(); }
+});
+
+test('READY row with missing R2 object reuploads the same hash and returns to READY', async () => {
+  const api = await import('../functions/api/replay-snapshot.js');
+  const { DB, sqlite } = database();
+  const R2 = bucket();
+  const env = { DB, REPLAY_BUCKET: R2, REPLAY_INGEST_SECRET: 'fixture-secret' };
+  try {
+    const payload = await envelope();
+    const first = await api.onRequestPost({ request: replayRequest(payload), env });
+    const firstBody = await first.json();
+    const original = sqlite.prepare('SELECT replay_object_key, replay_sha256 FROM prediction_snapshots').get();
+    R2.objects.delete(original.replay_object_key);
+    const recovered = await api.onRequestPost({ request: replayRequest(payload), env });
+    const recoveredBody = await recovered.json();
+    assert.equal(recoveredBody.replayStatus, 'READY');
+    assert.equal(recoveredBody.replaySaved, true);
+    assert.equal(R2.puts, 2);
+    const row = sqlite.prepare('SELECT replay_status, replay_attempt_count, replay_sha256, replay_error_code FROM prediction_snapshots').get();
+    assert.equal(row.replay_status, 'READY');
+    assert.equal(row.replay_attempt_count, 2);
+    assert.equal(row.replay_sha256, original.replay_sha256);
+    assert.equal(row.replay_error_code, null);
+    assert.equal(recoveredBody.id, firstBody.id);
+  } finally { sqlite.close(); }
+});
+
+test('READY object metadata conflict is rejected without overwrite or state change', async () => {
+  const api = await import('../functions/api/replay-snapshot.js');
+  const { DB, sqlite } = database();
+  const R2 = bucket();
+  const env = { DB, REPLAY_BUCKET: R2, REPLAY_INGEST_SECRET: 'fixture-secret' };
+  try {
+    const payload = await envelope();
+    await api.onRequestPost({ request: replayRequest(payload), env });
+    const row = sqlite.prepare('SELECT replay_object_key FROM prediction_snapshots').get();
+    R2.objects.get(row.replay_object_key).customMetadata.event_id = 'evt_conflict';
+    const conflict = await api.onRequestPost({ request: replayRequest(payload), env });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).errorCode, 'OBJECT_HASH_CONFLICT');
+    assert.equal(R2.puts, 1);
+    const stored = sqlite.prepare('SELECT replay_status, replay_attempt_count FROM prediction_snapshots').get();
+    assert.equal(stored.replay_status, 'READY');
+    assert.equal(stored.replay_attempt_count, 1);
+  } finally { sqlite.close(); }
+});
+
 test('invalid Replay is recorded as FAILED without entering R2', async () => {
   const api = await import('../functions/api/replay-snapshot.js');
   const { DB, sqlite } = database();
@@ -222,5 +296,21 @@ test('invalid Replay is recorded as FAILED without entering R2', async () => {
     assert.equal(body.replayStatus, 'FAILED');
     assert.equal(R2.puts, 0);
     assert.equal(sqlite.prepare('SELECT replay_error_code FROM prediction_snapshots').get().replay_error_code, 'INVALID_REPLAY');
+  } finally { sqlite.close(); }
+});
+
+test('ordinary Snapshot endpoint rejects Replay envelopes, metadata and oversized nested payloads', async () => {
+  const api = await import('../functions/api/snapshot.js');
+  const { DB, sqlite } = database();
+  try {
+    const payload = await envelope();
+    assert.equal((await api.onRequestPost({ request: request(payload, '/api/snapshot'), env: { DB } })).status, 400);
+    assert.equal((await api.onRequestPost({ request: request({
+      ...payload.snapshot, replay_status: 'READY'
+    }, '/api/snapshot'), env: { DB } })).status, 400);
+    assert.equal((await api.onRequestPost({ request: request({
+      ...payload.snapshot, raw_snapshot_json: JSON.stringify({ padding: 'x'.repeat(330000) })
+    }, '/api/snapshot'), env: { DB } })).status, 413);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM prediction_snapshots').get().count, 0);
   } finally { sqlite.close(); }
 });

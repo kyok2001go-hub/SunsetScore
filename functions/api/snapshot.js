@@ -33,7 +33,10 @@ export async function onRequestPost({ request, env }) {
     }
     return json({ success: true, id: row.id, deduplicated: false });
   } catch (error) {
-    if (error instanceof ValidationError) return json({ success: false, error: error.message }, 400);
+    if (error instanceof ValidationError) {
+      const tooLarge = /请求体过大/.test(error.message);
+      return json({ success: false, error: error.message }, tooLarge ? 413 : 400);
+    }
     console.error('[snapshot] DATASET_WRITE_FAILED');
     return json({ success: false, error: '快照保存失败' }, 503);
   }

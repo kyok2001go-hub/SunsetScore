@@ -58,9 +58,9 @@ test('offline Replay Runner reproduces the seven required golden scenario classe
     { name: 'GOLDEN_WINDOW', values: { cloud: 55, low: 15, mid: 45, high: 72 },
       nowUtcMs: Date.parse('2026-08-26T10:00:00Z') },
     { name: 'RADAR_DEGRADED', values: { cloud: 52, low: 20, mid: 42, high: 68 },
-      nowUtcMs: Date.parse('2026-08-26T10:00:00Z'), satelliteEnabled: false },
+      nowUtcMs: Date.parse('2026-08-26T10:00:00Z'), radarEnabled: false },
     { name: 'SATELLITE_DEGRADED', values: { cloud: 52, low: 20, mid: 42, high: 68 },
-      nowUtcMs: Date.parse('2026-08-26T10:00:00Z'), radarEnabled: false }
+      nowUtcMs: Date.parse('2026-08-26T10:00:00Z'), satelliteEnabled: false }
   ];
   for (const spec of cases) {
     const fixture = await capture(spec);
@@ -68,7 +68,51 @@ test('offline Replay Runner reproduces the seven required golden scenario classe
     assert.equal(report.pass, true, spec.name + ': ' + JSON.stringify(report));
     assert.ok(Math.abs(report.deltas.score) <= 1);
     assert.ok(report.deltas.components && Object.values(report.deltas.components).every((value) => value == null || Math.abs(value) <= 1));
+    if (spec.name === 'RADAR_DEGRADED') {
+      assert.equal(fixture.replay.radar.available, false);
+      assert.equal(fixture.replay.radar.source_status, 'DISABLED');
+    }
+    if (spec.name === 'SATELLITE_DEGRADED') {
+      assert.equal(fixture.replay.satellite.available, false);
+      assert.equal(fixture.replay.satellite.source_status, 'DISABLED');
+    }
   }
+});
+
+test('strict Reference comparison rejects missing fields and normalizes off-window GW factor', async () => {
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const fixture = await capture({ values: { cloud: 48, low: 18, mid: 44, high: 62 } });
+  const strict = await runReplay(fixture.replay, { reference: fixture.reference });
+  assert.equal(strict.actual.gw_factor, 1);
+  assert.equal(strict.deltas.gw_factor, 0);
+  const incomplete = { ...fixture.reference, baseline_level: null };
+  const failed = await runReplay(fixture.replay, { reference: incomplete });
+  assert.equal(failed.pass, false);
+  assert.ok(failed.comparison_errors.includes('INVALID_REFERENCE_FIELD:baseline_level'));
+});
+
+test('fixed Radar and Satellite coverage fixture exercises the normal visual-source branch', async () => {
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const fixture = await capture({ values: { cloud: 55, low: 15, mid: 45, high: 72 },
+    nowUtcMs: Date.parse('2026-08-26T10:00:00Z') });
+  const now = Date.parse(fixture.replay.identity.prediction_time_utc);
+  fixture.replay.radar = { available: true, source: 'fixture-radar', source_status: 'OK', layer: null,
+    coverage_series: [{ t: now - 600000, pct: 35 }, { t: now, pct: 20 }] };
+  fixture.replay.satellite = { available: true, source: 'fixture-satellite', source_status: 'OK', layer: 'fixture',
+    coverage_series: [{ t: now - 600000, pct: 48 }, { t: now, pct: 42 }] };
+  const first = await runReplay(fixture.replay);
+  const actual = first.actual;
+  const reference = {
+    predicted_score: actual.score, predicted_level: actual.level,
+    baseline_score: actual.baseline_score, baseline_level: actual.baseline_level,
+    regime_label: actual.regime_label, regime_strength: actual.regime_strength,
+    sky_evolution_state: actual.sky_evolution_state, sky_evolution_factor: actual.sky_evolution_factor,
+    gw_factor: actual.gw_factor,
+    comp_sky_canvas: actual.components.sky_canvas, comp_horizon: actual.components.horizon,
+    comp_illumination: actual.components.illumination, comp_atmosphere: actual.components.atmosphere,
+    comp_weather: actual.components.weather
+  };
+  assert.equal((await runReplay(fixture.replay, { reference })).pass, true);
 });
 
 test('candidate config override produces an explicit comparison report', async () => {
@@ -92,10 +136,33 @@ test('authorized Replay download verifies size, hash and identity before saving'
   const compressed = gzipSync(plain);
   const row = {
     id: 'snap_verify', event_id: 'event_verify', replay_size_bytes: compressed.byteLength,
-    replay_sha256: createHash('sha256').update(plain).digest('hex')
+    replay_sha256: createHash('sha256').update(plain).digest('hex'), replay_schema_version: 1,
+    replay_status: 'READY', replay_compression: 'gzip', replay_object_key: 'replay/v1/snap_verify.json.gz'
   };
   assert.deepEqual(verifyReplay(row, compressed), replay);
   assert.throws(() => verifyReplay({ ...row, replay_size_bytes: compressed.byteLength + 1 }, compressed), /SIZE_MISMATCH/);
   assert.throws(() => verifyReplay({ ...row, replay_sha256: '0'.repeat(64) }, compressed), /CONTENT_HASH_MISMATCH/);
   assert.throws(() => verifyReplay({ ...row, event_id: 'other_event' }, compressed), /IDENTITY_MISMATCH/);
+  assert.throws(() => verifyReplay({ ...row, replay_compression: null }, compressed), /REPLAY_METADATA_INVALID/);
+});
+
+test('authorized Replay download validates schema and effective config hash', async () => {
+  const schema = await import('../server/replay-schema.js');
+  const { validateDownloadedReplay } = await import('../tools/replay/download-replay.mjs');
+  const { createSizedReplay, snapshotRowForReplay } = await import('../tools/replay/replay-fixture.mjs');
+  const replay = await createSizedReplay(100 * 1024);
+  const row = snapshotRowForReplay(replay);
+  const plain = Buffer.from(schema.canonicalJson(replay));
+  const compressed = gzipSync(plain);
+  row.replay_size_bytes = compressed.byteLength;
+  row.replay_sha256 = createHash('sha256').update(plain).digest('hex');
+  assert.equal((await validateDownloadedReplay(row, compressed)).identity.snapshot_id, row.id);
+
+  const tampered = structuredClone(replay);
+  tampered.effective_config.goldenWindow.floor = 0.6;
+  const tamperedPlain = Buffer.from(schema.canonicalJson(tampered));
+  const tamperedCompressed = gzipSync(tamperedPlain);
+  const tamperedRow = { ...row, replay_size_bytes: tamperedCompressed.byteLength,
+    replay_sha256: createHash('sha256').update(tamperedPlain).digest('hex') };
+  await assert.rejects(validateDownloadedReplay(tamperedRow, tamperedCompressed), /CONFIG_MISMATCH/);
 });

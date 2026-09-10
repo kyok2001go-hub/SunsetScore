@@ -5,17 +5,21 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { canonicalJson, validateReplayPayload } from '../../server/replay-schema.js';
 
 const SNAPSHOT_SQL = `SELECT id, event_id, replay_object_key, replay_size_bytes,
- replay_sha256, replay_object_etag, model_version, predicted_score,
- predicted_level, baseline_score, baseline_level, regime_label, regime_strength,
+ replay_sha256, replay_object_etag, replay_compression, replay_status, replay_schema_version,
+ event_date_local, city, admin1, country, latitude, longitude, timezone,
+ sunset_time_utc, prediction_time_utc, snapshot_source, scheduled_slot,
+ app_version, model_version, schema_version, dataset_schema_version, asset_revision,
+ predicted_score, predicted_level, baseline_score, baseline_level, regime_label, regime_strength,
  sky_evolution_state, sky_evolution_factor, gw_factor, comp_sky_canvas,
- comp_horizon, comp_illumination, comp_atmosphere, comp_weather
+ comp_horizon, comp_illumination, comp_atmosphere, comp_weather,
+ tile_radar_available, tile_sat_available, open_prob_30m, open_prob_60m, open_prob_120m
  FROM prediction_snapshots WHERE replay_status = 'READY'
  ORDER BY submitted_at_epoch, id`;
-const GROUND_TRUTH_SQL = `SELECT event_id, rating, rating_label, source,
- confidence, evidence_count FROM sunset_observations ORDER BY submitted_at_epoch, id`;
 
 function parseArgs(args) {
   const result = { database: 'sunset-db', bucket: 'sunsetscore-replay', output: 'dataset', config: null };
@@ -58,15 +62,39 @@ function csv(rows) {
 }
 
 export function verifyReplay(row, compressedBytes) {
+  if (!row || row.replay_status !== 'READY' || Number(row.replay_schema_version) !== 1 ||
+      row.replay_compression !== 'gzip' || typeof row.replay_object_key !== 'string' ||
+      !row.replay_object_key || !/^[a-f0-9]{64}$/.test(row.replay_sha256 || '')) {
+    throw new Error('REPLAY_METADATA_INVALID');
+  }
   if (compressedBytes.byteLength !== Number(row.replay_size_bytes)) throw new Error('SIZE_MISMATCH');
-  const plain = gunzipSync(compressedBytes);
+  let plain;
+  try { plain = gunzipSync(compressedBytes); }
+  catch { throw new Error('GZIP_INVALID'); }
   const digest = createHash('sha256').update(plain).digest('hex');
   if (digest !== row.replay_sha256) throw new Error('CONTENT_HASH_MISMATCH');
-  const replay = JSON.parse(plain.toString('utf8'));
-  if (replay.replay_schema_version !== 1 || replay.identity.snapshot_id !== row.id || replay.identity.event_id !== row.event_id) {
+  let replay;
+  try { replay = JSON.parse(plain.toString('utf8')); }
+  catch { throw new Error('REPLAY_JSON_INVALID'); }
+  if (replay.replay_schema_version !== 1 || Number(row.replay_schema_version) !== 1 ||
+      !replay.identity || replay.identity.snapshot_id !== row.id || replay.identity.event_id !== row.event_id) {
     throw new Error('IDENTITY_MISMATCH');
   }
   return replay;
+}
+
+export async function validateDownloadedReplay(row, compressedBytes) {
+  const replay = verifyReplay(row, compressedBytes);
+  if (!replay.identity || !/^[a-f0-9]{40}$/.test(replay.identity.engine_build_sha || '')) {
+    throw new Error('ENGINE_VERSION_INVALID');
+  }
+  const configDigest = createHash('sha256').update(canonicalJson(replay.effective_config)).digest('hex');
+  if (!replay.identity || configDigest !== replay.identity.config_hash) throw new Error('CONFIG_MISMATCH');
+  try { return await validateReplayPayload(replay, row); }
+  catch (error) {
+    if (/config_hash/.test(String(error && error.message || ''))) throw new Error('CONFIG_MISMATCH');
+    throw new Error('SCHEMA_VALIDATION_FAILED');
+  }
 }
 
 async function main() {
@@ -77,13 +105,12 @@ async function main() {
   await mkdir(replayDir, { recursive: true });
   await mkdir(tempDir, { recursive: true });
   const snapshots = d1Rows(options.database, SNAPSHOT_SQL, options.config);
-  const groundTruth = d1Rows(options.database, GROUND_TRUTH_SQL, options.config);
   const errors = [];
   for (const row of snapshots) {
     const temp = path.join(tempDir, row.id + '.json.gz');
     try {
       wrangler(['r2', 'object', 'get', options.bucket + '/' + row.replay_object_key, '--remote', '--file', temp], options.config);
-      const replay = verifyReplay(row, await readFile(temp));
+      const replay = await validateDownloadedReplay(row, await readFile(temp));
       await writeFile(path.join(replayDir, row.id + '.json'), JSON.stringify(replay, null, 2), 'utf8');
     } catch (error) {
       errors.push({ snapshot_id: row.id, error_code: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'DOWNLOAD_FAILED' });
@@ -93,12 +120,12 @@ async function main() {
   }
   await rm(tempDir, { recursive: true, force: true });
   await writeFile(path.join(output, 'snapshots.csv'), csv(snapshots), 'utf8');
-  await writeFile(path.join(output, 'ground_truth.csv'), csv(groundTruth), 'utf8');
+  await writeFile(path.join(output, 'snapshots.json'), JSON.stringify(snapshots, null, 2), 'utf8');
   await writeFile(path.join(output, 'errors.json'), JSON.stringify(errors, null, 2), 'utf8');
   console.log(JSON.stringify({ snapshots: snapshots.length, replaySaved: snapshots.length - errors.length, errors: errors.length }));
   if (errors.length) process.exitCode = 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (match) => match.slice(1)))) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

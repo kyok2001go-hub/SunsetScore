@@ -9,8 +9,10 @@ import {
   readJsonBody
 } from '../../server/event-dataset.js';
 import {
+  REPLAY_GZIP_WARN_BYTES,
   REPLAY_MAX_BODY_BYTES,
   REPLAY_SCHEMA_VERSION,
+  assertReplayUncompressedSize,
   canonicalJson,
   validateReplayPayload
 } from '../../server/replay-schema.js';
@@ -88,6 +90,18 @@ async function insertNew(db, row, replayMetadata) {
   if (result && result.success === false) throw codeError('D1_INSERT_FAILED');
 }
 
+function mutationChanges(result) {
+  const value = result && result.meta && result.meta.changes != null
+    ? result.meta.changes : result && result.changes;
+  return value == null ? null : Number(value);
+}
+
+function requireSingleMutation(result, errorCode) {
+  if (result && result.success === false) throw codeError(errorCode);
+  const changes = mutationChanges(result);
+  if (Number.isFinite(changes) && changes !== 1) throw codeError('D1_CONCURRENT_RETRY_REQUIRED');
+}
+
 async function setPending(db, id, values) {
   const result = await db.prepare(`UPDATE prediction_snapshots SET
     replay_status = 'PENDING', replay_schema_version = ?, replay_object_key = ?,
@@ -97,14 +111,25 @@ async function setPending(db, id, values) {
     AND replay_status IN ('NONE', 'FAILED', 'PENDING')`).bind(
     REPLAY_SCHEMA_VERSION, values.objectKey, values.sizeBytes, values.sha256, values.now, id
   ).run();
-  if (result && result.success === false) throw codeError('D1_PENDING_UPDATE_FAILED');
+  requireSingleMutation(result, 'D1_PENDING_UPDATE_FAILED');
+}
+
+async function recoverMissingReadyObject(db, id, values) {
+  const result = await db.prepare(`UPDATE prediction_snapshots SET
+    replay_status = 'PENDING', replay_schema_version = ?, replay_object_etag = NULL,
+    replay_saved_at_utc = NULL, replay_updated_at_utc = ?, replay_error_code = NULL,
+    replay_attempt_count = replay_attempt_count + 1 WHERE id = ?
+    AND replay_status = 'READY' AND replay_sha256 = ? AND replay_object_key = ?`).bind(
+    REPLAY_SCHEMA_VERSION, values.now, id, values.sha256, values.objectKey
+  ).run();
+  requireSingleMutation(result, 'D1_PENDING_UPDATE_FAILED');
 }
 
 async function setReady(db, id, now, etag) {
   const result = await db.prepare(`UPDATE prediction_snapshots SET replay_status = 'READY',
     replay_object_etag = ?, replay_saved_at_utc = ?, replay_updated_at_utc = ?,
     replay_error_code = NULL WHERE id = ? AND replay_status = 'PENDING'`).bind(etag, now, now, id).run();
-  if (result && result.success === false) throw codeError('D1_READY_UPDATE_FAILED');
+  requireSingleMutation(result, 'D1_READY_UPDATE_FAILED');
 }
 
 async function setFailed(db, id, now, errorCode) {
@@ -120,10 +145,17 @@ function objectKey(row) {
     row.event_date_local.slice(8, 10), row.event_id, row.id + '.json.gz'].join('/');
 }
 
+function objectMatches(current, replaySha, row) {
+  const metadata = current && current.customMetadata;
+  return !!metadata && metadata.content_sha256 === replaySha &&
+    metadata.replay_schema_version === String(REPLAY_SCHEMA_VERSION) &&
+    metadata.snapshot_id === row.id && metadata.event_id === row.event_id;
+}
+
 async function ensureObject(bucket, key, bytes, replaySha, compressedDigest, row, engineBuildSha) {
   let current = await bucket.head(key);
   if (current) {
-    if (!current.customMetadata || current.customMetadata.content_sha256 !== replaySha) throw codeError('OBJECT_HASH_CONFLICT');
+    if (!objectMatches(current, replaySha, row)) throw codeError('OBJECT_HASH_CONFLICT');
     return current;
   }
   const created = await bucket.put(key, bytes, {
@@ -144,7 +176,7 @@ async function ensureObject(bucket, key, bytes, replaySha, compressedDigest, row
   });
   if (created) return created;
   current = await bucket.head(key);
-  if (!current || !current.customMetadata || current.customMetadata.content_sha256 !== replaySha) {
+  if (!current || !objectMatches(current, replaySha, row)) {
     throw codeError('OBJECT_HASH_CONFLICT');
   }
   return current;
@@ -181,6 +213,9 @@ export async function onRequestPost({ request, env }) {
 
     let replay;
     try {
+      if (!body.replay.identity || !/^[a-f0-9]{40}$/.test(body.replay.identity.engine_build_sha || '')) {
+        throw new ValidationError('engine_build_sha 必须是完整 Git SHA');
+      }
       replay = await validateReplayPayload(body.replay, row);
     } catch (error) {
       if (!(error instanceof ValidationError)) throw error;
@@ -196,21 +231,33 @@ export async function onRequestPost({ request, env }) {
     replay.identity.snapshot_id = row.id;
     replay.identity.event_id = row.event_id;
     const serialized = canonicalJson(replay);
+    assertReplayUncompressedSize(serialized);
     const serializedBytes = new TextEncoder().encode(serialized);
     const replaySha = hex(await digestBytes(serializedBytes));
     const compressed = await gzip(serialized);
     const compressedDigest = await digestBytes(compressed);
     const key = objectKey(row);
     const now = new Date().toISOString();
+    let pendingPrepared = false;
 
     if (duplicate && duplicate.replay_status === 'READY') {
       if (duplicate.replay_sha256 !== replaySha) return json({ success: false, error: 'Replay 内容冲突', errorCode: 'OBJECT_HASH_CONFLICT' }, 409);
+      if (!duplicate.replay_object_key || duplicate.replay_object_key !== key) {
+        return json({ success: false, error: 'Replay 元数据冲突', errorCode: 'OBJECT_HASH_CONFLICT' }, 409);
+      }
       const readyObject = await env.REPLAY_BUCKET.head(duplicate.replay_object_key);
-      if (!readyObject) return json({ success: false, error: 'Replay 对象缺失', errorCode: 'R2_OBJECT_MISSING' }, 503);
-      if (!readyObject.customMetadata || readyObject.customMetadata.content_sha256 !== replaySha) {
+      if (readyObject && !objectMatches(readyObject, replaySha, row)) {
         return json({ success: false, error: 'Replay 内容冲突', errorCode: 'OBJECT_HASH_CONFLICT' }, 409);
       }
-      return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: true, replayStatus: 'READY', deduplicated: true });
+      if (readyObject) {
+        return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: true, replayStatus: 'READY', deduplicated: true });
+      }
+      await recoverMissingReadyObject(env.DB, row.id, {
+        now, sha256: replaySha, objectKey: duplicate.replay_object_key
+      });
+      duplicate.replay_status = 'PENDING';
+      duplicate.replay_updated_at_utc = null;
+      pendingPrepared = true;
     }
     if (duplicate && duplicate.replay_status === 'PENDING' && duplicate.replay_sha256 !== replaySha) {
       return json({ success: false, error: 'Replay 内容冲突', errorCode: 'OBJECT_HASH_CONFLICT' }, 409);
@@ -235,11 +282,13 @@ export async function onRequestPost({ request, env }) {
         if (!duplicate) throw error;
         if (duplicate.id !== row.id) throw codeError('D1_CONCURRENT_RETRY_REQUIRED');
       }
-    } else {
+    } else if (!pendingPrepared) {
       await setPending(env.DB, row.id, { objectKey: key, sizeBytes: compressed.byteLength, sha256: replaySha, now });
     }
 
-    if (compressed.byteLength > 500 * 1024) console.warn('[replay-snapshot] REPLAY_GZIP_LARGE', { sizeBytes: compressed.byteLength });
+    if (compressed.byteLength > REPLAY_GZIP_WARN_BYTES) {
+      console.warn(JSON.stringify({ event: 'replay_ingest_warning', errorCode: 'REPLAY_GZIP_LARGE', sizeBytes: compressed.byteLength }));
+    }
     let stored;
     try {
       stored = await ensureObject(env.REPLAY_BUCKET, key, compressed, replaySha, compressedDigest, row,
@@ -247,7 +296,8 @@ export async function onRequestPost({ request, env }) {
     } catch (error) {
       const stableCode = error && error.code === 'OBJECT_HASH_CONFLICT' ? error.code : 'R2_PUT_FAILED';
       await setFailed(env.DB, row.id, new Date().toISOString(), stableCode);
-      console.error('[replay-snapshot]', stableCode, { snapshotId: row.id, eventId: row.event_id });
+      console.error(JSON.stringify({ event: 'replay_ingest_error', errorCode: stableCode,
+        snapshotId: row.id, eventId: row.event_id }));
       return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: false, replayStatus: 'FAILED', errorCode: stableCode });
     }
     try {
@@ -256,16 +306,17 @@ export async function onRequestPost({ request, env }) {
         replayStatus: 'READY', replaySizeBytes: compressed.byteLength, replaySha256: replaySha,
         deduplicated: !!duplicate });
     } catch {
-      console.error('[replay-snapshot] READY_UPDATE_FAILED', { snapshotId: row.id, eventId: row.event_id });
+      console.error(JSON.stringify({ event: 'replay_ingest_error', errorCode: 'READY_UPDATE_FAILED',
+        snapshotId: row.id, eventId: row.event_id }));
       return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: false,
         replayStatus: 'PENDING', replayPending: true, errorCode: 'READY_UPDATE_FAILED' });
     }
   } catch (error) {
     if (error instanceof ValidationError) {
-      const tooLarge = /请求体过大/.test(error.message);
+      const tooLarge = /请求体过大|Replay 未压缩内容过大/.test(error.message);
       return json({ success: false, error: error.message, errorCode: tooLarge ? 'REPLAY_TOO_LARGE' : 'INVALID_REPLAY' }, tooLarge ? 413 : 400);
     }
-    console.error('[replay-snapshot] REPLAY_INGEST_FAILED');
+    console.error(JSON.stringify({ event: 'replay_ingest_error', errorCode: 'REPLAY_INGEST_FAILED' }));
     return json({ success: false, error: 'Replay 保存失败' }, 503);
   }
 }

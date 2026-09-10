@@ -1,7 +1,9 @@
 import { ValidationError, sha256 } from './event-dataset.js';
 
 export const REPLAY_SCHEMA_VERSION = 1;
-export const REPLAY_MAX_BODY_BYTES = 1536 * 1024;
+export const MAX_REPLAY_UNCOMPRESSED_BYTES = 1536 * 1024;
+export const REPLAY_MAX_BODY_BYTES = 2048 * 1024;
+export const REPLAY_GZIP_WARN_BYTES = 500 * 1024;
 
 const TOP_FIELDS = new Set([
   'replay_schema_version', 'identity', 'context', 'effective_config',
@@ -118,6 +120,18 @@ export function canonicalize(value) {
 
 export function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
+}
+
+export function utf8ByteLength(value) {
+  return new TextEncoder().encode(String(value)).byteLength;
+}
+
+export function assertReplayUncompressedSize(serialized) {
+  const size = utf8ByteLength(serialized);
+  if (size > MAX_REPLAY_UNCOMPRESSED_BYTES) {
+    throw new ValidationError('Replay 未压缩内容过大');
+  }
+  return size;
 }
 
 function validateNwp(nwp) {
