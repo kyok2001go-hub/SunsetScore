@@ -23,12 +23,13 @@ function parseArgs(args) {
 export function npmInvocation(args, options = {}) {
   const platform = options.platform || process.platform;
   if (platform !== 'win32') return { command: 'npm', args };
+  const pathApi = path.win32;
   const nodeExecutable = options.nodeExecutable || process.execPath;
   const npmExecPath = options.npmExecPath === undefined ? process.env.npm_execpath : options.npmExecPath;
   const exists = options.exists || existsSync;
   const candidates = [
     npmExecPath,
-    path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    pathApi.join(pathApi.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js')
   ].filter(Boolean);
   const npmCli = candidates.find((candidate) => exists(candidate));
   if (!npmCli) throw new Error('NPM_LAUNCHER_NOT_FOUND');

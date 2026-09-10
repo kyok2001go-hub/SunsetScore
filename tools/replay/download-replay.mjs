@@ -40,12 +40,13 @@ function parseArgs(args) {
 export function npxInvocation(fullArgs, options = {}) {
   const platform = options.platform || process.platform;
   if (platform !== 'win32') return { command: 'npx', args: fullArgs };
+  const pathApi = path.win32;
   const nodeExecutable = options.nodeExecutable || process.execPath;
   const npmExecPath = options.npmExecPath === undefined ? process.env.npm_execpath : options.npmExecPath;
   const exists = options.exists || existsSync;
   const candidates = [
-    npmExecPath && path.join(path.dirname(npmExecPath), 'npx-cli.js'),
-    path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npx-cli.js')
+    npmExecPath && pathApi.join(pathApi.dirname(npmExecPath), 'npx-cli.js'),
+    pathApi.join(pathApi.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npx-cli.js')
   ].filter(Boolean);
   const npxCli = candidates.find((candidate) => exists(candidate));
   if (!npxCli) throw new Error('NPX_LAUNCHER_NOT_FOUND');

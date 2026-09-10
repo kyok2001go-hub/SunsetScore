@@ -74,7 +74,7 @@ test('Phase 0 report only returns GO when every independent gate passes', async 
   const { buildPhase0Report, npmInvocation } = await import('../tools/replay/phase0-check.mjs');
   const invocation = npmInvocation(['run', 'check'], {
     platform: 'win32', nodeExecutable: 'C:\\nodejs\\node.exe',
-    npmExecPath: 'C:\\nodejs\\node_modules\\npm\\bin\\npm-cli.js',
+    npmExecPath: null,
     exists: () => true
   });
   assert.deepEqual(invocation, {
