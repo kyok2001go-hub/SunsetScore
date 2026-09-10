@@ -140,10 +140,26 @@ test('authorized Replay download verifies size, hash and identity before saving'
     replay_status: 'READY', replay_compression: 'gzip', replay_object_key: 'replay/v1/snap_verify.json.gz'
   };
   assert.deepEqual(verifyReplay(row, compressed), replay);
+  assert.deepEqual(verifyReplay(row, plain), replay);
   assert.throws(() => verifyReplay({ ...row, replay_size_bytes: compressed.byteLength + 1 }, compressed), /SIZE_MISMATCH/);
   assert.throws(() => verifyReplay({ ...row, replay_sha256: '0'.repeat(64) }, compressed), /CONTENT_HASH_MISMATCH/);
   assert.throws(() => verifyReplay({ ...row, event_id: 'other_event' }, compressed), /IDENTITY_MISMATCH/);
   assert.throws(() => verifyReplay({ ...row, replay_compression: null }, compressed), /REPLAY_METADATA_INVALID/);
+});
+
+test('authorized Replay download launches npx without a Windows command shell', async () => {
+  const { compactSql, npxInvocation } = await import('../tools/replay/download-replay.mjs');
+  const invocation = npxInvocation(['wrangler', '--version'], {
+    platform: 'win32', nodeExecutable: 'C:\\nodejs\\node.exe',
+    npmExecPath: 'C:\\nodejs\\node_modules\\npm\\bin\\npm-cli.js',
+    exists: (candidate) => candidate.endsWith('npx-cli.js')
+  });
+  assert.equal(invocation.command, 'C:\\nodejs\\node.exe');
+  assert.deepEqual(invocation.args, [
+    'C:\\nodejs\\node_modules\\npm\\bin\\npx-cli.js', 'wrangler', '--version'
+  ]);
+  assert.equal(compactSql('SELECT id,\r\n event_id\n FROM prediction_snapshots'),
+    'SELECT id, event_id FROM prediction_snapshots');
 });
 
 test('authorized Replay download validates schema and effective config hash', async () => {

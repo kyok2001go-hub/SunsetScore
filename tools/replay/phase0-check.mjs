@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -19,9 +20,24 @@ function parseArgs(args) {
   return result;
 }
 
+export function npmInvocation(args, options = {}) {
+  const platform = options.platform || process.platform;
+  if (platform !== 'win32') return { command: 'npm', args };
+  const nodeExecutable = options.nodeExecutable || process.execPath;
+  const npmExecPath = options.npmExecPath === undefined ? process.env.npm_execpath : options.npmExecPath;
+  const exists = options.exists || existsSync;
+  const candidates = [
+    npmExecPath,
+    path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  ].filter(Boolean);
+  const npmCli = candidates.find((candidate) => exists(candidate));
+  if (!npmCli) throw new Error('NPM_LAUNCHER_NOT_FOUND');
+  return { command: nodeExecutable, args: [npmCli, ...args] };
+}
+
 function runChecks() {
-  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(command, ['run', 'check'], {
+  const invocation = npmInvocation(['run', 'check']);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: ROOT, encoding: 'utf8', windowsHide: true
   });
   if (result.stdout) process.stdout.write(result.stdout);

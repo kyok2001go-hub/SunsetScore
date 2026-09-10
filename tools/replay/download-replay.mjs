@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* Authorized offline exporter. It shells out to the user's authenticated
  * Wrangler session; credentials are never accepted as command arguments. */
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -36,16 +37,39 @@ function parseArgs(args) {
   return result;
 }
 
+export function npxInvocation(fullArgs, options = {}) {
+  const platform = options.platform || process.platform;
+  if (platform !== 'win32') return { command: 'npx', args: fullArgs };
+  const nodeExecutable = options.nodeExecutable || process.execPath;
+  const npmExecPath = options.npmExecPath === undefined ? process.env.npm_execpath : options.npmExecPath;
+  const exists = options.exists || existsSync;
+  const candidates = [
+    npmExecPath && path.join(path.dirname(npmExecPath), 'npx-cli.js'),
+    path.join(path.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npx-cli.js')
+  ].filter(Boolean);
+  const npxCli = candidates.find((candidate) => exists(candidate));
+  if (!npxCli) throw new Error('NPX_LAUNCHER_NOT_FOUND');
+  return { command: nodeExecutable, args: [npxCli, ...fullArgs] };
+}
+
 function wrangler(args, config) {
-  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const fullArgs = ['wrangler', ...(config ? ['--config', config] : []), ...args];
-  const executed = spawnSync(command, fullArgs, { encoding: 'utf8', windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
+  const invocation = npxInvocation(fullArgs);
+  const executed = spawnSync(invocation.command, invocation.args, {
+    encoding: 'utf8', windowsHide: true, maxBuffer: 10 * 1024 * 1024
+  });
   if (executed.status !== 0) throw new Error('Wrangler command failed without exposing remote output');
   return executed.stdout;
 }
 
+export function compactSql(sql) {
+  return String(sql).replace(/\s+/g, ' ').trim();
+}
+
 function d1Rows(database, sql, config) {
-  const parsed = JSON.parse(wrangler(['d1', 'execute', database, '--remote', '--json', '--command', sql], config));
+  const parsed = JSON.parse(wrangler([
+    'd1', 'execute', database, '--remote', '--json', '--command', compactSql(sql)
+  ], config));
   const blocks = Array.isArray(parsed) ? parsed : [parsed];
   return blocks.flatMap((block) => block && block.results || block && block.result && block.result[0] && block.result[0].results || []);
 }
@@ -61,16 +85,24 @@ function csv(rows) {
   return '\uFEFF' + [columns.join(','), ...rows.map((row) => columns.map((name) => cell(row[name])).join(','))].join('\r\n');
 }
 
-export function verifyReplay(row, compressedBytes) {
+export function verifyReplay(row, downloadedBytes) {
   if (!row || row.replay_status !== 'READY' || Number(row.replay_schema_version) !== 1 ||
       row.replay_compression !== 'gzip' || typeof row.replay_object_key !== 'string' ||
       !row.replay_object_key || !/^[a-f0-9]{64}$/.test(row.replay_sha256 || '')) {
     throw new Error('REPLAY_METADATA_INVALID');
   }
-  if (compressedBytes.byteLength !== Number(row.replay_size_bytes)) throw new Error('SIZE_MISMATCH');
   let plain;
-  try { plain = gunzipSync(compressedBytes); }
-  catch { throw new Error('GZIP_INVALID'); }
+  const isGzip = downloadedBytes[0] === 0x1f && downloadedBytes[1] === 0x8b;
+  if (isGzip) {
+    if (downloadedBytes.byteLength !== Number(row.replay_size_bytes)) throw new Error('SIZE_MISMATCH');
+    try { plain = gunzipSync(downloadedBytes); }
+    catch { throw new Error('GZIP_INVALID'); }
+  } else {
+    // Wrangler transparently decodes objects stored with Content-Encoding: gzip.
+    // In that case replay_size_bytes still describes the compressed R2 object,
+    // so integrity is established against the canonical uncompressed SHA-256.
+    plain = downloadedBytes;
+  }
   const digest = createHash('sha256').update(plain).digest('hex');
   if (digest !== row.replay_sha256) throw new Error('CONTENT_HASH_MISMATCH');
   let replay;

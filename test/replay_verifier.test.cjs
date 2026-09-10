@@ -71,7 +71,16 @@ test('batch verifier enforces the exact Engine Root SHA and writes sanitized rep
 });
 
 test('Phase 0 report only returns GO when every independent gate passes', async () => {
-  const { buildPhase0Report } = await import('../tools/replay/phase0-check.mjs');
+  const { buildPhase0Report, npmInvocation } = await import('../tools/replay/phase0-check.mjs');
+  const invocation = npmInvocation(['run', 'check'], {
+    platform: 'win32', nodeExecutable: 'C:\\nodejs\\node.exe',
+    npmExecPath: 'C:\\nodejs\\node_modules\\npm\\bin\\npm-cli.js',
+    exists: () => true
+  });
+  assert.deepEqual(invocation, {
+    command: 'C:\\nodejs\\node.exe',
+    args: ['C:\\nodejs\\node_modules\\npm\\bin\\npm-cli.js', 'run', 'check']
+  });
   const scenarioReport = Object.fromEntries([
     'ORDINARY_WEATHER', 'RAIN_TO_CLEAR', 'GOLDEN_WINDOW', 'RADAR_DEGRADED',
     'SATELLITE_DEGRADED', 'RADAR_SATELLITE_NORMAL'
