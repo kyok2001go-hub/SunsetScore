@@ -12,7 +12,10 @@
     "replay:download": "node tools/replay/download-replay.mjs",
     "replay:verify": "node tools/replay/verify-production-replay.mjs",
     "replay:benchmark": "node tools/replay/benchmark-replay.mjs",
-    "replay:phase0": "node tools/replay/phase0-check.mjs"
+    "replay:phase0": "node tools/replay/phase0-check.mjs",
+    "dataset:export": "node tools/dataset/export-dataset.mjs",
+    "dataset:validate": "node tools/dataset/validate-dataset.mjs",
+    "dataset:stats": "node tools/dataset/dataset-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

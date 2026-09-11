@@ -3,17 +3,18 @@ const { join } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const ignoredDirectories = new Set(['.git', '.wrangler', 'artifacts', 'node_modules', 'playwright-report', 'test-results']);
+const root = join(__dirname, '..');
 
 function collect(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) return [];
+    if (entry.isDirectory() && (ignoredDirectories.has(entry.name) || (dir === root && entry.name === 'dataset'))) return [];
     const path = join(dir, entry.name);
     return entry.isDirectory() ? collect(path) : (/\.m?js$/.test(path) ? [path] : []);
   });
 }
 
 let failed = false;
-for (const file of collect(join(__dirname, '..'))) {
+for (const file of collect(root)) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) {
     failed = true;
