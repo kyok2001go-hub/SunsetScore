@@ -15,7 +15,10 @@
     "replay:phase0": "node tools/replay/phase0-check.mjs",
     "dataset:export": "node tools/dataset/export-dataset.mjs",
     "dataset:validate": "node tools/dataset/validate-dataset.mjs",
-    "dataset:stats": "node tools/dataset/dataset-stats.mjs"
+    "dataset:stats": "node tools/dataset/dataset-stats.mjs",
+    "gt:build": "node tools/ground-truth/build-ground-truth.mjs",
+    "gt:validate": "node tools/ground-truth/validate-ground-truth.mjs",
+    "gt:stats": "node tools/ground-truth/ground-truth-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"
