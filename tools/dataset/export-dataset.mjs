@@ -15,6 +15,8 @@ import { assertSelection, eventIdsFor, extractObservations, extractSnapshots, pa
 import { ERROR_FIELDS, isGoldenWindow, issue, qualityReport, validateTables } from './lib/quality.mjs';
 import { datasetStatistics } from './lib/statistics.mjs';
 
+import { createProgress, silentProgress } from '../progress.mjs';
+
 const same = (a, b) => canonicalJson(a) === canonicalJson(b);
 function exporterCommit() {
   const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -40,6 +42,7 @@ export async function publishDataset(staging, destination, manifest) {
 }
 
 export async function exportDataset(options, dependencies = {}) {
+  const progress = dependencies.progress || silentProgress;
   const output = await safePath(options.output), id = runId();
   const staging = path.join(output, 'staging', id), temp = path.join(staging, '.download');
   await safePath(temp);
@@ -50,16 +53,23 @@ export async function exportDataset(options, dependencies = {}) {
   try {
     const selection = assertSelection(options.selection);
     if (!same(selection, options.selection)) fail('SELECTION_INVALID');
+    progress.stage('获取导出截止时间');
     const serverTime = await source.query("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000 AS cutoff_epoch");
     const now = serverTime?.[0]?.cutoff_epoch;
     if (!Number.isSafeInteger(now) || now < 0) fail('D1_TIME_INVALID');
     const cutoff = options.cutoff ? Date.parse(options.cutoff) : now;
     if (!Number.isSafeInteger(cutoff) || cutoff < 0 || cutoff > now) fail('INVALID_CUTOFF');
     const schema = datasetSchema(selection.include_comments), pageSize = dependencies.pageSize ?? 1000;
-    const rawSnapshots = await extractSnapshots(source, selection, cutoff, pageSize, metrics);
+    let pages = 0, rows = 0;
+    const onPage = count => progress.update(`已查询 ${++pages} 页，读取 ${rows += count} 行`);
+    progress.stage('读取 Snapshot');
+    const rawSnapshots = await extractSnapshots(source, selection, cutoff, pageSize, metrics, onPage);
     if (!rawSnapshots.length) fail('EMPTY_SELECTION');
     const events = eventIdsFor(rawSnapshots);
-    const rawObservations = await extractObservations(source, selection, cutoff, events, pageSize, metrics);
+    progress.stage(`Snapshot 已选中 ${rawSnapshots.length} 条；读取 Observation`);
+    pages = 0; rows = 0;
+    const rawObservations = await extractObservations(source, selection, cutoff, events, pageSize, metrics, onPage);
+    progress.stage(`Observation ${rawObservations.length} 条；处理 Replay（共 ${rawSnapshots.length} 条）`);
     const tables = {
       prediction_snapshots: rawSnapshots.map(row => projectRow({ ...row,
         lead_time_minutes: (Date.parse(row.sunset_time_utc) - row.prediction_time_epoch) / 60000 }, schema.tables.prediction_snapshots)),
@@ -81,11 +91,13 @@ export async function exportDataset(options, dependencies = {}) {
           config_hash: cached.replay.identity.config_hash, replay_sha256: row.replay_sha256,
           replay_size_bytes: cached.bytes.length, replay_compressed_size_bytes: row.replay_size_bytes,
           replay_saved_at_utc: row.replay_saved_at_utc, local_path: local }, schema.tables.replay_index));
+        progress.update(`Replay ${hits + misses}/${rawSnapshots.length}，缓存 ${hits}，下载 ${misses}`, hits + misses === rawSnapshots.length);
       } catch (error) {
         Object.assign(error, { entity_type: 'replay', entity_id: row.id, event_id: row.event_id });
         throw error;
       }
     }
+    progress.stage(`Replay 完成：缓存 ${hits}，下载 ${misses}；生成 CSV 和报告`);
     tables.replay_index.sort((a, b) => compare(a.snapshot_id, b.snapshot_id));
     tables.events = buildEventIndex(tables.prediction_snapshots, tables.sunset_observations, tables.replay_index);
     const quality = await validateTables(tables, selection, cutoff, replaySummary);
@@ -97,24 +109,30 @@ export async function exportDataset(options, dependencies = {}) {
     await writeJson(path.join(staging, 'reports/data-quality.json'), quality);
     await writeJson(path.join(staging, 'reports/statistics.json'), datasetStatistics(tables, selection));
     await writeFile(path.join(staging, 'reports/errors.csv'), writeCsv(ERROR_FIELDS, quality.issues), { flag: 'wx' });
-    const snapshotsAgain = await extractSnapshots(source, selection, cutoff, pageSize, metrics);
-    const observationsAgain = await extractObservations(source, selection, cutoff, events, pageSize, metrics);
+    progress.stage('复核 Snapshot 来源'); pages = 0; rows = 0;
+    const snapshotsAgain = await extractSnapshots(source, selection, cutoff, pageSize, metrics, onPage);
+    progress.stage('复核 Observation 来源'); pages = 0; rows = 0;
+    const observationsAgain = await extractObservations(source, selection, cutoff, events, pageSize, metrics, onPage);
     if (!same(rawSnapshots, snapshotsAgain) || !same(rawObservations, observationsAgain)) fail('SOURCE_CHANGED_DURING_EXPORT');
     await removeOwned(staging, temp);
     const manifest = await buildManifest(staging, tables, { ...options, selection, cutoff,
       issueCount: quality.issues.length, createdAt: dependencies.createdAt, commit: exporterCommit() });
     await writeJson(path.join(staging, 'manifest.json'), manifest);
+    progress.stage('校验完整数据包');
     const validation = await validateDataset(staging, { staging: true });
     if (validation.report.status !== 'PASS') throw Object.assign(new Error('DATASET_VALIDATION_FAILED'), { report: validation.report });
     await safePath(path.join(output, 'exports'));
     await mkdir(path.join(output, 'exports'), { recursive: true });
     const destination = path.join(output, 'exports', manifest.dataset_id);
+    progress.stage('发布数据包 / 检查重复');
     const status = await publishDataset(staging, destination, manifest);
     if (status === 'DEDUPLICATED') await removeOwned(path.join(output, 'staging'), staging);
+    progress.finish(status === 'DEDUPLICATED' ? '完成：数据包已存在，已去重' : '完成：数据包已导出');
     return { status, dataset_id: manifest.dataset_id, directory: destination, counts: manifest.counts,
       cache_hits: hits, downloads: misses, duration_ms: Date.now() - started, query_metrics: metrics,
       provenance: manifest.provenance };
   } catch (error) {
+    progress.fail(errorCode(error));
     const report = error.report || qualityReport([issue(errorCode(error), { id: error.entity_id, event_id: error.event_id }, error.entity_type || 'dataset')]);
     await mkdir(path.join(staging, 'reports'), { recursive: true });
     // Staging is mutable; failure must replace any earlier PASS report.
@@ -126,7 +144,10 @@ export async function exportDataset(options, dependencies = {}) {
 }
 if (isMain(import.meta.url)) {
   try {
-    const result = await exportDataset(parseExportArgs(process.argv.slice(2)));
+    const options = parseExportArgs(process.argv.slice(2)), progress = createProgress(options);
+    let result;
+    try { result = await exportDataset(options, { progress }); }
+    catch (error) { progress.fail(errorCode(error)); throw error; }
     console.log(canonicalJson(result));
     if (result.status === 'FAIL') process.exitCode = 1;
   } catch (error) { console.error(errorCode(error)); process.exitCode = 1; }

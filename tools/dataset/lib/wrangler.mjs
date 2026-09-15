@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFile } from 'node:child_process';
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -42,6 +42,19 @@ export function wrangler(args, config, options = {}) {
   return result.stdout;
 }
 
+// Keep the event loop available for terminal heartbeat while Wrangler runs.
+export async function wranglerAsync(args, config, options = {}) {
+  const invocation = npxInvocation(['wrangler', ...(config ? ['--config', config] : []), ...args]);
+  const result = await new Promise(resolve => {
+    (options.execFile || execFile)(invocation.command, invocation.args, {
+      encoding: 'utf8', windowsHide: true, timeout: options.timeoutMs ?? 120_000,
+      maxBuffer: options.maxBuffer ?? 10 * 1024 * 1024
+    }, (error, stdout, stderr) => resolve({ status: error ? 1 : 0,
+      error: error?.killed && error.code == null ? { code: 'ETIMEDOUT' } : error, stdout, stderr }));
+  });
+  return wrangler(args, config, { ...options, spawn: () => result });
+}
+
 export function parseD1Output(output) {
   let parsed;
   try { parsed = JSON.parse(output); } catch { fail('D1_RESPONSE_INVALID'); }
@@ -65,7 +78,7 @@ export function parseD1Output(output) {
 export async function d1Rows(database, sql, config, options = {}) {
   const compact = compactSql(sql);
   if (Buffer.byteLength(compact) > 80_000) fail('SQL_BUDGET_EXCEEDED');
-  const execute = options.execute || wrangler;
+  const execute = options.execute || wranglerAsync;
   let temp;
   try {
     // Long command lines exceed Windows CreateProcess limits. Use a unique SQL file.
@@ -94,7 +107,7 @@ export function createRemoteSource(options, tempDir) {
       deadline();
       const file = path.join(tempDir, `r2-${randomUUID()}.gz`);
       try {
-        wrangler(['r2', 'object', 'get', `${options.bucket}/${row.replay_object_key}`, '--remote', '--file', file], options.config);
+        await wranglerAsync(['r2', 'object', 'get', `${options.bucket}/${row.replay_object_key}`, '--remote', '--file', file], options.config);
         return await readFile(file);
       } finally { await rm(file, { force: true }); }
     }

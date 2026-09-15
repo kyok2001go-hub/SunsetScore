@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SunsetScore · 历史反馈补录</title>
-  <link rel="stylesheet" href="/css/admin.css?v=2.4.6-replay1">
+  <link rel="stylesheet" href="/css/admin.css?v=2.4.6-backfill3">
 </head>
 <body>
   <main class="admin-shell">
@@ -65,11 +65,15 @@
   <template id="row-template">
     <tr>
       <td><label><span class="sr-only">城市</span><input data-field="city" maxlength="100" autocomplete="off" required></label></td>
-      <td><label><span class="sr-only">日期</span><input data-field="event_date_local" type="date" required></label></td>
+      <td><div class="date-control">
+        <label><span class="sr-only">日期（支持数字、点号、短横线或斜杠）</span><input data-field="event_date_local" type="text" maxlength="32" placeholder="YYYY-MM-DD" title="支持20260910、2026.9.10、2026-9-10、2026/9/10" autocomplete="off" required></label>
+        <label class="date-picker-control" title="打开日历选择日期"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2M8 18h2"></path></svg><input class="date-picker" type="date" min="0001-01-01" max="9999-12-31" aria-label="打开日历选择日期"></label>
+      </div></td>
       <td><label><span class="sr-only">晚霞等级</span><select data-field="rating" required>
+        <option value="" selected>请选择等级</option>
         <option value="excellent">🔥 极佳彩霞</option>
         <option value="very_good">🌇 很好彩霞</option>
-        <option value="good" selected>✨ 普通有霞</option>
+        <option value="good">✨ 普通有霞</option>
         <option value="fair">🌤 仅有微霞</option>
         <option value="poor">☁️ 完全无霞</option>
       </select></label></td>
@@ -80,6 +84,6 @@
       <td><button class="remove-row" type="button" aria-label="删除此行">删除</button></td>
     </tr>
   </template>
-  <script src="/js/admin_backfill.js?v=2.4.6-replay1"></script>
+  <script src="/js/admin_backfill.js?v=2.4.6-backfill3"></script>
 </body>
 </html>

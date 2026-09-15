@@ -12,6 +12,7 @@
   let previewItems = null;
   let commitRequestId = null;
   let busy = false;
+  let editRevision = 0;
 
   function setStatus(message, kind) {
     statusNode.textContent = message;
@@ -19,6 +20,7 @@
   }
 
   function invalidatePreview() {
+    editRevision++;
     previewItems = null;
     commitRequestId = null;
     commitButton.disabled = true;
@@ -40,10 +42,34 @@
     const row = fragment.querySelector('tr');
     row.dataset.clientItemId = 'row-' + crypto.randomUUID();
     const onEdit = function (event) {
-      if (event.target.matches('[data-field]')) invalidatePreview();
+      if (event.target.matches('[data-field]')) {
+        if (event.target.matches('[data-field="event_date_local"]') && /^\d{8}$/.test(event.target.value)) {
+          const normalized = normalizeDate(event.target.value);
+          if (normalized) event.target.value = normalized;
+        }
+        invalidatePreview();
+      }
     };
     row.addEventListener('input', onEdit);
     row.addEventListener('change', onEdit);
+    const dateInput = row.querySelector('[data-field="event_date_local"]');
+    const datePicker = row.querySelector('.date-picker');
+    dateInput.addEventListener('blur', function () {
+      const normalized = normalizeDate(dateInput.value);
+      if (normalized) dateInput.value = normalized;
+      datePicker.value = normalized || '';
+    });
+    datePicker.addEventListener('click', function () {
+      datePicker.value = normalizeDate(dateInput.value) || '';
+      if (typeof datePicker.showPicker === 'function') {
+        try { datePicker.showPicker(); } catch (_) { /* Keep the native date control fallback. */ }
+      }
+    });
+    datePicker.addEventListener('change', function () {
+      const normalized = normalizeDate(datePicker.value);
+      dateInput.value = normalized || '';
+      invalidatePreview();
+    });
     row.querySelector('.remove-row').addEventListener('click', function () {
       row.remove();
       if (!rowsNode.rows.length) addRow();
@@ -62,13 +88,34 @@
     return value;
   }
 
+  function normalizeDate(value) {
+    const text = value.trim();
+    const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+    const separated = /^(\d{4})([.\/-])(\d{1,2})\2(\d{1,2})$/.exec(text);
+    const match = compact || (separated && [separated[0], separated[1], separated[3], separated[4]]);
+    if (!match || Number(match[1]) < 1) return null;
+    const normalized = match[1] + '-' + match[2].padStart(2, '0') + '-' + match[3].padStart(2, '0');
+    const parsed = new Date(normalized + 'T00:00:00.000Z');
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === normalized ? normalized : null;
+  }
+
   function formItems() {
-    return Array.from(rowsNode.rows, function (row) {
+    return Array.from(rowsNode.rows, function (row, index) {
       const field = function (name) { return row.querySelector('[data-field="' + name + '"]'); };
+      const date = normalizeDate(field('event_date_local').value);
+      if (!date) {
+        field('event_date_local').focus();
+        throw new Error('第 ' + (index + 1) + ' 行：请输入有效日期，例如20260910或2026-09-10');
+      }
+      field('event_date_local').value = date;
+      if (!['excellent', 'very_good', 'good', 'fair', 'poor'].includes(field('rating').value)) {
+        field('rating').focus();
+        throw new Error('第 ' + (index + 1) + ' 行：请选择晚霞等级');
+      }
       return {
         client_item_id: row.dataset.clientItemId,
         city: field('city').value.trim(),
-        event_date_local: field('event_date_local').value,
+        event_date_local: date,
         rating: field('rating').value,
         confidence: optionalNumber(field('confidence'), false),
         evidence_count: optionalNumber(field('evidence_count'), true),
@@ -163,12 +210,17 @@
     let items;
     try { items = formItems(); }
     catch (error) { setStatus(error.message, 'error'); return; }
+    const revision = editRevision;
     busy = true;
     previewButton.disabled = true;
     commitButton.disabled = true;
     setStatus('正在查询 Snapshot 并校验 Event…');
     try {
       const body = await post({ mode: 'preview', items });
+      if (revision !== editRevision) {
+        setStatus('内容已修改，请重新预览并校验。', 'error');
+        return;
+      }
       previewItems = body.items;
       commitRequestId = null;
       const byId = new Map(previewItems.map(function (item) { return [item.client_item_id, item]; }));
@@ -221,6 +273,8 @@
 
   async function commit() {
     if (busy || !previewItems || !previewItems.every(readyItem)) return;
+    try { formItems(); }
+    catch (error) { invalidatePreview(); setStatus(error.message, 'error'); return; }
     if (!window.confirm('确认写入 ' + previewItems.length + ' 条管理员 Observation？此版本不支持修改或删除。')) return;
     if (!commitRequestId) commitRequestId = crypto.randomUUID();
     busy = true;

@@ -22,6 +22,7 @@ export function parseExportArgs(args) {
     const flag = args[i];
     if (seen.has(flag)) fail('DUPLICATE_ARGUMENT');
     seen.add(flag);
+    if (flag === '--quiet') { options.quiet = true; continue; }
     if (flag === '--include-comments') { selection.include_comments = true; continue; }
     if (![...Object.keys(flags), '--from', '--to', '--cutoff', '--output', '--database', '--bucket', '--config'].includes(flag)) fail('INVALID_ARGUMENTS');
     const value = args[++i];
@@ -71,7 +72,7 @@ export function snapshotConditions(selection, cutoff) {
     listCondition('scheduled_slot', selection.scheduled_slots)
   ].join(' AND ');
 }
-export async function paginate(query, table, columns, condition, pageSize = 1000, metrics = []) {
+export async function paginate(query, table, columns, condition, pageSize = 1000, metrics = [], onPage = () => {}) {
   if (!['prediction_snapshots', 'sunset_observations'].includes(table) || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000) fail('PAGINATION_INVALID');
   const rows = [], ids = new Set();
   let last = null;
@@ -82,6 +83,7 @@ export async function paginate(query, table, columns, condition, pageSize = 1000
     const start = Date.now(), page = await query(sql);
     if (!Array.isArray(page) || page.length > pageSize) fail('D1_RESPONSE_INVALID');
     metrics.push({ table, rows: page.length, duration_ms: Date.now() - start, response_bytes: Buffer.byteLength(JSON.stringify(page)) });
+    onPage(page.length);
     if (!page.length) break;
     for (const row of page) {
       safeId(row.id);
@@ -92,16 +94,16 @@ export async function paginate(query, table, columns, condition, pageSize = 1000
   }
   return rows;
 }
-export async function extractSnapshots(source, selection, cutoff, pageSize = 1000, metrics = []) {
+export async function extractSnapshots(source, selection, cutoff, pageSize = 1000, metrics = [], onPage = () => {}) {
   const columns = [...SNAPSHOT_OFFLINE_FIELDS.filter(x => x !== 'lead_time_minutes'), ...REPLAY_METADATA];
   const candidates = await paginate(source.query.bind(source), 'prediction_snapshots', columns,
-    snapshotConditions(selection, cutoff), pageSize, metrics);
+    snapshotConditions(selection, cutoff), pageSize, metrics, onPage);
   return candidates.filter(row => {
     if (!canonicalUtc(row.replay_saved_at_utc)) fail('REPLAY_READY_TIME_INVALID', { entity_type: 'snapshot', entity_id: row.id, event_id: row.event_id });
     return Date.parse(row.replay_saved_at_utc) <= cutoff;
   });
 }
-export async function extractObservations(source, selection, cutoff, eventIds, pageSize = 1000, metrics = []) {
+export async function extractObservations(source, selection, cutoff, eventIds, pageSize = 1000, metrics = [], onPage = () => {}) {
   const fields = datasetSchema(selection.include_comments).tables.sunset_observations.map(x => x.name);
   const rows = [];
   // At most 100 bounded IDs per statement; SQL is additionally checked by paginate.
@@ -110,7 +112,7 @@ export async function extractObservations(source, selection, cutoff, eventIds, p
     const batch = ids.slice(start, start + 100);
     batch.forEach(safeId);
     const condition = `event_id IN (${batch.map(literal).join(',')}) AND submitted_at_epoch <= ${cutoff} AND ${listCondition('source', selection.observation_sources)}`;
-    rows.push(...await paginate(source.query.bind(source), 'sunset_observations', fields, condition, pageSize, metrics));
+    rows.push(...await paginate(source.query.bind(source), 'sunset_observations', fields, condition, pageSize, metrics, onPage));
   }
   rows.sort(rowOrder);
   if (new Set(rows.map(x => x.id)).size !== rows.length) fail('DUPLICATE_OBSERVATION_ID');

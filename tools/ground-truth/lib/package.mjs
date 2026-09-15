@@ -1,10 +1,10 @@
 import { canonicalJson, hash } from '../../dataset/lib/common.mjs';
 import { writeCsv, readCsv } from '../../dataset/lib/csv.mjs';
 import { groundTruthSchema, EVENT_FIELDS, ERROR_FIELDS } from '../ground-truth-schema.mjs';
-import { POLICY } from '../ground-truth-policy.mjs';
+import { groundTruthPolicy } from '../ground-truth-policy.mjs';
 export const FILES = ['schema.json', 'policy.json', 'event_ground_truth.csv', 'observation_contributions.csv',
   'reports/statistics.json', 'reports/source-agreement.json', 'reports/errors.csv'];
-export function contents(result, issues = [], version = 2) {
+export function contents(result, issues = [], version = result.policy_version === 2 ? 3 : 2) {
   const schema = groundTruthSchema(version);
   const events = new Map(result.gt.map(e => [e.event_id, e]));
   const contributions = version === 1 ? result.contributions : result.contributions.map(row => ({
@@ -12,8 +12,8 @@ export function contents(result, issues = [], version = 2) {
     ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'event_id'))
   }));
   return {
-    'schema.json': canonicalJson(schema), 'policy.json': canonicalJson(POLICY),
-    'event_ground_truth.csv': writeCsv(EVENT_FIELDS, result.gt),
+    'schema.json': canonicalJson(schema), 'policy.json': canonicalJson(groundTruthPolicy(version === 3 ? 2 : 1)),
+    'event_ground_truth.csv': writeCsv(schema.tables.event_ground_truth, result.gt),
     'observation_contributions.csv': writeCsv(schema.tables.observation_contributions, contributions),
     'reports/statistics.json': canonicalJson(result.statistics), 'reports/source-agreement.json': canonicalJson(result.agreement),
     'reports/errors.csv': writeCsv(ERROR_FIELDS, issues)
@@ -30,13 +30,13 @@ export function makeManifest(source, result, files, createdAt = new Date().toISO
   metadata['reports/errors.csv'].rows = readCsv(ERROR_FIELDS, files['reports/errors.csv']).length;
   const version = JSON.parse(files['schema.json']).ground_truth_schema_version;
   groundTruthSchema(version);
-  const descriptor = { ground_truth_schema_version: version, gt_policy_version: 1, ...source,
+  const descriptor = { ground_truth_schema_version: version, gt_policy_version: version === 3 ? 2 : 1, ...source,
     schema_sha256: metadata['schema.json'].sha256, policy_sha256: metadata['policy.json'].sha256,
     event_ground_truth_sha256: metadata['event_ground_truth.csv'].sha256,
     observation_contributions_sha256: metadata['observation_contributions.csv'].sha256 };
-  return { ground_truth_schema_version: version, gt_policy_version: 1, ...identity(descriptor), ...source,
+  return { ground_truth_schema_version: version, gt_policy_version: version === 3 ? 2 : 1, ...identity(descriptor), ...source,
     policy_sha256: descriptor.policy_sha256, schema_sha256: descriptor.schema_sha256,
     files: metadata, counts: { event_count: result.gt.length, labeled_event_count: result.statistics.labeled_events,
       observation_count: result.contributions.length, status_counts: result.statistics.status_counts },
-    descriptor, builder_version: '2.4.9', created_at_utc: createdAt };
+    descriptor, builder_version: version === 3 ? '2.5.0-admin1' : '2.4.9', created_at_utc: createdAt };
 }

@@ -18,7 +18,11 @@
     "dataset:stats": "node tools/dataset/dataset-stats.mjs",
     "gt:build": "node tools/ground-truth/build-ground-truth.mjs",
     "gt:validate": "node tools/ground-truth/validate-ground-truth.mjs",
-    "gt:stats": "node tools/ground-truth/ground-truth-stats.mjs"
+    "gt:stats": "node tools/ground-truth/ground-truth-stats.mjs",
+    "model-dataset:build": "node tools/model-dataset/build-model-dataset.mjs",
+    "model-dataset:plan": "node tools/model-dataset/plan-model-dataset.mjs",
+    "model-dataset:validate": "node tools/model-dataset/validate-model-dataset.mjs",
+    "model-dataset:stats": "node tools/model-dataset/model-dataset-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

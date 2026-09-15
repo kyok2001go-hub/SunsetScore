@@ -20,11 +20,12 @@ export const ERROR_FIELDS = [field('severity', 'string', false, null, ['ERROR', 
   field('entity_type', 'string', false, null, ['dataset', 'event', 'observation', 'ground_truth']),
   field('entity_id', 'string', true), field('event_id', 'string', true), field('error_code')];
 export const CONTRIBUTION_FIELDS = [CONTRIBUTION_FIELDS_V1[0], field('event_date_local'), field('city'), ...CONTRIBUTION_FIELDS_V1.slice(1)];
-export function groundTruthSchema(version = 2) {
-  if (![1, 2].includes(version)) throw new Error('UNSUPPORTED_GT_SCHEMA');
+export const EVENT_FIELDS_V3 = [...EVENT_FIELDS.slice(0, 8), field('gt_basis', 'string', false, null, POLICY.basis_order), ...EVENT_FIELDS.slice(8)];
+export function groundTruthSchema(version = 3) {
+  if (![1, 2, 3].includes(version)) throw new Error('UNSUPPORTED_GT_SCHEMA');
   return { ground_truth_schema_version: version,
   csv: { encoding: 'UTF-8 BOM', record_separator: 'CRLF', final_record_separator: true,
     null: 'unquoted empty', empty_string: 'quoted empty', boolean: '0/1' },
-  tables: { event_ground_truth: EVENT_FIELDS, observation_contributions: version === 1 ? CONTRIBUTION_FIELDS_V1 : CONTRIBUTION_FIELDS, errors: ERROR_FIELDS } };
+  tables: { event_ground_truth: version === 3 ? EVENT_FIELDS_V3 : EVENT_FIELDS, observation_contributions: version === 1 ? CONTRIBUTION_FIELDS_V1 : CONTRIBUTION_FIELDS, errors: ERROR_FIELDS } };
 }
 export const SCHEMA = groundTruthSchema();

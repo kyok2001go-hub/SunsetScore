@@ -3,7 +3,7 @@ import path from 'node:path';
 import { readSafe, canonicalJson, hash, fail, inventory, safeId, compare, isMain } from '../dataset/lib/common.mjs';
 import { canonicalUtc } from '../dataset/dataset-schema.mjs';
 import { readCsv } from '../dataset/lib/csv.mjs';
-import { POLICY } from './ground-truth-policy.mjs';
+import { groundTruthPolicy } from './ground-truth-policy.mjs';
 import { groundTruthSchema, EVENT_FIELDS, ERROR_FIELDS } from './ground-truth-schema.mjs';
 import { equal, parseJson, loadInput, issueOrder } from './lib/input.mjs';
 import { derive } from './lib/aggregate.mjs';
@@ -13,7 +13,8 @@ import { cli, parseArgs } from './lib/cli.mjs';
 export async function inspectGroundTruth(directory, options = {}) {
   const manifest = parseJson(await readSafe(path.join(directory, 'manifest.json')));
   const version = manifest.ground_truth_schema_version, schema = groundTruthSchema(version);
-  if (manifest.gt_policy_version !== 1) fail('UNSUPPORTED_GT_POLICY');
+  const policyVersion = version === 3 ? 2 : 1;
+  if (manifest.gt_policy_version !== policyVersion) fail('UNSUPPORTED_GT_POLICY');
   const files = {};
   equal(Object.keys(manifest.files).sort(), [...FILES].sort());
   equal(await inventory(directory), [...FILES, 'manifest.json'].sort(compare));
@@ -23,8 +24,8 @@ export async function inspectGroundTruth(directory, options = {}) {
     files[f] = bytes;
   }
   equal(parseJson(files['schema.json']), schema);
-  equal(parseJson(files['policy.json']), POLICY, 'UNSUPPORTED_GT_POLICY');
-  const gt = readCsv(EVENT_FIELDS, files['event_ground_truth.csv']), contributions = readCsv(schema.tables.observation_contributions, files['observation_contributions.csv']);
+  equal(parseJson(files['policy.json']), groundTruthPolicy(policyVersion), 'UNSUPPORTED_GT_POLICY');
+  const gt = readCsv(schema.tables.event_ground_truth, files['event_ground_truth.csv']), contributions = readCsv(schema.tables.observation_contributions, files['observation_contributions.csv']);
   const errors = readCsv(ERROR_FIELDS, files['reports/errors.csv']);
   if (!gt.length) fail('GT_VALIDATION_FAILED');
   equal(errors, [...errors].sort(issueOrder));
@@ -38,7 +39,7 @@ export async function inspectGroundTruth(directory, options = {}) {
     safeId(r.observation_id);
     if (ids.has(r.observation_id) || !events.has(r.event_id)) fail('GT_VALIDATION_FAILED'); ids.add(r.observation_id);
   }
-  const result = derive(gt, contributions.map(r => ({ ...r, id: r.observation_id })));
+  const result = derive(gt, contributions.map(r => ({ ...r, id: r.observation_id })), policyVersion);
   const expected = contents(result, errors, version);
   for (const f of FILES) if (!files[f].equals(Buffer.from(expected[f]))) fail('GT_VALIDATION_FAILED');
   const source = Object.fromEntries(['source_dataset_id', 'source_dataset_manifest_sha256', 'source_descriptor_sha256', 'source_input_files'].map(k => [k, manifest[k]]));
@@ -60,7 +61,7 @@ export async function inspectGroundTruth(directory, options = {}) {
   if (options.source) {
     input = await loadInput(options.source);
     equal(input.source, source, 'SOURCE_DATASET_MISMATCH');
-    const linked = contents(derive(input.events, input.observations), input.issues, version);
+    const linked = contents(derive(input.events, input.observations, policyVersion), input.issues, version);
     for (const f of FILES) if (!files[f].equals(Buffer.from(linked[f]))) fail('GT_VALIDATION_FAILED');
   }
   return { status: 'PASS', validation_scope: options.source ? 'SOURCE_LINKED' : 'PACKAGE_INTERNAL',

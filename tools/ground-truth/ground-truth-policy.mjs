@@ -1,6 +1,6 @@
 // Policy changes require a new version, not a silent edit to existing packages.
 const freeze = value => { Object.values(value).forEach(x => { if (x && typeof x === 'object') freeze(x); }); return Object.freeze(value); };
-export const POLICY = freeze({
+export const POLICY_V1 = freeze({
   gt_policy_version: 1,
   labels: ['poor', 'fair', 'good', 'very_good', 'excellent'],
   source_weights: { user: 1, rednote_agent: 1, rednote_manual: 1 },
@@ -24,6 +24,15 @@ export const POLICY = freeze({
     thresholds: 'compare_quantized_metrics_without_epsilon' },
   aggregation_inputs: ['id', 'event_id', 'source', 'rating', 'confidence', 'evidence_count']
 });
+export const POLICY = freeze({ ...POLICY_V1, gt_policy_version: 2,
+  admin_adjudication: { source: 'rednote_manual', max_per_event: 1, label: 'admin_rating', conflict_priority: true, minimum_status: 'MEDIUM', medium_confidence_floor: 0.6 },
+  basis_order: ['ADMIN_ADJUDICATED', 'OBSERVATION_AGGREGATED']
+});
+export function groundTruthPolicy(version) {
+  if (version === 1) return POLICY_V1;
+  if (version === 2) return POLICY;
+  throw new Error('UNSUPPORTED_GT_POLICY');
+}
 export const LABELS = POLICY.labels;
 export const SOURCES = Object.keys(POLICY.source_weights);
 export const Q = x => Number(x.toFixed(POLICY.numeric.decimals)) || 0;

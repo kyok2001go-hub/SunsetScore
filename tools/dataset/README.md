@@ -80,3 +80,11 @@ their existing layouts. The old verifier expects root-level `snapshots.json`;
 it does not consume this package directly. This version provides the typed CSV
 reader for a future adapter. Mixed engine builds are allowed in raw datasets;
 actual reference replay still needs matching historical engine code.
+
+## 终端进度反馈（2026-09-15）
+
+原命令无需调整，默认向 stderr 显示中文阶段、累计耗时；交互终端还显示分页累计行数、Replay 完成数/总数及缓存命中/下载数，GT 显示 Event 聚合计数。非交互或重定向环境使用阶段日志，异步等待期间约每 10 秒显示当前阶段与累计耗时。不估算未知总量的全局百分比，不增加 COUNT 查询。
+
+追加 --quiet 可关闭进度提示；失败的最终结果仍保留。最终 JSON 继续写 stdout，数据包内容、Schema/Policy、ID 和重复构建规则不变。要只保存工具的 JSON，可直接调用 Node 并将 stdout 重定向到包外文件（npm 自身仍可能输出命令横幅）。
+
+Wrangler 查询/下载采用异步子进程，保持原有 120 秒单次超时、输出大小限制和脱敏错误码。同步计算期间按 Event 计数更新，定时提示不代表额外数据库访问。无需网站部署或数据库迁移，使用更新后的本地代码即可生效。

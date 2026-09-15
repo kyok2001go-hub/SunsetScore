@@ -17,15 +17,15 @@ async function api() {
 }
 const obs = (rating, i, confidence = null, source = 'user') => ({ id: `obs_${i}`, event_id: 'evt_1', rating, source, confidence, evidence_count: null });
 const event = { event_id: 'evt_1', event_date_local: '2026-09-09', city: '深圳' };
-test('GT Schema V2 adds Event display columns, detects tampering and preserves V1 validation', async t => {
+test('GT Schema V3 preserves Event display columns, detects tampering and preserves V1 validation', async t => {
   const f = await fixture(t), { m } = f;
   f.events[0].city = '深圳,城区'; f.observations[0].city = 'Shenzhen'; await f.save();
   const input = await m.loadInput(f.raw), result = m.derive(input.events, input.observations);
   const current = await m.buildGroundTruth(f.raw, { output: f.output });
-  assert.match(current.ground_truth_id, /^gt_v2_/);
+  assert.match(current.ground_truth_id, /^gt_v3_/);
   const file = path.join(current.directory, 'observation_contributions.csv');
   const bytes = await fs.readFile(file), schema = JSON.parse(await fs.readFile(path.join(current.directory, 'schema.json')));
-  assert.equal(schema.ground_truth_schema_version, 2);
+  assert.equal(schema.ground_truth_schema_version, 3);
   assert.ok(bytes.toString('utf8').startsWith('\uFEFFevent_id,event_date_local,city,observation_id,'));
   const rows = m.readCsv(schema.tables.observation_contributions, bytes);
   assert.ok(rows.every(r => r.city === '深圳,城区' && r.event_date_local === '2026-09-09'));
@@ -35,7 +35,9 @@ test('GT Schema V2 adds Event display columns, detects tampering and preserves V
   assert.match(manifest.ground_truth_id, /^gt_v1_/);
   assert.equal((await m.inspectGroundTruth(oldDir, { source: f.raw })).status, 'PASS');
   const oldStats = (await m.inspectGroundTruth(oldDir)).statistics;
-  assert.deepEqual((await m.inspectGroundTruth(current.directory, { source: f.raw })).statistics, oldStats);
+  const { basis_distribution, ...currentStats } = (await m.inspectGroundTruth(current.directory, { source: f.raw })).statistics;
+  assert.deepEqual(currentStats, oldStats);
+  assert.equal(basis_distribution[1].count, 1);
   rows[0].city = '错误城市';
   const altered = m.writeCsv(schema.tables.observation_contributions, rows); await fs.writeFile(file, altered);
   const currentManifestPath = path.join(current.directory, 'manifest.json');
@@ -277,7 +279,7 @@ test('GT interrupted rename never exposes a half-published package and does not 
 });
 
 test('GT lock timeout is explicit and preserves owner lock', async t => {
-  const f = await fixture(t), input = await f.m.loadInput(f.raw), r = f.m.derive(input.events, input.observations);
+  const f = await fixture(t), input = await f.m.loadInput(f.raw), r = f.m.derive(input.events, input.observations, 2);
   const manifest = f.m.makeManifest(input.source, r, f.m.contents(r));
   const lock = path.join(f.output, 'exports', manifest.ground_truth_id + '.lock'); await fs.mkdir(lock, { recursive: true });
   await assert.rejects(f.m.buildGroundTruth(f.raw, { output: f.output }), /GROUND_TRUTH_LOCK_BUSY/);
@@ -337,4 +339,65 @@ test('GT rejects a staging junction before any write into Raw input', async t =>
   catch (e) { if (['EPERM', 'EACCES'].includes(e.code)) { t.skip('Host does not permit creating links'); return; } throw e; }
   await assert.rejects(f.m.buildGroundTruth(f.raw, { output: f.output }), /UNSAFE_PATH/);
   assert.deepEqual(await fs.readdir(f.raw), before);
+});
+
+test('GT Policy 2 admin adjudication label, conflicts, MEDIUM floor and independent examples', async () => {
+  const m = await api();
+  for (const [ratings, expectedLabel, expectedStatus, expectedConfidence] of [
+    [['very_good'], 'very_good', 'MEDIUM', .6],
+    [['very_good','very_good'], 'very_good', 'STRONG', .666666666667],
+    [['very_good','good'], 'very_good', 'MEDIUM', .6],
+    [['very_good','poor'], 'very_good', 'DISPUTED', null],
+    [['very_good','good','good'], 'very_good', 'DISPUTED', null],
+    [['good','good','good','very_good'], 'good', 'STRONG', null]
+  ]) {
+    const rows = ratings.map((r,i)=>obs(r,i,null,i ? 'user' : 'rednote_manual'));
+    const result = m.derive([event], rows, 2).gt[0];
+    assert.equal(result.gt_label, expectedLabel); assert.equal(result.gt_status, expectedStatus);
+    assert.equal(result.gt_basis, 'ADMIN_ADJUDICATED');
+    if (expectedConfidence !== null) assert.equal(result.gt_confidence, expectedConfidence);
+    if (expectedStatus === 'DISPUTED') assert.ok(result.gt_confidence <= .2);
+    assert.deepEqual(m.derive([event], rows.map(r=>({...r,evidence_count:9999})),2).gt,[result]);
+  }
+  for(const source of ['user','rednote_agent']){
+    const rows=[obs('good',0,null,source)], old=m.derive([event],rows,1).gt[0], current=m.derive([event],rows,2).gt[0];
+    const {gt_basis,...same}=current;assert.deepEqual(same,old);assert.equal(gt_basis,'OBSERVATION_AGGREGATED');
+  }
+  const empty=m.derive([event],[],2).gt[0];assert.equal(empty.gt_status,'UNLABELED');assert.equal(empty.gt_basis,'OBSERVATION_AGGREGATED');
+  assert.throws(()=>m.derive([event],[obs('good',1,null,'rednote_manual'),obs('good',2,null,'rednote_manual')],2),/MULTIPLE_ADMIN_OBSERVATIONS/);
+  const unequal=m.derive([event],[obs('good',1,0,'rednote_manual'),obs('good',2,1)],2).gt[0];
+  assert.equal(unequal.gt_status,'MEDIUM');assert.ok(unequal.effective_n<2);assert.equal(unequal.gt_confidence,.653333333333);
+});
+
+test('GT Policy 2 builds a single manual MEDIUM and preserves old V2 bytes and source-linked validation', async t => {
+  const f=await fixture(t,['very_good'],['rednote_manual']),{m}=f;
+  const input=await m.loadInput(f.raw),old=m.derive(input.events,input.observations,1);
+  const oldFiles=m.contents(old,[],2), oldManifest=m.makeManifest(input.source,old,oldFiles);
+  const oldDir=path.join(f.dir,oldManifest.ground_truth_id);await fs.mkdir(path.join(oldDir,'reports'),{recursive:true});
+  for(const [name,bytes] of Object.entries({...oldFiles,'manifest.json':m.canonicalJson(oldManifest)}))await fs.writeFile(path.join(oldDir,name),bytes);
+  const result=await m.buildGroundTruth(f.raw,{output:f.output});
+  const validated=await m.inspectGroundTruth(result.directory,{source:f.raw});assert.equal(validated.manifest.gt_policy_version,2);
+  assert.equal(validated.statistics.status_counts.MEDIUM,1);
+  assert.equal((await m.inspectGroundTruth(oldDir,{source:f.raw})).statistics.status_counts.WEAK,1);
+  for(const [name,bytes] of Object.entries(oldFiles))assert.equal(await fs.readFile(path.join(oldDir,name),'utf8'),bytes);
+  const schema=m.groundTruthSchema?m.groundTruthSchema(3):JSON.parse(await fs.readFile(path.join(result.directory,'schema.json')));
+  const rows=m.readCsv(schema.tables.event_ground_truth,await fs.readFile(path.join(result.directory,'event_ground_truth.csv')));
+  assert.equal(rows[0].gt_confidence,.6); rows[0].gt_basis='OBSERVATION_AGGREGATED';
+  const bytes=m.writeCsv(schema.tables.event_ground_truth,rows);await fs.writeFile(path.join(result.directory,'event_ground_truth.csv'),bytes);
+  const manifest=validated.manifest;Object.assign(manifest.files['event_ground_truth.csv'],{sha256:m.hash(bytes),bytes:Buffer.byteLength(bytes)});
+  await fs.writeFile(path.join(result.directory,'manifest.json'),m.canonicalJson(manifest));
+  await assert.rejects(m.inspectGroundTruth(result.directory),/GT_VALIDATION_FAILED/);
+});
+
+test('GT CLI progress and quiet preserve stdout, package bytes and dedup', async t => {
+  const f = await fixture(t);
+  const script = path.resolve(__dirname, '../tools/ground-truth/build-ground-truth.mjs');
+  const run = extra => spawnSync(process.execPath, [script, f.raw, '--output', f.output, ...extra], { encoding: 'utf8', windowsHide: true });
+  const a = run([]); assert.equal(a.status, 0, a.stdout + a.stderr);
+  const data = JSON.parse(a.stdout); assert.equal(data.status, 'EXPORTED'); assert.match(a.stderr, /来源关联校验/);
+  const manifestPath = path.join(data.directory, 'manifest.json'), before = await fs.readFile(manifestPath);
+  const b = run(['--quiet']); assert.equal(b.status, 0, b.stdout + b.stderr); assert.equal(b.stderr, '');
+  assert.equal(JSON.parse(b.stdout).status, 'DEDUPLICATED'); assert.deepEqual(await fs.readFile(manifestPath), before);
+  const invalid = spawnSync(process.execPath, [script, path.join(f.dir, 'missing')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(invalid.status, 1); assert.equal(JSON.parse(invalid.stdout).status, 'FAIL'); assert.match(invalid.stderr, /失败/);
 });

@@ -81,7 +81,11 @@ test('dataset exports real SQLite pages, mixed builds, replay cache, determinist
   assert.ok(f.queries.every(sql => !/user_ip_hash|client_ua|\bcomment\b|SELECT \*/.test(sql)));
   const before = await m.inventory(first.directory);
   const hashes = await Promise.all(before.map(async name => m.hash(await fs.readFile(path.join(first.directory, name)))));
-  const second = await m.exportDataset(f.options, { source: f.source, pageSize: 1, createdAt: '2026-09-11T00:00:00.000Z' });
+  const { createProgress } = await import('../tools/progress.mjs');
+  let logs = '';
+  const progress = createProgress({ stream: { isTTY: true, write: text => { logs += text; } }, interval: 0 });
+  const second = await m.exportDataset(f.options, { source: f.source, progress, pageSize: 1, createdAt: '2026-09-11T00:00:00.000Z' });
+  assert.match(logs, /Replay 3\/3/); assert.match(logs, /已去重/); assert.match(logs, /已查询/);
   assert.equal(second.status, 'DEDUPLICATED', JSON.stringify(second));
   assert.equal(second.dataset_id, first.dataset_id); assert.equal(f.downloads(), 3);
   assert.equal(second.cache_hits, 3);

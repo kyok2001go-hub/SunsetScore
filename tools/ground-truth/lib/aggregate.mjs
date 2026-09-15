@@ -1,5 +1,5 @@
 import { compare, fail, safeId } from '../../dataset/lib/common.mjs';
-import { POLICY, LABELS, SOURCES, Q, clamp } from '../ground-truth-policy.mjs';
+import { POLICY, LABELS, SOURCES, Q, clamp, groundTruthPolicy } from '../ground-truth-policy.mjs';
 export const order = (a, b) => compare(a.event_id, b.event_id) || compare(a.observation_id ?? a.id, b.observation_id ?? b.id);
 export function contribution(row) {
   safeId(row.id); safeId(row.event_id);
@@ -31,19 +31,22 @@ export function statusFor(n, effective, consensus, spread) {
   if (effective >= t.strong_effective_n && consensus >= t.strong_consensus && spread <= t.strong_spread) return 'STRONG';
   return 'MEDIUM';
 }
-export function aggregateEvent(event, rows) {
+export function aggregateEvent(event, rows, policy = POLICY) {
   const out = { event_id: event.event_id, event_date_local: event.event_date_local, city: event.city,
     gt_label: null, gt_ordinal: null, weighted_ordinal_mean: null, gt_confidence: 0, gt_status: 'UNLABELED',
     observation_count: rows.length, effective_n: 0, source_count: 0, consensus_ratio: null,
     normalized_entropy: null, ordinal_mad: null, min_ordinal: null, max_ordinal: null,
     user_count: 0, rednote_agent_count: 0, rednote_manual_count: 0 };
+  const admin = policy.gt_policy_version === 2 ? rows.filter(r => r.source === policy.admin_adjudication.source) : [];
+  if (admin.length > 1) fail('MULTIPLE_ADMIN_OBSERVATIONS');
+  if (policy.gt_policy_version === 2) out.gt_basis = admin.length ? 'ADMIN_ADJUDICATED' : 'OBSERVATION_AGGREGATED';
   if (!rows.length) return out;
   const bins = [0, 0, 0, 0, 0]; let w = 0, squared = 0, mean = 0;
   for (const r of rows) {
     w += r.effective_weight; squared += r.effective_weight ** 2; mean += r.effective_weight * r.ordinal;
     bins[r.ordinal] += r.effective_weight; out[`${r.source}_count`]++;
   }
-  out.gt_ordinal = weightedMedian(rows); out.gt_label = LABELS[out.gt_ordinal];
+  out.gt_ordinal = admin.length ? admin[0].ordinal : weightedMedian(rows); out.gt_label = LABELS[out.gt_ordinal];
   out.weighted_ordinal_mean = Q(mean / w); out.effective_n = Q(w ** 2 / squared);
   out.consensus_ratio = Q(clamp(bins[out.gt_ordinal] / w));
   out.normalized_entropy = Q(clamp(-bins.reduce((sum, b) => b ? sum + b / w * Math.log(b / w) : sum, 0) / Math.log(LABELS.length)));
@@ -52,14 +55,17 @@ export function aggregateEvent(event, rows) {
   out.source_count = SOURCES.filter(s => out[`${s}_count`]).length;
   const spread = out.max_ordinal - out.min_ordinal, c = POLICY.confidence;
   out.gt_status = statusFor(rows.length, out.effective_n, out.consensus_ratio, spread);
+  if (admin.length && out.gt_status === 'WEAK') out.gt_status = 'MEDIUM';
   const agreement = c.consensus * out.consensus_ratio + c.entropy * (1 - out.normalized_entropy) + c.spread * (1 - Q(spread / 4));
   out.gt_confidence = Q(clamp(Math.min(Math.min(1, out.effective_n / c.support_n) * agreement, c.caps[out.gt_status])));
+  if (admin.length && out.gt_status === 'MEDIUM') out.gt_confidence = Q(Math.min(c.caps.MEDIUM, Math.max(policy.admin_adjudication.medium_confidence_floor, out.gt_confidence)));
   return out;
 }
-export function derive(events, observations) {
+export function derive(events, observations, policyVersion = 1, onEvent = () => {}) {
+  const policy = groundTruthPolicy(policyVersion);
   const contributions = observations.map(contribution).sort(order), groups = new Map();
   for (const r of contributions) { if (!groups.has(r.event_id)) groups.set(r.event_id, []); groups.get(r.event_id).push(r); }
-  const gt = [...events].sort((a, b) => compare(a.event_id, b.event_id)).map(e => aggregateEvent(e, groups.get(e.event_id) || []));
+  const gt = [...events].sort((a, b) => compare(a.event_id, b.event_id)).map((e, i) => { const row = aggregateEvent(e, groups.get(e.event_id) || [], policy); onEvent(i + 1, events.length); return row; });
   const agreement = POLICY.source_pairs.map(([a, b]) => {
     const differences = [];
     for (const e of gt) {
@@ -87,5 +93,6 @@ export function derive(events, observations) {
     observations_per_event: [...counts].sort((a, b) => a[0] - b[0]).map(([value, count]) => ({ value, count })),
     source_distribution: SOURCES.map(source => ({ source, count: contributions.filter(r => r.source === source).length })),
     gt_confidence: { all_events: confidence(gt), labeled_events: confidence(labeled) }, source_agreement: agreement };
-  return { gt, contributions, agreement, statistics };
+  if (policyVersion === 2) statistics.basis_distribution = policy.basis_order.map(value => ({ value, count: gt.filter(e => e.gt_basis === value).length }));
+  return { gt, contributions, agreement, statistics, ...(policyVersion === 2 ? { policy_version: 2 } : {}) };
 }

@@ -6,6 +6,7 @@ export function parseArgs(args, mode) {
   const allowed = mode === 'build' ? ['--output'] : mode === 'validate' ? ['--source', '--report-dir'] : ['--report-dir'];
   for (let i = 1; i < args.length; i += 2) {
     const flag = args[i], value = args[i + 1];
+    if (mode === 'build' && flag === '--quiet' && !seen.has(flag)) { seen.add(flag); result.quiet = true; i--; continue; }
     if (!allowed.includes(flag) || seen.has(flag) || !value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
     seen.add(flag); result[flag === '--report-dir' ? 'reportDir' : flag.slice(2)] = path.resolve(value);
   }
