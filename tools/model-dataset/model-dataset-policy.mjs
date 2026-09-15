@@ -25,16 +25,18 @@ export const POLICY_V1 = freeze({
   statistics: { event_denominator: 'one_per_event', sample_denominator: 'one_per_snapshot', null_bucket: true, fixed_enum_zero_buckets: true },
   test_set_policy: 'final_evaluation_only'
 });
-export const POLICY = freeze({ ...POLICY_V1, model_dataset_policy_version: 2,
+export const POLICY_V2 = freeze({ ...POLICY_V1, model_dataset_policy_version: 2,
   source_versions: { raw_schema: [1], gt_schema: [1, 2, 3], gt_policy: [1, 2] },
   source_combinations: [[1, 1, 1], [1, 2, 1], [1, 3, 2]],
   basis_order: ['ADMIN_ADJUDICATED', 'OBSERVATION_AGGREGATED'],
   legacy_gt_basis: 'OBSERVATION_AGGREGATED', basis_role: 'target_metadata_not_prediction_feature',
   statistics: { ...POLICY_V1.statistics, basis: 'one_per_event_including_splits' }
 });
+export const POLICY = freeze({ ...POLICY_V2, model_dataset_policy_version: 3, minimum_events: [15, 5, 5], minimum_total_events: 30 });
 export function modelPolicy(version) {
   if (version === 1) return POLICY_V1;
-  if (version === 2) return POLICY;
+  if (version === 2) return POLICY_V2;
+  if (version === 3) return POLICY;
   throw new Error('UNSUPPORTED_MODEL_DATASET_POLICY');
 }
 export const Q = x => Number(x.toFixed(POLICY.numeric.decimals)) || 0;

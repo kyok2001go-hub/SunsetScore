@@ -23,8 +23,8 @@ STRONG/MEDIUM pre-sunset rows are Primary, WEAK and otherwise eligible post-suns
 rows Diagnostic, DISPUTED/UNLABELED rows Excluded. WEAK takes priority over post-sunset.
 
 Primary Events are split by complete local date blocks, minimizing 70/15/15
-deviation subject to TRAIN/VALIDATION/TEST minima of 30/10/10 Events. A split
-requires at least three date blocks; having 50 Events alone is insufficient.
+deviation subject to TRAIN/VALIDATION/TEST minima of 15/5/5 Events and at least 30 PRIMARY Events in total. A split
+requires at least three date blocks; having 30 Events alone is insufficient.
 Plan exits 0 for both READY and INSUFFICIENT_SPLIT_DATA. Insufficient build exits
 nonzero with a plan and creates no output package. More than 10,000 Primary date
 blocks fails explicitly rather than approximating the exhaustive split search.
@@ -77,3 +77,11 @@ model-dataset:build、model-dataset:plan、model-dataset:validate 和 model-data
 build / plan 显示 Raw 文件指纹、完整 Raw 校验（含 Replay）、GT 来源关联、Snapshot 关联处理数量、Event 资格与权重、日期边界搜索、计划统计。build 另显示样本门禁、写 staging、来源校验及锁内发布/去重。交互终端的计数提示节流约每秒一次，非交互环境保留阶段日志；异步等待约每 10 秒显示耗时，同步日期搜索使用边界计数反馈。
 
 plan 样本不足仍正常返回 INSUFFICIENT_SPLIT_DATA（退出码 0），build 不足仍失败且不发布包。validate / stats 显示整体校验阶段和等待耗时。进度不影响数据选择、Schema/Policy、包 ID、Hash、统计、退出码及去重，不进入数据包或报告。仅更新本地工具即可生效，无需网站部署。
+
+## 30 个 PRIMARY Event 构建门槛（2026-09-15）
+
+当前默认 Model Policy 3，Model Schema 仍为 2。构建要求 PRIMARY Event 总量至少 30，TRAIN / VALIDATION / TEST 分别至少 15 / 5 / 5，至少三个可分离的完整日期块。总量达到 30 仍须满足按日期划分的每组下限；不能拆散同一天的数据来凑数。继续以 70% / 15% / 15% 为优化目标，保留原有同分边界选择、GT 资格、时间和权重规则。
+
+日志中的日期数量 3、4、10、8、8（总计 33）可以按 17 / 8 / 8 构建。29 个及以下不能构建；只有一个日期块或验证/测试组不足也不能构建。
+
+旧 Model Policy 1/2 包按原 30/10/10 规则校验；新包采用 Policy 3 并生成不同内容 ID。Raw 和 GT 不需要重新导出或构建，可直接用原来的 --raw / --gt 路径重跑 model-dataset:plan 与 model-dataset:build，再用 model-dataset:validate 做来源关联校验。放宽构建门槛不表示少量样本已足以证明模型效果。

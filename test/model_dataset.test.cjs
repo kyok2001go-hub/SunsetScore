@@ -92,7 +92,7 @@ test('Model split independently enumerates date-boundary objective, minima and e
   for (let seed = 0; seed < 100; seed++) {
     const counts = Array.from({ length: 3 + seed % 5 }, (_, i) => 1 + ((seed * 13 + i * 17) % 35));
     const events = counts.flatMap((n, i) => Array.from({ length: n }, () => ({ event_date_local: date(i) })));
-    const expected = reference(counts), actual = m.splitEvents(events).selected_split;
+    const expected = reference(counts), actual = m.splitEvents(events, undefined, (await import('../tools/model-dataset/model-dataset-policy.mjs')).POLICY_V2).selected_split;
     assert.equal(actual?.validation_boundary || null, expected ? date(expected.i) : null);
     assert.equal(actual?.test_boundary || null, expected ? date(expected.j) : null);
     if (actual) assert.equal(actual.objective, expected.score);
@@ -358,4 +358,25 @@ test('Model V2 carries admin basis, keeps old GT weak, and excludes basis from X
   assert.equal(f.run().rows[0].diagnostic_reason,'POST_SUNSET');
   delete f.gt[0].gt_basis;f.gt[0].gt_status='WEAK';
   result=f.run();assert.equal(result.rows[0].gt_basis,'OBSERVATION_AGGREGATED');assert.equal(result.rows[0].diagnostic_reason,'WEAK_GT');
+});
+
+test('Policy 3 accepts 30 Events and logged 33-date distribution, preserves old packages', async t => {
+  const { splitEvents } = await import('../tools/model-dataset/split-events.mjs');
+  const dates = counts => counts.flatMap((n,i) => Array.from({length:n}, () => ({event_date_local:date(i)})));
+  for (const counts of [[20,5,5],[3,4,10,8,8]]) {
+    const plan = splitEvents(dates(counts)); assert.equal(plan.publishable,true); assert.equal(plan.minimum_total_event_deficit,0);
+  }
+  assert.deepEqual(Object.values(splitEvents(dates([3,4,10,8,8])).selected_split.splits).map(s=>s.events),[17,8,8]);
+  assert.equal(splitEvents(dates([19,5,5])).minimum_total_event_deficit,1);
+  assert.equal(splitEvents(dates([19,5,5])).publishable,false);
+  assert.equal(splitEvents(dates([30])).publishable,false);
+  assert.equal(splitEvents(dates([22,4,4])).publishable,false);
+  const f=await pure([20,5,5]), {m}=f, root=await temp(t);
+  const result=m.derive(f.events,f.snapshots,f.gt,f.replays,m.selection(),undefined,2,undefined,3);
+  const saved=await savePackage(path.join(root,'new'),m,result);
+  assert.equal(saved.manifest.model_dataset_schema_version,2); assert.equal(saved.manifest.model_dataset_policy_version,3);
+  assert.equal((await m.inspectModelDataset(saved.dir)).status,'PASS');
+  const old=await pure();const prior=await savePackage(path.join(root,'old'),m,old.run());
+  assert.equal(prior.manifest.model_dataset_policy_version,2);
+  assert.equal((await m.inspectModelDataset(prior.dir)).status,'PASS');
 });

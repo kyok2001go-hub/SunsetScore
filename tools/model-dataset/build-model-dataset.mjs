@@ -27,7 +27,7 @@ export async function withModelLock(lock, operation) {
 export async function buildModelDataset(raw, gt, options = {}) {
   const progress = options.progress || silentProgress;
   const output = await outside(options.output || path.resolve('dataset/model'), [raw, gt]);
-  const input = await loadInputs(raw, gt, progress), result = derive(input.events, input.snapshots, input.gt, input.replays, options.selection || selection(), input.inputSummary, 2, progress);
+  const input = await loadInputs(raw, gt, progress), result = derive(input.events, input.snapshots, input.gt, input.replays, options.selection || selection(), input.inputSummary, 2, progress, 3);
   // Data insufficiency is a planning result, not a partial package.
   progress.stage(result.plan.publishable ? '样本门禁通过，准备写入数据包' : '样本门禁未通过');
   if (!result.plan.publishable) fail('INSUFFICIENT_SPLIT_DATA', { plan: { ...input.source, ...result.plan } });

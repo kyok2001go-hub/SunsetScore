@@ -26,7 +26,7 @@ async function inspect(directory, options) {
   if (!!options.raw !== !!options.gt) fail('INVALID_ARGUMENTS');
   const manifest = parseJson(await readSafe(path.join(directory, 'manifest.json')));
   const version = manifest.model_dataset_schema_version, schema = modelSchema(version), policy = modelPolicy(manifest.model_dataset_policy_version);
-  if (manifest.model_dataset_policy_version !== version) fail('UNSUPPORTED_MODEL_DATASET_POLICY');
+  if (!((version === 1 && manifest.model_dataset_policy_version === 1) || (version === 2 && [2, 3].includes(manifest.model_dataset_policy_version)))) fail('UNSUPPORTED_MODEL_DATASET_POLICY');
   equal(Object.keys(manifest.files).sort(compare), [...FILES].sort(compare), 'FILES');
   equal(await inventory(directory), [...FILES, 'manifest.json'].sort(compare), 'INVENTORY');
   const files = {};
@@ -46,7 +46,7 @@ async function inspect(directory, options) {
   if (summary.raw.ERROR !== 0 || Object.values(summary.raw).some(x => !Number.isSafeInteger(x) || x < 0)) fail('MODEL_DATASET_VALIDATION_FAILED');
   const snapshots = rows.map(r => Object.fromEntries(RAW_FIELDS.map(f => [f.name === 'snapshot_id' ? 'id' : f.name, r[f.name]])));
   const replay = rows.map(r => ({ snapshot_id: r.snapshot_id, event_id: r.event_id, engine_build_sha: r.engine_build_sha, config_hash: r.config_hash, local_path: r.replay_path }));
-  const result = derive(events, snapshots, events, replay, manifest.selection, summary, version);
+  const result = derive(events, snapshots, events, replay, manifest.selection, summary, version, undefined, manifest.model_dataset_policy_version);
   if (!result.plan.publishable) fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'INSUFFICIENT_SPLIT_DATA' });
   const rebuiltFiles = contents(result);
   for (const f of FILES) if (!files[f].equals(Buffer.from(rebuiltFiles[f]))) fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'RECOMPUTED_FILE_MISMATCH' });
@@ -67,7 +67,7 @@ async function inspect(directory, options) {
   if (options.raw) {
     const input = await loadInputs(options.raw, options.gt);
     if (canonicalJson(input.source) !== canonicalJson(source)) fail('SOURCE_DATASET_MISMATCH');
-    const linked = derive(input.events, input.snapshots, input.gt, input.replays, manifest.selection, input.inputSummary, version);
+    const linked = derive(input.events, input.snapshots, input.gt, input.replays, manifest.selection, input.inputSummary, version, undefined, manifest.model_dataset_policy_version);
     const expected = contents(linked);
     for (const f of FILES) if (!files[f].equals(Buffer.from(expected[f]))) fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'SOURCE_ROWS_MISMATCH' });
   }

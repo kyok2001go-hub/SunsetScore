@@ -1,7 +1,7 @@
 import { compare, canonicalJson, fail, safeId, unique } from '../../dataset/lib/common.mjs';
 import { validDate, canonicalUtc } from '../../dataset/dataset-schema.mjs';
 import { RAW_FIELDS } from '../model-dataset-schema.mjs';
-import { POLICY } from '../model-dataset-policy.mjs';
+import { POLICY, modelPolicy } from '../model-dataset-policy.mjs';
 import { splitEvents, dateSplit } from '../split-events.mjs';
 import { distribution, statistics } from './statistics.mjs';
 
@@ -40,8 +40,9 @@ export function eligibility(row, selected) {
 const gtNames = ['gt_label', 'gt_ordinal', 'gt_confidence', 'gt_status'];
 const pick = (row, keys) => Object.fromEntries(keys.map(k => [k, row[k]]));
 import { silentProgress } from '../../progress.mjs';
-export function derive(events, snapshots, gtRows, replayRows, selected = selection(), inputSummary = { raw: { ERROR: 0, WARNING: 0, INFO: 0 }, gt: { status: 'PASS', validation_scope: 'SOURCE_LINKED' } }, version = 2, progress = silentProgress) {
+export function derive(events, snapshots, gtRows, replayRows, selected = selection(), inputSummary = { raw: { ERROR: 0, WARNING: 0, INFO: 0 }, gt: { status: 'PASS', validation_scope: 'SOURCE_LINKED' } }, version = 2, progress = silentProgress, policyVersion = version) {
   progress.stage(`关联样本：${events.length} 个 Event，${snapshots.length} 条 Snapshot`);
+  const policy = modelPolicy(policyVersion);
   assertSelection(selected);
   const map = (rows, key) => {
     const result = new Map();
@@ -93,7 +94,7 @@ export function derive(events, snapshots, gtRows, replayRows, selected = selecti
   }
   const primaryEvents = eventRows.filter(e => e.eligibility === 'PRIMARY');
   progress.stage(`按日期划分训练/验证/测试集：${primaryEvents.length} 个 PRIMARY Event`);
-  const planned = splitEvents(primaryEvents, (done, total) => progress.update(`日期边界搜索 ${done}/${total}`, done === total));
+  const planned = splitEvents(primaryEvents, (done, total) => progress.update(`日期边界搜索 ${done}/${total}`, done === total), policy);
   if (planned.selected_split) for (const e of primaryEvents) {
     e.split = dateSplit(e.event_date_local, planned.selected_split);
     for (const r of grouped.get(e.event_id)) if (r.eligibility === 'PRIMARY') r.split = e.split;
@@ -110,5 +111,5 @@ export function derive(events, snapshots, gtRows, replayRows, selected = selecti
   const plan = { ...planned, counts, selection: selected, primary_gt_label: distribution(primaryEvents, 'gt_label', [...POLICY.labels, null]), primary_gt_status: distribution(primaryEvents, 'gt_status', POLICY.statuses) };
   progress.stage('汇总划分计划与统计');
   const stats = statistics(eventRows, rows, counts, inputSummary, version);
-  return { version, events: eventRows, rows, plan, counts, statistics: stats, balance: stats.splits };
+  return { version, ...(policyVersion !== version ? { policyVersion } : {}), events: eventRows, rows, plan, counts, statistics: stats, balance: stats.splits };
 }
