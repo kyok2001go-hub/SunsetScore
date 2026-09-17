@@ -22,7 +22,10 @@
     "model-dataset:build": "node tools/model-dataset/build-model-dataset.mjs",
     "model-dataset:plan": "node tools/model-dataset/plan-model-dataset.mjs",
     "model-dataset:validate": "node tools/model-dataset/validate-model-dataset.mjs",
-    "model-dataset:stats": "node tools/model-dataset/model-dataset-stats.mjs"
+    "model-dataset:stats": "node tools/model-dataset/model-dataset-stats.mjs",
+    "evaluation:baseline": "node tools/evaluation/evaluate-baseline.mjs",
+    "evaluation:validate": "node tools/evaluation/validate-evaluation.mjs",
+    "evaluation:stats": "node tools/evaluation/evaluation-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

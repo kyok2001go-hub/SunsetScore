@@ -2,7 +2,7 @@
 
 Local Node.js 22+ tools; project tests use Node.js 24. No network, Wrangler,
 production writes, scoring changes, model fitting or accuracy evaluation.
-Model Schema 2 and Policy 2 are independent of Raw/GT/model versions.
+Model Schema 2 and Policy 3 are independent of Raw/GT/model versions.
 
 Run from the application root with one exact Raw package and its GT package:
 
