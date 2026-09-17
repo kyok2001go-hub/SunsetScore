@@ -18,6 +18,10 @@ test('formatSlotFromScheduledTime converts UTC scheduled times to strict Shangha
   const utc0813 = Date.parse('2026-09-04T08:13:00.000Z');
   assert.equal(worker.formatSlotFromScheduledTime(utc0813, 'Asia/Shanghai'), '1613');
 
+  // 09:55 UTC -> 17:55 in Asia/Shanghai
+  const utc0955 = Date.parse('2026-09-04T09:55:00.000Z');
+  assert.equal(worker.formatSlotFromScheduledTime(utc0955, 'Asia/Shanghai'), '1755');
+
   // Midnight UTC -> 08:00 Asia/Shanghai
   const utc0000 = Date.parse('2026-09-04T00:00:00.000Z');
   assert.equal(worker.formatSlotFromScheduledTime(utc0000, 'Asia/Shanghai'), '0800');
@@ -180,6 +184,18 @@ test('scheduler worker handler executes only valid scheduled events', async () =
     assert.equal(body.inputs.run_type, 'scheduled');
     assert.equal(body.inputs.submit, true);
 
+    // 2. Scheduled event for 09:55 UTC -> slot 1755
+    await worker.default.scheduled(
+      { scheduledTime: Date.parse('2026-09-04T09:55:00Z'), cron: '55 9 * * *' },
+      { GITHUB_TOKEN: 'test-token' },
+      {}
+    );
+    assert.equal(dispatched.length, 2);
+    const body1755 = JSON.parse(dispatched[1].init.body);
+    assert.equal(body1755.inputs.slot, '1755');
+    assert.equal(body1755.inputs.run_type, 'scheduled');
+    assert.equal(body1755.inputs.submit, true);
+
     await assert.rejects(
       () => worker.default.scheduled({}, { GITHUB_TOKEN: 'test-token' }, {}),
       /valid scheduledTime/
@@ -201,7 +217,7 @@ test('wrangler.jsonc defines the single source of truth for production crons', (
 
   assert.equal(config.name, 'sunsetscore-scheduler');
   assert.equal(config.compatibility_date, '2026-09-04');
-  assert.deepEqual(config.triggers.crons, ['13 4 * * *', '13 8 * * *']);
+  assert.deepEqual(config.triggers.crons, ['13 4 * * *', '13 8 * * *', '55 9 * * *']);
   assert.deepEqual(config.observability, { enabled: true, head_sampling_rate: 1 });
 
   // Ensure no secret or token in wrangler configuration

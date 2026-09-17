@@ -8,9 +8,9 @@ Cloudflare Worker 定时调度器（V2.4.2），用于替代 GitHub Actions 原�
 
 ```text
 Cloudflare Cron (UTC)
-    ↓ triggers (13 4 * * *, 13 8 * * *)
+    ↓ triggers (13 4 * * *, 13 8 * * *, 55 9 * * *)
 sunsetscore-scheduler (Worker)
-    ↓ 计算 scheduledTime -> Asia/Shanghai HHMM (e.g. 1213, 1613)
+    ↓ 计算 scheduledTime -> Asia/Shanghai HHMM (e.g. 1213, 1613, 1755)
     ↓ POST /repos/kyok2001go-hub/SunsetScore/actions/workflows/pre-sunset-metadata.yml/dispatches
 GitHub Actions (workflow_dispatch)
     ↓ inputs: { submit: true, cities: "", run_type: "scheduled", slot: "1213" }
@@ -43,6 +43,7 @@ infra/scheduler-worker/
 当前生产 Cron 配置（UTC 时间）：
 - `13 4 * * *` -> 对应北京时间 12:13（SLOT: `1213`）
 - `13 8 * * *` -> 对应北京时间 16:13（SLOT: `1613`）
+- `55 9 * * *` -> 对应北京时间 17:55（SLOT: `1755`）
 
 ```jsonc
 {
@@ -57,7 +58,8 @@ infra/scheduler-worker/
   "triggers": {
     "crons": [
       "13 4 * * *",
-      "13 8 * * *"
+      "13 8 * * *",
+      "55 9 * * *"
     ]
   }
 }
