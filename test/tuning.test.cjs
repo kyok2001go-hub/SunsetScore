@@ -51,6 +51,22 @@ async function copyFiles(root, relatives) {
   }
 }
 
+/**
+ * A few Tuning checks exercise the real local Model package and its Raw source under dataset/.
+ * That tree is git-ignored (`/dataset/`), so a fresh CI checkout has none; those checks skip
+ * there instead of failing, while everything that does not need the artifacts keeps running.
+ */
+const LOCAL_MODEL_PACKAGE = 'model_v2_ec472a1ae79a_a7e4b16fa93e_7e48bb52a4b9';
+const LOCAL_RAW_PACKAGE = 'raw_v1_20260907_20260914_ec472a1ae79a';
+function localModelDir() { return path.join(APP, 'dataset/model/exports', LOCAL_MODEL_PACKAGE); }
+function localRawDir() { return path.join(APP, 'dataset/exports', LOCAL_RAW_PACKAGE); }
+function missingLocalArtifacts() {
+  const missing = [];
+  if (!fssync.existsSync(path.join(localModelDir(), 'manifest.json'))) missing.push('Model');
+  if (!fssync.existsSync(path.join(localRawDir(), 'manifest.json'))) missing.push('Raw');
+  return missing.length ? `no local ${missing.join(' / ')} package in this checkout` : false;
+}
+
 test('Engine Runtime hash binds the declared file list and detects import-graph drift', async () => {
   const m = await api();
   const doc = await m.runtimeDocument(APP);
@@ -235,15 +251,22 @@ test('OAT enforcement allows only one changed path and treats the baseline probe
 
 test('Phase B reader refuses every non-whitelisted Model path', async () => {
   const m = await api();
-  const modelDir = path.join(APP, 'dataset/model/exports/model_v2_ec472a1ae79a_a7e4b16fa93e_7e48bb52a4b9');
-  for (const allowed of ['manifest.json', 'schema.json', 'policy.json', 'splits/train.csv']) {
-    assert.ok((await m.readRestrictedFile(modelDir, allowed)).length > 0);
-  }
+  // The hard-block list is checked before any filesystem access, so this assertion set holds
+  // even in a checkout that has no local Model package at all.
+  const modelDir = localModelDir();
   for (const forbidden of ['splits/validation.csv', 'splits/test.csv', 'model_samples.csv', 'event_splits.csv', 'reports/statistics.json']) {
     await assert.rejects(
       () => m.readRestrictedFile(modelDir, forbidden),
       error => error.reason_code === 'TEST_ACCESS_FORBIDDEN' && error.attempted_file === forbidden
     );
+  }
+});
+
+test('Phase B reader reads exactly the whitelisted Model files', { skip: missingLocalArtifacts() }, async () => {
+  const m = await api();
+  const modelDir = localModelDir();
+  for (const allowed of ['manifest.json', 'schema.json', 'policy.json', 'splits/train.csv']) {
+    assert.ok((await m.readRestrictedFile(modelDir, allowed)).length > 0);
   }
 });
 
@@ -672,29 +695,30 @@ test('Candidate ranking orders feasibility, the primary objective and tie-breake
   );
 });
 
-test('Candidate cohort reads VALIDATION but can never reach TEST', async () => {
+test('Candidate cohort can never reach TEST', async () => {
   const m = await api();
-  const modelDir = path.join(APP, 'dataset/model/exports/model_v2_ec472a1ae79a_a7e4b16fa93e_7e48bb52a4b9');
-  const rawDir = path.join(APP, 'dataset/exports/raw_v1_20260907_20260914_ec472a1ae79a');
-
-  const cohort = await m.loadCandidateCohort({ modelDir, rawDir, split: 'VALIDATION' });
-  assert.equal(cohort.split, 'VALIDATION');
-  assert.ok(cohort.rows.length > 0);
-  assert.ok(cohort.cohort.every(row => row.split === 'VALIDATION'));
-  assert.deepEqual(cohort.allowFiles, ['manifest.json', 'schema.json', 'policy.json', 'splits/validation.csv']);
   assert.equal(m.SPLIT_FILE.TEST, undefined);
   assert.equal(m.candidatePolicy().allowed_splits.includes('TEST'), false);
   assert.equal(m.candidatePolicy().forbidden_splits.includes('TEST'), true);
 
   assert.throws(() => m.candidateAllowFiles('TEST'), error => error.reason_code === 'UNSUPPORTED_SPLIT');
   await assert.rejects(
-    () => m.loadCandidateCohort({ modelDir, rawDir, split: 'TEST' }),
+    () => m.loadCandidateCohort({ modelDir: localModelDir(), rawDir: localRawDir(), split: 'TEST' }),
     error => error.reason_code === 'UNSUPPORTED_SPLIT'
   );
   await assert.rejects(
-    () => m.readRestrictedFile(modelDir, 'splits/test.csv', { allowFiles: m.candidateAllowFiles('VALIDATION') }),
+    () => m.readRestrictedFile(localModelDir(), 'splits/test.csv', { allowFiles: m.candidateAllowFiles('VALIDATION') }),
     error => error.reason_code === 'TEST_ACCESS_FORBIDDEN'
   );
+});
+
+test('Candidate cohort reads VALIDATION from the local Model package', { skip: missingLocalArtifacts() }, async () => {
+  const m = await api();
+  const cohort = await m.loadCandidateCohort({ modelDir: localModelDir(), rawDir: localRawDir(), split: 'VALIDATION' });
+  assert.equal(cohort.split, 'VALIDATION');
+  assert.ok(cohort.rows.length > 0);
+  assert.ok(cohort.cohort.every(row => row.split === 'VALIDATION'));
+  assert.deepEqual(cohort.allowFiles, ['manifest.json', 'schema.json', 'policy.json', 'splits/validation.csv']);
 });
 
 test('Package contents are deterministic and the identity changes with the inputs', async () => {
