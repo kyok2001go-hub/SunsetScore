@@ -8,8 +8,15 @@ import { contents, makeManifest } from './lib/package.mjs';
 import { inspectModelDataset } from './validate-model-dataset.mjs';
 import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
-export async function withModelLock(lock, operation) {
-  const deadline = performance.now() + 10000;
+/**
+ * Publish lock budget. The lock is held across a full source re-verification, which on slow
+ * disks and larger fixtures can exceed the previous 10 second budget and make a legitimate
+ * concurrent build fail with MODEL_DATASET_LOCK_BUSY.
+ */
+export const MODEL_LOCK_TIMEOUT_MS = 60000;
+
+export async function withModelLock(lock, operation, timeoutMs = MODEL_LOCK_TIMEOUT_MS) {
+  const deadline = performance.now() + timeoutMs;
   for (;;) {
     await safePath(lock);
     try { await mkdir(lock); break; }
@@ -58,7 +65,8 @@ export async function buildModelDataset(raw, gt, options = {}) {
           equal(old.manifest.descriptor, manifest.descriptor);
           equal(old.manifest.files, manifest.files);
         } catch { fail('MODEL_DATASET_ID_CONFLICT'); }
-        await recheckInputs(raw, gt, input.fingerprints);
+        // inspectModelDataset already re-verified the source linkage against this same
+        // raw/gt, so a further recheck here only lengthened the lock hold window.
         return 'DEDUPLICATED';
       }
       await safePath(target); await rename(staging, target);

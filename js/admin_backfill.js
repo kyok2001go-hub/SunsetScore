@@ -1,10 +1,26 @@
-/* SunsetScore V2.4.6 - administrator Observation backfill UI */
+/* SunsetScore V2.5.2.1 - administrator Observation backfill UI */
 (function () {
   'use strict';
 
   const MAX_ROWS = 20;
+  const BULK_RATING_BY_ORDINAL = {
+    '0': 'poor',
+    '1': 'fair',
+    '2': 'good',
+    '3': 'very_good',
+    '4': 'excellent'
+  };
+  const BULK_CONFIDENCE_RE = /^(?:0(?:\.\d{1,2})?|1(?:\.0{1,2})?)$/;
+  const BULK_EVIDENCE_RE = /^\d+$/;
   const rowsNode = document.getElementById('backfill-rows');
   const template = document.getElementById('row-template');
+  const bulkButton = document.getElementById('bulk-add');
+  const bulkDialog = document.getElementById('bulk-dialog');
+  const bulkText = document.getElementById('bulk-text');
+  const bulkFeedback = document.getElementById('bulk-feedback');
+  const bulkConfirmButton = document.getElementById('bulk-confirm');
+  const bulkCloseButton = document.getElementById('bulk-close');
+  const bulkCancelButton = document.getElementById('bulk-cancel');
   const addButton = document.getElementById('add-row');
   const previewButton = document.getElementById('preview');
   const commitButton = document.getElementById('commit');
@@ -33,11 +49,25 @@
     }
   }
 
-  function addRow() {
-    if (rowsNode.rows.length >= MAX_ROWS) {
-      setStatus('单次最多允许 20 行。', 'error');
-      return;
-    }
+  function restoreMaximum(input, maximum) {
+    if (!input.value.trim()) return;
+    const value = Number(input.value);
+    if (Number.isFinite(value) && value > maximum) input.value = String(maximum);
+  }
+
+  function setRowValues(row, values) {
+    const field = function (name) { return row.querySelector('[data-field="' + name + '"]'); };
+    field('city').value = values.city || '';
+    const date = values.event_date_local || '';
+    field('event_date_local').value = date;
+    row.querySelector('.date-picker').value = date;
+    field('rating').value = values.rating || '';
+    field('confidence').value = values.confidence == null ? '' : String(values.confidence);
+    field('evidence_count').value = values.evidence_count == null ? '' : String(values.evidence_count);
+    field('comment').value = values.comment || '';
+  }
+
+  function createRow(values) {
     const fragment = template.content.cloneNode(true);
     const row = fragment.querySelector('tr');
     row.dataset.clientItemId = 'row-' + crypto.randomUUID();
@@ -47,6 +77,8 @@
           const normalized = normalizeDate(event.target.value);
           if (normalized) event.target.value = normalized;
         }
+        if (event.target.matches('[data-field="confidence"]')) restoreMaximum(event.target, 1);
+        if (event.target.matches('[data-field="evidence_count"]')) restoreMaximum(event.target, 10000);
         invalidatePreview();
       }
     };
@@ -76,6 +108,16 @@
       invalidatePreview();
     });
     rowsNode.appendChild(fragment);
+    setRowValues(row, values || {});
+    return row;
+  }
+
+  function addRow() {
+    if (rowsNode.rows.length >= MAX_ROWS) {
+      setStatus('单次最多允许 20 行。', 'error');
+      return;
+    }
+    createRow();
     invalidatePreview();
   }
 
@@ -97,6 +139,143 @@
     const normalized = match[1] + '-' + match[2].padStart(2, '0') + '-' + match[3].padStart(2, '0');
     const parsed = new Date(normalized + 'T00:00:00.000Z');
     return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === normalized ? normalized : null;
+  }
+
+  function splitBulkLine(line) {
+    const fields = [];
+    let start = 0;
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      if ((char === ',' || char === '，') && fields.length < 5) {
+        fields.push(line.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    fields.push(line.slice(start).trim());
+    while (fields.length < 6) fields.push('');
+    return fields;
+  }
+
+  function parseBulkRecord(fields, lineNumber) {
+    const warnings = [];
+    const values = {
+      city: fields[0],
+      event_date_local: '',
+      rating: '',
+      confidence: null,
+      evidence_count: null,
+      comment: fields[5]
+    };
+    const warning = function (message) {
+      warnings.push('第 ' + lineNumber + ' 行：' + message);
+    };
+
+    if (fields[1]) {
+      const date = normalizeDate(fields[1]);
+      if (date) values.event_date_local = date;
+      else warning('日期格式无效，已留空');
+    }
+
+    if (fields[2]) {
+      const rating = BULK_RATING_BY_ORDINAL[fields[2]];
+      if (rating) values.rating = rating;
+      else warning('等级必须是 0-4，已留空');
+    }
+
+    if (fields[3]) {
+      if (BULK_CONFIDENCE_RE.test(fields[3])) values.confidence = Number(fields[3]);
+      else warning('置信度必须是 0-1 且最多两位小数，已留空');
+    }
+
+    if (fields[4]) {
+      if (BULK_EVIDENCE_RE.test(fields[4])) {
+        const evidenceCount = Number(fields[4]);
+        if (evidenceCount <= 10000) values.evidence_count = evidenceCount;
+        else warning('证据数必须是 0-10000 的整数，已留空');
+      } else {
+        warning('证据数必须是 0-10000 的整数，已留空');
+      }
+    }
+
+    return { values, warnings };
+  }
+
+  function parseBulkRows(text) {
+    const candidates = [];
+    const lines = String(text || '').split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index].trim();
+      if (!line) continue;
+      const fields = splitBulkLine(line);
+      if (fields.every(function (value) { return !value; })) continue;
+      candidates.push({ fields, lineNumber: index + 1 });
+    }
+
+    const kept = candidates.slice(0, MAX_ROWS);
+    const truncated = Math.max(0, candidates.length - kept.length);
+    const warnings = [];
+    if (truncated) {
+      warnings.push('识别到 ' + candidates.length + ' 条数据，已导入前 ' + kept.length + ' 条，忽略后 ' + truncated + ' 条。');
+    }
+    const rows = kept.map(function (entry) {
+      const parsed = parseBulkRecord(entry.fields, entry.lineNumber);
+      warnings.push(...parsed.warnings);
+      return parsed.values;
+    });
+    if (!candidates.length) warnings.push('未识别到可导入数据。');
+    return { rows, warnings, sourceCount: candidates.length, truncated };
+  }
+
+  function replaceRows(records) {
+    rowsNode.replaceChildren();
+    const rows = records.length ? records : [{}];
+    for (const values of rows) createRow(values);
+    invalidatePreview();
+  }
+
+  function renderBulkFeedback(result) {
+    const lines = [];
+    if (result.sourceCount) lines.push('已识别 ' + result.sourceCount + ' 条，导入 ' + result.rows.length + ' 行。');
+    else lines.push('未识别到可导入数据，当前表格已重置为一行。');
+    lines.push(...result.warnings);
+    bulkFeedback.textContent = lines.join('\n');
+    bulkFeedback.className = 'bulk-feedback ' + (result.warnings.length ? 'warning' : 'success');
+    bulkFeedback.hidden = false;
+  }
+
+  function closeBulkDialog() {
+    if (typeof bulkDialog.close === 'function') bulkDialog.close();
+    else bulkDialog.removeAttribute('open');
+  }
+
+  function openBulkDialog() {
+    if (bulkDialog.open) {
+      bulkText.focus();
+      return;
+    }
+    bulkFeedback.hidden = true;
+    bulkFeedback.textContent = '';
+    bulkFeedback.className = 'bulk-feedback';
+    if (typeof bulkDialog.showModal === 'function') bulkDialog.showModal();
+    else bulkDialog.setAttribute('open', '');
+    bulkText.focus();
+  }
+
+  function importBulkRows() {
+    const result = parseBulkRows(bulkText.value);
+    replaceRows(result.rows);
+    renderBulkFeedback(result);
+    const warning = result.warnings.length > 0;
+    const summary = result.sourceCount
+      ? '已批量导入 ' + result.rows.length + ' 行。' +
+        (result.truncated ? ' 已忽略 ' + result.truncated + ' 行。' : '') +
+        (warning ? ' 请查看批量导入警告。' : '')
+      : '未识别到可导入数据，当前表格已重置为一行。';
+    setStatus(summary, warning ? 'error' : 'success');
+    if (!warning) {
+      bulkText.value = '';
+      closeBulkDialog();
+    }
   }
 
   function formItems() {
@@ -303,6 +482,13 @@
     }
   }
 
+  bulkButton.addEventListener('click', openBulkDialog);
+  bulkConfirmButton.addEventListener('click', importBulkRows);
+  bulkCloseButton.addEventListener('click', closeBulkDialog);
+  bulkCancelButton.addEventListener('click', closeBulkDialog);
+  bulkDialog.addEventListener('click', function (event) {
+    if (event.target === bulkDialog) closeBulkDialog();
+  });
   addButton.addEventListener('click', addRow);
   previewButton.addEventListener('click', preview);
   commitButton.addEventListener('click', commit);

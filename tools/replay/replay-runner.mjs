@@ -19,7 +19,13 @@ async function runtime(engineRoot = ROOT) {
   }
   if (!runtimeRoot) {
     delete globalThis.SunsetScore;
-    for (const file of REPLAY_RUNTIME_FILES) await import(pathToFileURL(path.join(resolvedRoot, file)).href);
+    for (const file of REPLAY_RUNTIME_FILES) {
+      // A dedicated module instance keeps this runtime self-contained: other tools may have
+      // imported the same js files first, and re-running them here must always repopulate
+      // globalThis.SunsetScore instead of reading a cached no-op module.
+      const url = pathToFileURL(path.join(resolvedRoot, file)).href;
+      await import(`${url}?replay-runtime=1`);
+    }
     runtimeRoot = resolvedRoot;
   }
   return globalThis.SunsetScore;
@@ -163,9 +169,20 @@ export async function runReplay(replay, options = {}) {
   if (!replay || replay.replay_schema_version !== 1) throw new Error('Only replay_schema_version=1 is supported');
   const SS = await runtime(options.engineRoot);
   const current = SS.modelConfig;
-  const captured = deepMerge(replay.effective_config, options.configOverride || {});
-  const scoring = deepMerge(current.scoring, captured.scoring || {});
-  SS.modelConfig = { ...current, ...captured, scoring };
+  let installed;
+  if (options.modelConfig) {
+    // TUNING_BASE mode: the caller supplies a fully built modelConfig (frozen base config
+    // plus a single experiment override) so production aliasing, e.g.
+    // modelConfig.scoring === modelConfig.goldenWindow, is preserved exactly.
+    installed = options.modelConfig;
+  } else {
+    // PARITY / candidate mode keeps the historical behaviour: the Replay's own captured
+    // effective_config is the base and any override is layered on top of it.
+    const captured = deepMerge(replay.effective_config, options.configOverride || {});
+    const scoring = deepMerge(current.scoring, captured.scoring || {});
+    installed = { ...current, ...captured, scoring };
+  }
+  SS.modelConfig = installed;
   try {
     const ctx = replay.context;
     const nowMs = Date.parse(replay.identity.prediction_time_utc);
@@ -234,7 +251,7 @@ export async function runReplay(replay, options = {}) {
       sky_evolution_state: skyState.state, sky_evolution_factor: result.sky_evolution_factor, gw_factor: gwFactor
     };
     const comparison = options.reference ? compareReference(actual, options.reference) : null;
-    return { mode: options.configOverride ? 'candidate' : 'reference',
+    return { mode: options.modelConfig ? 'tuning-base' : (options.configOverride ? 'candidate' : 'reference'),
       pass: comparison ? comparison.pass : null, actual,
       reference: comparison ? comparison.reference : null,
       deltas: comparison ? comparison.deltas : {},

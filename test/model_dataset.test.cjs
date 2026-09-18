@@ -343,8 +343,13 @@ test('Model lock serializes writers, releases on failure, and times out without 
   await assert.rejects(m.withModelLock(lock, async () => { throw new Error('WRITE_FAILURE'); }), /WRITE_FAILURE/);
   await assert.rejects(fs.stat(lock), { code: 'ENOENT' });
   await fs.mkdir(lock); const start = performance.now();
-  await assert.rejects(m.withModelLock(lock, async () => assert.fail('must not acquire')), /MODEL_DATASET_LOCK_BUSY/);
-  assert.ok(performance.now() - start >= 9900); assert.ok((await fs.stat(lock)).isDirectory());
+  // A short explicit budget keeps the suite fast; the default budget only has to be generous
+  // enough to cover one source re-verification, which is what the concurrent builds need.
+  await assert.rejects(m.withModelLock(lock, async () => assert.fail('must not acquire'), 300), /MODEL_DATASET_LOCK_BUSY/);
+  const waited = performance.now() - start;
+  assert.ok(waited >= 250 && waited < 5000, `expected a short wait, got ${waited}ms`);
+  assert.ok((await fs.stat(lock)).isDirectory());
+  assert.equal(m.MODEL_LOCK_TIMEOUT_MS, 60000);
 });
 
 test('Model V2 carries admin basis, keeps old GT weak, and excludes basis from X', async () => {

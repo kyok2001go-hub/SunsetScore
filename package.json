@@ -26,6 +26,12 @@
     "evaluation:baseline": "node tools/evaluation/evaluate-baseline.mjs",
     "evaluation:validate": "node tools/evaluation/validate-evaluation.mjs",
     "evaluation:stats": "node tools/evaluation/evaluation-stats.mjs"
+    ,"tuning:readiness": "node tools/tuning/readiness.mjs"
+    ,"tuning:plan": "node tools/tuning/plan-sensitivity.mjs"
+    ,"tuning:sensitivity": "node tools/tuning/run-sensitivity.mjs"
+    ,"tuning:candidate": "node tools/tuning/evaluate-candidate.mjs"
+    ,"tuning:validate": "node tools/tuning/validate-sensitivity.mjs"
+    ,"tuning:stats": "node tools/tuning/sensitivity-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

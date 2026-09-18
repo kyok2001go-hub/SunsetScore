@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SunsetScore · 历史反馈补录</title>
-  <link rel="stylesheet" href="/css/admin.css?v=2.4.6-backfill3">
+  <link rel="stylesheet" href="/css/admin.css?v=2.5.2.1-backfill5">
 </head>
 <body>
   <main class="admin-shell">
     <header class="admin-header">
       <div>
-        <p class="eyebrow">SunsetScore V2.4.6</p>
+        <p class="eyebrow">SunsetScore V2.5.2.1</p>
         <h1>历史反馈补录</h1>
         <p>仅为已有 Prediction Snapshot 的 Sunset Event 新增五级真实 Observation。</p>
       </div>
@@ -24,7 +24,10 @@
           <h2 id="entry-title">补录项目</h2>
           <p>城市和日期只用于搜索；预览后必须确认具体 Event。单次最多 20 行。</p>
         </div>
-        <button id="add-row" class="button secondary" type="button">新增一行</button>
+        <div class="panel-actions">
+          <button id="bulk-add" class="button secondary" type="button">批量新增</button>
+          <button id="add-row" class="button secondary" type="button">新增一行</button>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -62,6 +65,32 @@
     </section>
   </main>
 
+  <dialog id="bulk-dialog" class="bulk-dialog" aria-labelledby="bulk-title">
+    <div class="bulk-dialog-shell">
+      <div class="bulk-dialog-heading">
+        <div>
+          <h2 id="bulk-title">批量新增补录数据</h2>
+          <p>每行一条，字段顺序：城市，日期，等级，置信度，证据数，备注。</p>
+        </div>
+        <button id="bulk-close" class="bulk-close" type="button">关闭</button>
+      </div>
+      <div class="bulk-format">
+        <p>等级：0 完全无霞 / 1 仅有微霞 / 2 普通有霞 / 3 很好彩霞 / 4 极佳彩霞。</p>
+        <p>城市内不可包含逗号；置信度为 0-1 且最多两位小数；证据数为 0-10000 整数。</p>
+        <code>深圳，2026.9.5，2，0.9，3，今天晚霞还行</code>
+        <br>
+        <code>深圳,2026.9.5,2,,,今天晚霞不错,云层也很漂亮</code>
+      </div>
+      <label class="bulk-input-label" for="bulk-text">批量数据</label>
+      <textarea id="bulk-text" rows="10" spellcheck="false" placeholder="每行一条数据"></textarea>
+      <div id="bulk-feedback" class="bulk-feedback" role="status" aria-live="polite" hidden></div>
+      <div class="bulk-actions">
+        <button id="bulk-cancel" class="button secondary" type="button">取消</button>
+        <button id="bulk-confirm" class="button primary" type="button">确认导入</button>
+      </div>
+    </div>
+  </dialog>
+
   <template id="row-template">
     <tr>
       <td><label><span class="sr-only">城市</span><input data-field="city" maxlength="100" autocomplete="off" required></label></td>
@@ -84,6 +113,6 @@
       <td><button class="remove-row" type="button" aria-label="删除此行">删除</button></td>
     </tr>
   </template>
-  <script src="/js/admin_backfill.js?v=2.4.6-backfill3"></script>
+  <script src="/js/admin_backfill.js?v=2.5.2.1-backfill5"></script>
 </body>
 </html>
