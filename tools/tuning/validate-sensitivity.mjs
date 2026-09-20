@@ -8,6 +8,7 @@ import { tuningPolicy } from './tuning-policy.mjs';
 import { FILES, MANIFEST_FILE, identity, descriptorOf } from './lib/package.mjs';
 import { runCli } from './lib/cli.mjs';
 import { buildSensitivityPackage } from './lib/build.mjs';
+import { inspectSensitivityV2 } from './v2/validate.mjs';
 
 export const parseJson = bytes => {
   const value = JSON.parse(bytes.toString('utf8'));
@@ -55,6 +56,12 @@ export function assertCoverageAccounting(metric, { cohortSampleCount, minCoverag
 
 export async function inspectSensitivity(directory, options = {}) {
   try {
+    const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
+    if (manifest.tuning_schema_version === 2 || manifest.tuning_policy_version === 2) {
+      if (options.tuningVersion === 1) fail('UNSUPPORTED_TUNING_SCHEMA');
+      return await inspectSensitivityV2(directory, options);
+    }
+    if (options.tuningVersion === 2) fail('UNSUPPORTED_TUNING_SCHEMA');
     return await inspect(directory, options);
   } catch (error) {
     if (['UNSAFE_PATH', 'UNSUPPORTED_TUNING_SCHEMA', 'UNSUPPORTED_TUNING_POLICY', 'INVALID_ARGUMENTS',

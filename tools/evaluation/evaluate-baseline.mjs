@@ -3,8 +3,9 @@ import path from 'node:path';
 import { mkdir, writeFile, rename, lstat, rmdir } from 'node:fs/promises';
 import { canonicalJson, safePath, fail, runId, removeOwned, isMain, errorCode, inventory, compare, readSafe, hash } from '../dataset/lib/common.mjs';
 import { inspectModelDataset } from '../model-dataset/validate-model-dataset.mjs';
-import { outside, loadModelEvaluationInput, recheckEvaluationInputs } from './lib/input.mjs';
+import { outside, loadModelEvaluationInput, recheckEvaluationInputs, TRAIN_WHITELIST_FILES, WHITELIST_FILES } from './lib/input.mjs';
 import { evaluate } from './lib/core.mjs';
+import { evaluateV2 } from './v2/core.mjs';
 import { inspectEvaluation } from './validate-evaluation.mjs';
 import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
@@ -57,6 +58,9 @@ function defaultEvaluationRoot() {
 }
 
 export async function evaluateBaseline(model, raw, gt, options = {}) {
+  const version = options.evaluationVersion ?? 1;
+  if (![1, 2].includes(version)) fail('INVALID_ARGUMENTS');
+  const whitelist = version === 2 ? TRAIN_WHITELIST_FILES : WHITELIST_FILES;
   const progress = options.progress || silentProgress;
   const roots = [model, raw, gt].filter(Boolean);
   const output = await outside(options.output || defaultEvaluationRoot(), roots);
@@ -80,17 +84,13 @@ export async function evaluateBaseline(model, raw, gt, options = {}) {
   if (gt) await verifyPackageFingerprint(gt, packageFingerprintsBefore.gt);
 
   progress.stage('受限读取 Model 白名单数据');
-  const input = await loadModelEvaluationInput(model, { progress });
+  const input = await loadModelEvaluationInput(model, { progress, trainOnly: version === 2 });
 
   progress.stage('计算 Baseline 指标、分布、切片与对比');
-  const result = evaluate(
-    input.modelManifest,
-    input.modelManifestSha256,
-    input.trainRows,
-    input.validationRows,
-    input.warnings,
-    progress
-  );
+  const result = version === 2
+    ? evaluateV2(input.modelManifest, input.modelManifestSha256, input.trainRows, input.warnings, progress)
+    : evaluate(input.modelManifest, input.modelManifestSha256, input.trainRows,
+      input.validationRows, input.warnings, progress);
 
   const staging = await outside(path.join(output, 'staging', runId()), roots);
   await mkdir(path.join(staging, 'reports'), { recursive: true });
@@ -107,7 +107,7 @@ export async function evaluateBaseline(model, raw, gt, options = {}) {
     try {
       await inspectEvaluation(staging, { model, staging: true, progress });
     } catch (e) {
-      await recheckEvaluationInputs(model, input.fingerprints);
+      await recheckEvaluationInputs(model, input.fingerprints, whitelist);
       throw e;
     }
 
@@ -121,7 +121,7 @@ export async function evaluateBaseline(model, raw, gt, options = {}) {
       await verifyPackageFingerprint(model, packageFingerprintsBefore.model);
       if (raw) await verifyPackageFingerprint(raw, packageFingerprintsBefore.raw);
       if (gt) await verifyPackageFingerprint(gt, packageFingerprintsBefore.gt);
-      await recheckEvaluationInputs(model, input.fingerprints);
+      await recheckEvaluationInputs(model, input.fingerprints, whitelist);
       let exists = false;
       try {
         await lstat(target);
@@ -144,7 +144,7 @@ export async function evaluateBaseline(model, raw, gt, options = {}) {
         await verifyPackageFingerprint(model, packageFingerprintsBefore.model);
         if (raw) await verifyPackageFingerprint(raw, packageFingerprintsBefore.raw);
         if (gt) await verifyPackageFingerprint(gt, packageFingerprintsBefore.gt);
-        await recheckEvaluationInputs(model, input.fingerprints);
+        await recheckEvaluationInputs(model, input.fingerprints, whitelist);
         return 'DEDUPLICATED';
       }
 

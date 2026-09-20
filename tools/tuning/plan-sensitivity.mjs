@@ -3,12 +3,28 @@ import { isMain } from '../dataset/lib/common.mjs';
 import { runCli } from './lib/cli.mjs';
 import { prepareContext } from './lib/pipeline.mjs';
 import { planExperiments } from './lib/experiment.mjs';
+import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
 
 /**
  * Dry run: reports experiment count, parameter classes, replay volume and estimated
  * executions before any experiment actually runs.
  */
 export async function planSensitivity(options) {
+  if (options.tuningVersion === 2) {
+    const linkage = await inspectBaselineLinkage(options);
+    const legacy = await planSensitivity({ ...options, tuningVersion: 1, validationEvidence: undefined });
+    return {
+      ...legacy, tuning_schema_version: 2, tuning_policy_version: 2,
+      global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
+      engineering_readiness: { status: 'READY', reasons: [] },
+      data_readiness: { status: legacy.global_readiness === 'TUNING_READY' ? 'READY' : 'INSUFFICIENT',
+        reasons: legacy.warnings.map(item => item.replace(/^READINESS_GAP:/, '')) },
+      metric_readiness: { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] },
+      mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
+      no_skill_reference_ordinal: linkage.no_skill_reference_ordinal,
+      validation_disclosure_status: linkage.validation_disclosure_status
+    };
+  }
   const ctx = await prepareContext(options);
   const plan = planExperiments({ units: ctx.units, ablations: ctx.ablations, config: ctx.loaded.config });
   const byKind = {};

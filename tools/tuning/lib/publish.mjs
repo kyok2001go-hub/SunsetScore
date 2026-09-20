@@ -39,14 +39,14 @@ function defaultOutputRoot(root) {
  * staging -> internal validation -> lock -> source recheck -> atomic rename.
  * Identical content deduplicates; the same id with different content fails.
  */
-export async function publishPackage({ output, roots, files, manifest, validateStaging, sourceCheck, root = APP_ROOT, progress = silentProgress }) {
+export async function publishPackage({ output, roots, files, manifest, validateStaging, sourceCheck, root = APP_ROOT, progress = silentProgress, exportFiles = FILES }) {
   const outputRoot = await outside(output || defaultOutputRoot(root), roots);
   const staging = await outside(path.join(outputRoot, 'staging', runId()), roots);
   await mkdir(path.join(staging, 'reports'), { recursive: true });
 
   try {
     progress.stage('写入 staging 敏感度文件');
-    for (const file of [...FILES, MANIFEST_FILE]) {
+    for (const file of [...exportFiles, MANIFEST_FILE]) {
       const content = file === MANIFEST_FILE ? canonicalJson(manifest) : files[file];
       const target = path.join(staging, file);
       await safePath(target);

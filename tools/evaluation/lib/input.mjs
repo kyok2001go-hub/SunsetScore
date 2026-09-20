@@ -14,6 +14,7 @@ export const WHITELIST_FILES = Object.freeze([
   'splits/train.csv',
   'splits/validation.csv'
 ]);
+export const TRAIN_WHITELIST_FILES = Object.freeze(WHITELIST_FILES.filter(f => f !== 'splits/validation.csv'));
 
 export async function outside(destination, roots) {
   if (destination.split(/[\\/]/).includes('..')) fail('UNSAFE_PATH');
@@ -24,9 +25,9 @@ export async function outside(destination, roots) {
   return resolved;
 }
 
-export async function readRestrictedModelFile(modelDir, relativeFile) {
+export async function readRestrictedModelFile(modelDir, relativeFile, allowedFiles = WHITELIST_FILES) {
   const normalized = relativeFile.replaceAll('\\', '/');
-  if (!WHITELIST_FILES.includes(normalized)) {
+  if (!allowedFiles.includes(normalized)) {
     fail('MODEL_DATASET_VALIDATION_FAILED', {
       reason_code: 'TEST_ACCESS_FORBIDDEN',
       attempted_file: normalized
@@ -36,20 +37,21 @@ export async function readRestrictedModelFile(modelDir, relativeFile) {
   return readSafe(path.join(modelDir, relativeFile));
 }
 
-export async function captureWhitelistFingerprints(modelDir) {
+export async function captureWhitelistFingerprints(modelDir, files = WHITELIST_FILES) {
   const result = {};
-  for (const f of WHITELIST_FILES) {
-    result[f] = hash(await readRestrictedModelFile(modelDir, f));
+  for (const f of files) {
+    result[f] = hash(await readRestrictedModelFile(modelDir, f, files));
   }
   return result;
 }
 
 export async function loadModelEvaluationInput(modelDir, options = {}) {
   const progress = options?.progress || (options?.stage ? options : silentProgress);
+  const files = options?.trainOnly ? TRAIN_WHITELIST_FILES : WHITELIST_FILES;
   try {
     await safePath(modelDir);
     progress.stage('读取 Model manifest 与 Schema/Policy');
-    const manifestBytes = await readRestrictedModelFile(modelDir, 'manifest.json');
+    const manifestBytes = await readRestrictedModelFile(modelDir, 'manifest.json', files);
     let manifestJson;
     try {
       manifestJson = JSON.parse(manifestBytes.toString('utf8'));
@@ -67,7 +69,7 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
     }
 
     progress.stage('读取 Model 白名单文件指纹');
-    const fingerprintsBefore = await captureWhitelistFingerprints(modelDir);
+    const fingerprintsBefore = await captureWhitelistFingerprints(modelDir, files);
     if (fingerprintsBefore['manifest.json'] !== hash(manifestBytes)) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'SOURCE_CHANGED_DURING_READ' });
     }
@@ -108,8 +110,8 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'DESCRIPTOR_MISMATCH' });
     }
 
-    const schemaBytes = await readRestrictedModelFile(modelDir, 'schema.json');
-    const policyBytes = await readRestrictedModelFile(modelDir, 'policy.json');
+    const schemaBytes = await readRestrictedModelFile(modelDir, 'schema.json', files);
+    const policyBytes = await readRestrictedModelFile(modelDir, 'policy.json', files);
     if (hash(schemaBytes) !== manifestJson.files['schema.json'].sha256 || schemaBytes.length !== manifestJson.files['schema.json'].bytes) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'FILE_HASH' });
     }
@@ -133,26 +135,26 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'POLICY_MISMATCH' });
     }
 
-    progress.stage('受限读取 TRAIN 与 VALIDATION 数据集');
-    const trainBytes = await readRestrictedModelFile(modelDir, 'splits/train.csv');
-    const valBytes = await readRestrictedModelFile(modelDir, 'splits/validation.csv');
+    progress.stage(options?.trainOnly ? '受限读取 TRAIN 数据集' : '受限读取 TRAIN 与 VALIDATION 数据集');
+    const trainBytes = await readRestrictedModelFile(modelDir, 'splits/train.csv', files);
+    const valBytes = options?.trainOnly ? null : await readRestrictedModelFile(modelDir, 'splits/validation.csv', files);
 
     if (hash(trainBytes) !== manifestJson.files['splits/train.csv'].sha256 ||
         trainBytes.length !== manifestJson.files['splits/train.csv'].bytes) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'FILE_HASH' });
     }
-    if (hash(valBytes) !== manifestJson.files['splits/validation.csv'].sha256 ||
-        valBytes.length !== manifestJson.files['splits/validation.csv'].bytes) {
+    if (valBytes && (hash(valBytes) !== manifestJson.files['splits/validation.csv'].sha256 ||
+        valBytes.length !== manifestJson.files['splits/validation.csv'].bytes)) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'FILE_HASH' });
     }
 
     const schema = modelSchema(schemaVersion);
     const rawTrain = readCsv(schema.tables.samples, trainBytes);
-    const rawVal = readCsv(schema.tables.samples, valBytes);
+    const rawVal = valBytes ? readCsv(schema.tables.samples, valBytes) : [];
 
     // Verify row counts match manifest
     if (manifestJson.files['splits/train.csv'].rows !== rawTrain.length ||
-        manifestJson.files['splits/validation.csv'].rows !== rawVal.length) {
+        (valBytes && manifestJson.files['splits/validation.csv'].rows !== rawVal.length)) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'CSV_ROWS_MISMATCH' });
     }
 
@@ -269,7 +271,7 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
     }
 
     progress.stage('复核 Model 白名单文件指纹');
-    const fingerprintsAfter = await captureWhitelistFingerprints(modelDir);
+    const fingerprintsAfter = await captureWhitelistFingerprints(modelDir, files);
     if (canonicalJson(fingerprintsBefore) !== canonicalJson(fingerprintsAfter)) {
       fail('MODEL_DATASET_VALIDATION_FAILED', { reason_code: 'SOURCE_CHANGED_DURING_READ' });
     }
@@ -290,9 +292,9 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
   }
 }
 
-export async function recheckEvaluationInputs(modelDir, capturedFingerprints) {
+export async function recheckEvaluationInputs(modelDir, capturedFingerprints, files = WHITELIST_FILES) {
   try {
-    const current = await captureWhitelistFingerprints(modelDir);
+    const current = await captureWhitelistFingerprints(modelDir, files);
     if (canonicalJson(current) !== canonicalJson(capturedFingerprints)) {
       fail('SOURCE_CHANGED_DURING_EVALUATION');
     }

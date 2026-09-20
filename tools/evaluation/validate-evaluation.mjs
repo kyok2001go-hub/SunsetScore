@@ -15,6 +15,7 @@ import { loadModelEvaluationInput } from './lib/input.mjs';
 import { evaluate } from './lib/core.mjs';
 import { runCli } from './lib/cli.mjs';
 import { checkInternalConsistency } from './lib/internal-checks.mjs';
+import { inspectEvaluationV2 } from './v2/validate.mjs';
 
 export const parseJson = bytes => {
   const result = JSON.parse(bytes.toString('utf8'));
@@ -41,6 +42,7 @@ async function inspect(directory, options) {
 
   const schemaVersion = manifest.evaluation_schema_version;
   const policyVersion = manifest.evaluation_policy_version;
+  if (schemaVersion === 2 || policyVersion === 2) return inspectEvaluationV2(directory, options);
   if (schemaVersion !== 1) fail('UNSUPPORTED_EVALUATION_SCHEMA');
   if (policyVersion !== 1) fail('UNSUPPORTED_EVALUATION_POLICY');
 

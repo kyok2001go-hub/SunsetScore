@@ -39,7 +39,14 @@ export async function evaluationStats(directory, options = {}) {
     benchmark_counts: manifest.benchmark_counts,
     evaluated_versions: manifest.evaluated_versions,
     headline_summary: headlineSummary,
-    warnings_summary: summary.warnings_summary
+    warnings_summary: summary.warnings_summary,
+    ...(manifest.evaluation_schema_version === 2 ? {
+      mapping_status: manifest.mapping_status,
+      interpretation_scope: manifest.interpretation_scope,
+      no_skill_reference: manifest.no_skill_reference,
+      no_skill_comparison: Object.fromEntries(Object.entries(summary.groups)
+        .map(([key, group]) => [key, group.no_skill_comparison]))
+    } : {})
   };
 }
 

@@ -12,7 +12,7 @@ const counts = ['sample_count', 'event_count', 'date_count', 'weight_sum'];
 const metricNames = ['mae', 'bias', 'exact_accuracy', 'within_1_accuracy', 'severe_error_rate', 'overprediction_rate', 'underprediction_rate', 'qwk'];
 
 // Reconstruct from published matrix cells, independent of the row-based metric engine.
-function fromMatrix(cells, weighting) {
+export function fromMatrix(cells, weighting) {
   const value = r => weighting === 'weighted' ? r.weight_sum : r.sample_count;
   const W = cells.reduce((s, r) => s + value(r), 0);
   const avg = f => W ? cells.reduce((s, r) => s + value(r) * f(r.predicted_ordinal - r.gt_ordinal), 0) / W : null;

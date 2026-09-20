@@ -1,12 +1,26 @@
 # Baseline Evaluation 工具使用说明 (Phase 4)
 
-本工具为 SunsetScore V2.5.1 Phase 4 Baseline Evaluation 的离线实现，用于对冻结的 V2.5.0 Model Dataset 建立历史生产预测基线，量化误差并识别误差模式，为 Phase 5 Sensitivity Analysis 提供固定参照。
+本工具为 SunsetScore V2.5.1 Phase 4 Baseline Evaluation 的离线实现。未指定版本时继续生成历史 Evaluation V1 包；显式传入 `--evaluation-version 2` 生成修订后的 TRAIN-only V2 包。下文原有 V1 契约保留供旧包操作与审计，V2 的差异见紧接的说明。
 
 本工具为纯本地 Node.js 工具，不联网、不调用外部 API、不修改生产数据库或应用代码。
 
+## Evaluation V2：TRAIN-only 代理等级基线
+
+```bash
+npm run evaluation:baseline -- --model <model_dir> --raw <raw_dir> --gt <gt_dir> --evaluation-version 2
+npm run evaluation:validate -- <baseline_v2_dir> --model <model_dir>
+npm run evaluation:stats -- <baseline_v2_dir>
+```
+
+V2 先对完整 Model / Raw / GT 执行 `SOURCE_LINKED` 验收；该阶段可读 VALIDATION / TEST 做完整性检查。随后的计算和 `MODEL_LINKED` 重算只读取 Model 的 manifest、schema、policy 与 `splits/train.csv`。V2 包固定 `evaluated_splits=["TRAIN"]`、`validation_evaluated=false`、`test_evaluated=false`，只输出 ALL_PRIMARY / CLOSEST_PRE_SUNSET 两组 TRAIN 结果。改变 VALIDATION / TEST 内容会改变源包身份和 Evaluation ID，但不会改变 TRAIN 指标或无技巧参照。
+
+预测分数到 Observation 五级的保序对应是尚未验证的代理映射。V2 manifest、Policy 和摘要固定 `mapping_status=PROVISIONAL` 与 `interpretation_scope=PROXY_ORDINAL_ONLY`；MAE、Bias、QWK、错误案例均应按代理等级解读。V2 从去重的 TRAIN Event GT 按 `gt_confidence` 求加权中位等级（并列取较低级），作为 `TRAIN_WEIGHTED_MEDIAN_ORDINAL` 无技巧参照。`no_skill_comparison.csv` 在每个 TRAIN Benchmark 上将 Final 与该固定等级作全 cohort 比较；`baseline_comparison.csv` 仍只对 `baseline_score` 非空行作成对比较，两个 cohort 不混用。
+
+已发布的 `baseline_v1_*` 包含 VALIDATION 详细结果，仍按原 V1 Schema / Policy 校验，不会被 V2 覆盖。当前 V2.5.2 Sensitivity 包继续关联 V1；本次实现不修改其功能或既有身份。
+
 ---
 
-## 1. 核心架构与隔离保证
+## 1. V1 历史契约：核心架构与隔离保证
 
 ### 1.1 两个独立阶段
 1. **上游数据包验收阶段 (Model SOURCE_LINKED)**：

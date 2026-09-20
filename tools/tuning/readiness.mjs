@@ -5,8 +5,25 @@ import { prepareContext } from './lib/pipeline.mjs';
 import { parameterReadiness } from './lib/readiness.mjs';
 import { supportMetrics } from './lib/replay-cohort.mjs';
 import { tuningPolicy } from './tuning-policy.mjs';
+import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
 
 export async function tuningReadiness(options) {
+  if (options.tuningVersion === 2) {
+    const linkage = await inspectBaselineLinkage(options);
+    const legacy = await tuningReadiness({ ...options, tuningVersion: 1, validationEvidence: undefined });
+    const dataReasons = legacy.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
+    return {
+      ...legacy, tuning_schema_version: 2, tuning_policy_version: 2,
+      global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
+      engineering_readiness: { status: 'READY', reasons: [] },
+      data_readiness: { status: dataReasons.length ? 'INSUFFICIENT' : 'READY', reasons: dataReasons },
+      metric_readiness: { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] },
+      reasons: [...(dataReasons.length ? ['DATA_SUPPORT_INSUFFICIENT'] : []), 'PROXY_MAPPING_NOT_VALIDATED'],
+      mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
+      no_skill_reference_ordinal: linkage.no_skill_reference_ordinal,
+      validation_disclosure_status: linkage.validation_disclosure_status
+    };
+  }
   const ctx = await prepareContext(options);
   const policy = tuningPolicy();
   const parameterReadinessRows = ctx.units.map(unit => {

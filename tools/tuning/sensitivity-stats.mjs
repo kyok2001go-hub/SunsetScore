@@ -5,13 +5,16 @@ import { runCli } from './lib/cli.mjs';
 import { inspectSensitivity, parseJson } from './validate-sensitivity.mjs';
 import { readCsv } from '../dataset/lib/csv.mjs';
 import { CSV_TABLES } from './tuning-schema.mjs';
+import { CSV_TABLES_V2 } from './v2/contract.mjs';
 
 export async function sensitivityStats(directory, options = {}) {
   const result = await inspectSensitivity(directory, options);
   const manifest = result.manifest;
+  const v2 = manifest.tuning_schema_version === 2;
+  const tables = v2 ? CSV_TABLES_V2 : CSV_TABLES;
   const loaded = {};
-  for (const file of Object.keys(CSV_TABLES)) {
-    loaded[file] = readCsv(CSV_TABLES[file], await readSafe(path.join(directory, file)));
+  for (const file of Object.keys(tables)) {
+    loaded[file] = readCsv(tables[file], await readSafe(path.join(directory, file)));
   }
   const readiness = parseJson(await readSafe(path.join(directory, 'readiness.json')));
   const byReadiness = {};
@@ -29,6 +32,17 @@ export async function sensitivityStats(directory, options = {}) {
     evaluation_id: manifest.evaluation_id,
     global_readiness: readiness.global_readiness,
     result_usage: manifest.result_usage,
+    ...(v2 ? {
+      tuning_schema_version: 2,
+      engineering_readiness: manifest.engineering_readiness,
+      data_readiness: manifest.data_readiness,
+      metric_readiness: manifest.metric_readiness,
+      mapping_status: manifest.mapping_status,
+      interpretation_scope: manifest.interpretation_scope,
+      validation_disclosure_status: manifest.validation_disclosure_status,
+      control_alignment: result.summary.control_alignment,
+      no_skill_reference_ordinal: manifest.no_skill_reference_ordinal
+    } : {}),
     cohort: {
       sample_count: manifest.sample_count,
       event_count: manifest.event_count,

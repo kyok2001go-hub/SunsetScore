@@ -5,11 +5,11 @@ import { outside } from './input.mjs';
 import { createProgress } from '../../progress.mjs';
 
 const FLAGS = {
-  readiness: ['model', 'raw', 'gt', 'baseline', 'output', 'report-dir'],
-  plan: ['model', 'raw', 'gt', 'baseline', 'output', 'report-dir'],
-  sensitivity: ['model', 'raw', 'gt', 'baseline', 'output', 'report-dir'],
-  validate: ['model', 'raw', 'gt', 'baseline', 'report-dir'],
-  stats: ['report-dir'],
+  readiness: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'output', 'report-dir'],
+  plan: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'output', 'report-dir'],
+  sensitivity: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'output', 'report-dir'],
+  validate: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'report-dir'],
+  stats: ['tuning-version', 'report-dir'],
   candidate: ['model', 'raw', 'gt', 'split', 'candidates', 'output', 'report-dir']
 };
 
@@ -45,11 +45,22 @@ export function parseArgs(args, mode) {
     index++;
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
+    else if (key === 'tuning-version') {
+      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      result.tuningVersion = Number(value);
+    }
+    else if (key === 'validation-evidence') result.validationEvidence = path.resolve(value);
     else if (key === 'split') result.split = value;
     else result[key] = path.resolve(value);
   }
   const required = REQUIRED[mode];
   if (required && required.some(key => !result[key])) fail('INVALID_ARGUMENTS');
+  if (result.validationEvidence && result.tuningVersion !== 2 && mode !== 'validate') fail('INVALID_ARGUMENTS');
+  if (result.validationEvidence && mode === 'validate' && (result.tuningVersion === 1 ||
+      !(result.model && result.raw && result.gt && result.baseline))) fail('INVALID_ARGUMENTS');
+  if (mode === 'validate' && result.tuningVersion === 2) {
+    if ((result.raw || result.gt || result.baseline) && !(result.model && result.raw && result.gt && result.baseline)) fail('INVALID_ARGUMENTS');
+  }
   return result;
 }
 
@@ -80,7 +91,7 @@ export async function runCli(mode, operation) {
       candidate: '准备候选点评估'
     }[mode]);
 
-    const roots = [options.path, options.model, options.raw, options.gt, options.baseline].filter(Boolean);
+    const roots = [options.path, options.model, options.raw, options.gt, options.baseline, options.validationEvidence].filter(Boolean);
     if (options.reportDir) await outside(options.reportDir, roots);
 
     let data = await operation(options);

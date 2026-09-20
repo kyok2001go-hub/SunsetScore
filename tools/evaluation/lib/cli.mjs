@@ -13,7 +13,7 @@ export function parseArgs(args, mode) {
     start = 1;
   }
   const allowed = mode === 'baseline'
-    ? ['model', 'raw', 'gt', 'output']
+    ? ['model', 'raw', 'gt', 'output', 'evaluation-version']
     : mode === 'validate'
     ? ['model', 'report-dir']
     : ['report-dir'];
@@ -33,6 +33,10 @@ export function parseArgs(args, mode) {
     i++;
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
+    else if (key === 'evaluation-version') {
+      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      result.evaluationVersion = Number(value);
+    }
     else if (['model', 'raw', 'gt', 'output'].includes(key)) result[key] = path.resolve(value);
     else result[key] = value;
   }

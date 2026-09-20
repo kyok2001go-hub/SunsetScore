@@ -74,6 +74,9 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
       // Observation rating
       const ratings = ['poor', 'fair', 'good', 'very_good', 'excellent'];
       let obsRating = ratings[i % 5];
+      if (d === 1 && options.validationRatingOverride) {
+        obsRating = options.validationRatingOverride(i, obsRating);
+      }
       // If options.testRatingOverride is provided and this is in the TEST split (d === 2)
       if (d === 2 && options.testRatingOverride) {
         obsRating = options.testRatingOverride(i, obsRating);

@@ -5,15 +5,20 @@ import { buildSensitivityPackage } from './lib/build.mjs';
 import { publishPackage } from './lib/publish.mjs';
 import { captureWhitelistFingerprints, verifyUpstreamSources, loadEvaluationLinkage } from './lib/input.mjs';
 import { inspectSensitivity } from './validate-sensitivity.mjs';
+import { buildSensitivityPackageV2 } from './v2/build.mjs';
+import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
+import { FILES_V2 } from './v2/contract.mjs';
 
 export async function runSensitivity(options) {
-  const built = await buildSensitivityPackage(options);
+  const v2 = options.tuningVersion === 2;
+  const built = v2 ? await buildSensitivityPackageV2(options) : await buildSensitivityPackage(options);
   const before = await captureWhitelistFingerprints(options.model);
   const published = await publishPackage({
     output: options.output,
-    roots: [options.model, options.raw, options.gt, options.baseline].filter(Boolean),
+    roots: [options.model, options.raw, options.gt, options.baseline, options.validationEvidence].filter(Boolean),
     files: built.files,
     manifest: built.manifest,
+    exportFiles: v2 ? FILES_V2 : undefined,
     progress: options.progress,
     validateStaging: async staging => { await inspectSensitivity(staging, { staging: true }); },
     sourceCheck: async () => {
@@ -24,7 +29,15 @@ export async function runSensitivity(options) {
         error.code = 'SOURCE_CHANGED_DURING_TUNING';
         throw error;
       }
-      await loadEvaluationLinkage(options.baseline, built.ctx.input.linkage);
+      if (v2) {
+        const current = await inspectBaselineLinkage(options);
+        const frozen = Object.fromEntries(Object.keys(current).map(key => [key, built.manifest[key]]));
+        if (canonicalJson(current) !== canonicalJson(frozen)) {
+          const error = new Error('EVALUATION_CHANGED_DURING_TUNING');
+          error.code = 'EVALUATION_CHANGED_DURING_TUNING';
+          throw error;
+        }
+      } else await loadEvaluationLinkage(options.baseline, built.ctx.input.linkage);
     }
   });
   return {

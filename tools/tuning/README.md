@@ -6,6 +6,25 @@
 
 本版**不寻找最优参数、不发布 Candidate、不修改线上模型**。它回答的是"哪些参数值得调、数据够不够调"，并提供 V2.5.3 所需的候选点评估接口（见 §12）。
 
+## Tuning V2（显式选择）
+
+不带 `--tuning-version` 的命令继续使用历史 V1 契约和 `sensitivity_v1_*` 包。新方案须显式传 `--tuning-version 2`，且 `--baseline` 必须是 Evaluation V2：
+
+```powershell
+npm run tuning:readiness -- --tuning-version 2 --model <Model目录> --raw <Raw目录> --gt <GT目录> --baseline <Evaluation-V2目录> --validation-evidence <Evaluation-V1目录>
+npm run tuning:plan -- --tuning-version 2 --model <Model目录> --raw <Raw目录> --gt <GT目录> --baseline <Evaluation-V2目录> --validation-evidence <Evaluation-V1目录>
+npm run tuning:sensitivity -- --tuning-version 2 --model <Model目录> --raw <Raw目录> --gt <GT目录> --baseline <Evaluation-V2目录> --validation-evidence <Evaluation-V1目录>
+npm run tuning:validate -- <sensitivity_v2目录>
+npm run tuning:validate -- <sensitivity_v2目录> --model <Model目录> --raw <Raw目录> --gt <GT目录> --baseline <Evaluation-V2目录> --validation-evidence <Evaluation-V1目录>
+npm run tuning:stats -- <sensitivity_v2目录>
+```
+
+`--validation-evidence` 是显式冻结的验证集披露证据。当前 Model 使用已评估 VALIDATION 的 Evaluation V1 包，输出 `DEVELOPMENT_EXPOSED` 及其 ID/manifest Hash；未提供可验收证据时记录 `NOT_ATTESTED`，绝不从 V2 的 `validation_evaluated=false` 推断为未暴露。完整来源校验使用与构建相同的证据路径。`validate` 不带源路径只做 `PACKAGE_INTERNAL`；仅带 Model 为 `TRAIN_LINKED`；四个来源路径齐全时执行 `SOURCE_LINKED` 与确定性重算。旧包仍按 V1 校验。
+
+V2 构建先完成 Model/Raw/GT 来源验收，再对 Evaluation V2 做 `PACKAGE_INTERNAL` 和 `MODEL_LINKED` 核验，要求 Schema/Policy 2、TRAIN-only、Model 身份 Hash 一致、`PROVISIONAL / PROXY_ORDINAL_ONLY` 映射及完整 TRAIN 冻结的 no-skill ordinal。实验只消费 TRAIN。包内 `control_alignment.csv` 逐 Snapshot 比较历史 Model 分数与冻结配置重算 Control；两者不可直接混称。`sample_deltas.csv` 携带切片所需的 TRAIN 属性，以支持包内切片复核。
+
+实验、Ablation 和 Slice 的代理 GT 指标在各自实际配对集合内重新按 Event 归一化；固定 no-skill ordinal 不重选，分别输出 `paired_no_skill_mae`、Control/Experiment 相对参照的 gap 和空值原因。分数响应指标继续可用于判断参数是否改变模型输出，参数级 `metric_usage=PROXY_EXPLORATORY`。全局就绪度拆分为工程、数据和映射三项；Evaluation V2 的映射仍为 PROVISIONAL，因此当前只发布 `EXPLORATORY_ONLY`，不据此定稿参数。V2 使用 Schema/Policy 2 和 `sensitivity_v2_*` 不可变身份，历史 V1 包字节不变。
+
 ---
 
 ## 1. 边界与隔离
