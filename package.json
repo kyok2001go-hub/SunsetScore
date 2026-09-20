@@ -32,6 +32,8 @@
     ,"tuning:candidate": "node tools/tuning/evaluate-candidate.mjs"
     ,"tuning:validate": "node tools/tuning/validate-sensitivity.mjs"
     ,"tuning:stats": "node tools/tuning/sensitivity-stats.mjs"
+    ,"dataset:lineage": "node tools/maintenance/lineage.mjs"
+    ,"dataset:prune": "node tools/maintenance/prune.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

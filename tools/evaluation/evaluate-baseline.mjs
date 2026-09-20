@@ -9,6 +9,8 @@ import { evaluateV2 } from './v2/core.mjs';
 import { inspectEvaluation } from './validate-evaluation.mjs';
 import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
+import { withBuildLease } from '../maintenance/lib/lease.mjs';
+import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 
 export async function capturePackageFingerprint(dir) {
   if (!dir) return null;
@@ -57,7 +59,7 @@ function defaultEvaluationRoot() {
   return path.resolve('dataset/evaluation');
 }
 
-export async function evaluateBaseline(model, raw, gt, options = {}) {
+async function runEvaluateBaseline(model, raw, gt, options = {}) {
   const version = options.evaluationVersion ?? 1;
   if (![1, 2].includes(version)) fail('INVALID_ARGUMENTS');
   const whitelist = version === 2 ? TRAIN_WHITELIST_FILES : WHITELIST_FILES;
@@ -176,6 +178,13 @@ export async function evaluateBaseline(model, raw, gt, options = {}) {
     }
     throw error;
   }
+}
+
+/** Holds the shared maintenance lease for the whole run so prune never races an Evaluation publish. */
+export async function evaluateBaseline(model, raw, gt, options = {}) {
+  return withBuildLease('evaluation', () => runEvaluateBaseline(model, raw, gt, options), {
+    datasetRoot: datasetRootForPhaseOutput('evaluation', options.output || defaultEvaluationRoot())
+  });
 }
 
 if (isMain(import.meta.url)) await runCli('baseline', o => evaluateBaseline(o.model, o.raw, o.gt, o));

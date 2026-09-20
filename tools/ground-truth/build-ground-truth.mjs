@@ -9,6 +9,8 @@ import { inspectGroundTruth } from './validate-ground-truth.mjs';
 import { cli, parseArgs } from './lib/cli.mjs';
 
 import { createProgress, silentProgress } from '../progress.mjs';
+import { withBuildLease } from '../maintenance/lib/lease.mjs';
+import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 
 async function withGroundTruthLock(lock, operation) {
   const deadline = performance.now() + 10000;
@@ -27,7 +29,7 @@ async function withGroundTruthLock(lock, operation) {
   finally { await safePath(lock); await rmdir(lock); }
 }
 
-export async function buildGroundTruth(raw, options = {}) {
+async function runGroundTruth(raw, options = {}) {
   const progress = options.progress || silentProgress;
   raw = await safePath(raw);
   const output = await safePath(options.output || path.resolve('dataset/ground_truth'));
@@ -80,6 +82,13 @@ export async function buildGroundTruth(raw, options = {}) {
     throw error;
   }
 }
+/** Holds the shared maintenance lease for the whole build so prune never races a GT publish. */
+export async function buildGroundTruth(raw, options = {}) {
+  return withBuildLease('ground_truth', () => runGroundTruth(raw, options), {
+    datasetRoot: datasetRootForPhaseOutput('ground_truth', options.output || path.resolve('dataset/ground_truth'))
+  });
+}
+
 if (isMain(import.meta.url)) await cli('build', async args => {
   const options = parseArgs(args, 'build'), progress = createProgress(options);
   try { return { options, data: await buildGroundTruth(options.path, { ...options, progress }) }; }

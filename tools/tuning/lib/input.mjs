@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { canonicalJson, hash, readSafe, safePath, within, fail, compare, unique } from '../../dataset/lib/common.mjs';
 import { readCsv } from '../../dataset/lib/csv.mjs';
 import { modelSchema } from '../../model-dataset/model-dataset-schema.mjs';
@@ -16,6 +16,24 @@ export async function outside(destination, roots) {
   for (const root of roots.filter(Boolean)) {
     if (within(await safePath(root), resolved)) fail('UNSAFE_PATH');
   }
+  return resolved;
+}
+
+/**
+ * Path flags come straight from the command line, so a deleted or mistyped directory has to be
+ * named explicitly. Without this it surfaces later as an opaque ENOENT from a deeper validator,
+ * and the operator cannot tell which of the five inputs is wrong.
+ */
+export async function assertInputDirectory(target, reasonCode) {
+  const resolved = await safePath(target);
+  let info;
+  try {
+    info = await lstat(resolved);
+  } catch (error) {
+    if (error.code === 'ENOENT') fail('TUNING_VALIDATION_FAILED', { reason_code: reasonCode, detail: resolved });
+    throw error;
+  }
+  if (!info.isDirectory()) fail('TUNING_VALIDATION_FAILED', { reason_code: reasonCode, detail: resolved });
   return resolved;
 }
 
@@ -204,6 +222,7 @@ export async function readSplitRows(modelDir, { manifest, schemaVersion, split, 
 export async function loadTuningInput(modelDir, options = {}) {
   const progress = options.progress || silentProgress;
   try {
+    await assertInputDirectory(modelDir, 'MODEL_PACKAGE_NOT_FOUND');
     const header = await loadModelHeader(modelDir, { ...options, progress });
     const rows = await readSplitRows(modelDir, {
       manifest: header.manifest, schemaVersion: header.schemaVersion, split: 'TRAIN', allowFiles: header.allowFiles, progress
@@ -262,6 +281,9 @@ export async function loadCandidateCohort({ modelDir, rawDir, split, progress = 
 /** Phase A: full source validation. This stage may read VALIDATION / TEST for integrity only. */
 export async function verifyUpstreamSources(modelDir, rawDir, gtDir, progress = silentProgress) {
   progress.stage('上游验收：Model / Raw / GT 来源关联');
+  await assertInputDirectory(modelDir, 'MODEL_PACKAGE_NOT_FOUND');
+  await assertInputDirectory(rawDir, 'RAW_PACKAGE_NOT_FOUND');
+  await assertInputDirectory(gtDir, 'GT_PACKAGE_NOT_FOUND');
   const upstream = await inspectModelDataset(modelDir, { raw: rawDir, gt: gtDir });
   if (upstream.status !== 'PASS' || upstream.validation_scope !== 'SOURCE_LINKED') {
     fail('TUNING_VALIDATION_FAILED', { reason_code: 'UPSTREAM_SOURCE_LINKED_FAILED' });
@@ -270,6 +292,7 @@ export async function verifyUpstreamSources(modelDir, rawDir, gtDir, progress = 
 }
 
 export async function loadEvaluationLinkage(evaluationDir, linkage) {
+  await assertInputDirectory(evaluationDir, 'BASELINE_PACKAGE_NOT_FOUND');
   const manifestPath = await safePath(path.join(evaluationDir, 'manifest.json'));
   const bytes = await readSafe(manifestPath);
   const manifest = JSON.parse(bytes.toString('utf8'));

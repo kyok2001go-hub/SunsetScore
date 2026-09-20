@@ -2,14 +2,17 @@
 import { isMain, canonicalJson } from '../dataset/lib/common.mjs';
 import { runCli } from './lib/cli.mjs';
 import { buildSensitivityPackage } from './lib/build.mjs';
-import { publishPackage } from './lib/publish.mjs';
+import { defaultOutputRoot, publishPackage } from './lib/publish.mjs';
 import { captureWhitelistFingerprints, verifyUpstreamSources, loadEvaluationLinkage } from './lib/input.mjs';
 import { inspectSensitivity } from './validate-sensitivity.mjs';
 import { buildSensitivityPackageV2 } from './v2/build.mjs';
 import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
 import { FILES_V2 } from './v2/contract.mjs';
+import { withBuildLease } from '../maintenance/lib/lease.mjs';
+import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
+import { APP_ROOT } from './lib/engine-runtime.mjs';
 
-export async function runSensitivity(options) {
+async function runSensitivityBuild(options) {
   const v2 = options.tuningVersion === 2;
   const built = v2 ? await buildSensitivityPackageV2(options) : await buildSensitivityPackage(options);
   const before = await captureWhitelistFingerprints(options.model);
@@ -54,6 +57,13 @@ export async function runSensitivity(options) {
     parameter_registry_sha256: built.manifest.parameter_registry_sha256,
     descriptor_sha256: built.manifest.descriptor_sha256
   };
+}
+
+/** Holds the shared maintenance lease for the whole run so prune never races a Sensitivity publish. */
+export async function runSensitivity(options) {
+  return withBuildLease('sensitivity', () => runSensitivityBuild(options), {
+    datasetRoot: datasetRootForPhaseOutput('sensitivity', options.output || defaultOutputRoot(APP_ROOT))
+  });
 }
 
 if (isMain(import.meta.url)) await runCli('sensitivity', runSensitivity);

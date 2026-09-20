@@ -31,7 +31,7 @@ export async function withTuningLock(lock, operation, timeoutMs = 10000) {
   }
 }
 
-function defaultOutputRoot(root) {
+export function defaultOutputRoot(root) {
   return path.join(root, 'dataset/tuning');
 }
 

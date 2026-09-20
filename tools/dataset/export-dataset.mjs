@@ -16,6 +16,8 @@ import { ERROR_FIELDS, isGoldenWindow, issue, qualityReport, validateTables } fr
 import { datasetStatistics } from './lib/statistics.mjs';
 
 import { createProgress, silentProgress } from '../progress.mjs';
+import { withBuildLease } from '../maintenance/lib/lease.mjs';
+import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 
 const same = (a, b) => canonicalJson(a) === canonicalJson(b);
 function exporterCommit() {
@@ -41,7 +43,7 @@ export async function publishDataset(staging, destination, manifest) {
   });
 }
 
-export async function exportDataset(options, dependencies = {}) {
+async function runExport(options, dependencies = {}) {
   const progress = dependencies.progress || silentProgress;
   const output = await safePath(options.output), id = runId();
   const staging = path.join(output, 'staging', id), temp = path.join(staging, '.download');
@@ -142,6 +144,16 @@ export async function exportDataset(options, dependencies = {}) {
     return { status: 'FAIL', error_code: errorCode(error), staging, report };
   }
 }
+/**
+ * A build holds a shared maintenance lease for its whole lifetime, so a cascade prune can never
+ * remove a package while it is being written or re-verified.
+ */
+export async function exportDataset(options, dependencies = {}) {
+  return withBuildLease('raw', () => runExport(options, dependencies), {
+    datasetRoot: datasetRootForPhaseOutput('raw', options.output || 'dataset')
+  });
+}
+
 if (isMain(import.meta.url)) {
   try {
     const options = parseExportArgs(process.argv.slice(2)), progress = createProgress(options);

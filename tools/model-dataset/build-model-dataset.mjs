@@ -8,6 +8,8 @@ import { contents, makeManifest } from './lib/package.mjs';
 import { inspectModelDataset } from './validate-model-dataset.mjs';
 import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
+import { withBuildLease } from '../maintenance/lib/lease.mjs';
+import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 /**
  * Publish lock budget. The lock is held across a full source re-verification, which on slow
  * disks and larger fixtures can exceed the previous 10 second budget and make a legitimate
@@ -31,7 +33,7 @@ export async function withModelLock(lock, operation, timeoutMs = MODEL_LOCK_TIME
   try { return await operation(); }
   finally { await safePath(lock); await rmdir(lock); }
 }
-export async function buildModelDataset(raw, gt, options = {}) {
+async function runModelDataset(raw, gt, options = {}) {
   const progress = options.progress || silentProgress;
   const output = await outside(options.output || path.resolve('dataset/model'), [raw, gt]);
   const input = await loadInputs(raw, gt, progress), result = derive(input.events, input.snapshots, input.gt, input.replays, options.selection || selection(), input.inputSummary, 2, progress, 3);
@@ -79,4 +81,11 @@ export async function buildModelDataset(raw, gt, options = {}) {
     throw error;
   }
 }
+/** Holds the shared maintenance lease for the whole build so prune never races a Model publish. */
+export async function buildModelDataset(raw, gt, options = {}) {
+  return withBuildLease('model', () => runModelDataset(raw, gt, options), {
+    datasetRoot: datasetRootForPhaseOutput('model', options.output || path.resolve('dataset/model'))
+  });
+}
+
 if (isMain(import.meta.url)) await runCli('build', o => buildModelDataset(o.raw, o.gt, o));
