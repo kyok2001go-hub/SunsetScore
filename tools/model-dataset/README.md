@@ -1,87 +1,48 @@
-# Model Dataset Builder V2 (V2.5.0)
+# Model Dataset 构建工具（Phase 3）
 
-Local Node.js 22+ tools; project tests use Node.js 24. No network, Wrangler,
-production writes, scoring changes, model fitting or accuracy evaluation.
-Model Schema 2 and Policy 3 are independent of Raw/GT/model versions.
+本模块把一个冻结 Raw 包及其对应 GT 包关联为 Snapshot 粒度的 Model Dataset，并按完整当地日期块划分 TRAIN / VALIDATION / TEST。工具只读本地包，不联网、不调用 Wrangler、不训练模型、不调整评分参数，也不评估预测准确率。请在 `SunsetScore-main/` 目录执行；工具支持 Node.js 22+，项目测试使用 Node.js 24。
 
-Run from the application root with one exact Raw package and its GT package:
+## 命令
 
-```text
+```powershell
 npm run model-dataset:plan -- --raw <raw_dir> --gt <gt_dir>
 npm run model-dataset:build -- --raw <raw_dir> --gt <gt_dir>
 npm run model-dataset:validate -- <model_dir> --raw <raw_dir> --gt <gt_dir>
 npm run model-dataset:stats -- <model_dir>
 ```
 
-Plan, build and source-linked validation perform full Raw validation (including
-Replay integrity) and GT SOURCE_LINKED validation. Raw Schema 1, GT Schema 1/2 Policy 1 or GT Schema 3 Policy 2 are supported. No Replay engine is executed and GT is not rewritten.
+`plan` 预检数据量与日期切分，`build` 发布不可变包。两者必须显式提供配套 Raw / GT 路径，可用 `--model-version a,b` 按源字段精确筛选模型版本；筛掉的 Snapshot 仍会进入 `excluded_samples.csv`，每条源 Snapshot 只属于一个输出类别。默认输出根为 `dataset/model`，`build` 可用 `--output <目录>` 指定。构建成功响应中的 `directory` 是后续校验和统计所需的 `<model_dir>`。
 
-Optional `--model-version a,b` on plan/build is an exact stored-value filter.
-Trimmed values are deduplicated and sorted. Filtered-out snapshots remain in
-excluded_samples.csv; every Raw snapshot belongs to exactly one output category.
-STRONG/MEDIUM pre-sunset rows are Primary, WEAK and otherwise eligible post-sunset
-rows Diagnostic, DISPUTED/UNLABELED rows Excluded. WEAK takes priority over post-sunset.
+`plan`、`build` 和带 `--raw` / `--gt` 的来源校验会完整校验 Raw（含 Replay 完整性）及 GT `SOURCE_LINKED`。这只检查文件与来源，不执行 Replay Engine，也不重写 GT。支持 Raw Schema 1；GT Schema 1/2 + Policy 1 或 Schema 3 + Policy 2。旧 Model Schema 1 / Policy 1 包仍按原策略校验；当前新包使用 Model Schema 2 / Policy 3，Schema 与 Policy 分别版本化。
 
-Primary Events are split by complete local date blocks, minimizing 70/15/15
-deviation subject to TRAIN/VALIDATION/TEST minima of 15/5/5 Events and at least 30 PRIMARY Events in total. A split
-requires at least three date blocks; having 30 Events alone is insufficient.
-Plan exits 0 for both READY and INSUFFICIENT_SPLIT_DATA. Insufficient build exits
-nonzero with a plan and creates no output package. More than 10,000 Primary date
-blocks fails explicitly rather than approximating the exhaustive split search.
+## 入选和切分
 
-The default output root is dataset/model, with staging/ and exports/ children;
-`--output <root>` changes it. Publication requires SOURCE_LINKED validation and
-source rechecks, followed by a 10-second exclusive lock and atomic rename.
-Matching packages deduplicate without replacing prior manifests/reports;
-conflicts fail. Interrupted staging and existing locks are not silently removed.
+- `STRONG` / `MEDIUM` 且日落前的 Snapshot 为 Primary；`WEAK` 与其他符合条件的日落后 Snapshot 为 Diagnostic；`DISPUTED` / `UNLABELED` 等为 Excluded。`WEAK` 判定先于日落后诊断。
+- Policy 3 要求至少 30 个 Primary Event、至少三个可切分的完整当地日期块；TRAIN / VALIDATION / TEST 分别至少 15 / 5 / 5 个 Event。目标比例为 70% / 15% / 15%，不拆散同一当地日期。仅总量达到 30 仍不保证可切分；日期块超过 10,000 个会明确失败，不用近似搜索。
+- `plan` 对 `READY` 和 `INSUFFICIENT_SPLIT_DATA` 都以退出码 0 返回；不足时 `build` 非零退出且不发布包。旧 Policy 1/2 包继续按原 30/10/10 分组门槛校验，不套用 Policy 3。
 
-Without `--raw` and `--gt`, validation is PACKAGE_INTERNAL only. Provide both
-for SOURCE_LINKED. Internal validation cannot prove absence of omitted source
-rows or existence of Replay payloads. Stats first performs internal validation.
-Reports default to stdout; plan/validate/stats accept `--report-dir` outside all
-known input packages and refuse existing report files.
+## 包结构与读取边界
 
-Output: manifest/schema/policy; model_samples.csv (all Primary), event_splits.csv,
-splits/train.csv, splits/validation.csv, splits/test.csv, diagnostic_samples.csv,
-excluded_samples.csv; reports/statistics.json, split-balance.json and errors.csv.
-Sample tables share 94 columns: 79 frozen Raw columns (id becomes snapshot_id)
-and 15 metadata columns. Schema explicitly labels field roles and allows only
-the 20 feature columns as default prediction inputs. CSV is UTF-8 BOM/CRLF;
-JSON is canonical UTF-8 without BOM or trailing newline. Do not resave package
-CSVs from a spreadsheet application; export a viewing copy instead.
+默认正式包位于 `dataset/model/exports/<model_dataset_id>/`；输出根还包含 `staging/`。包内主要文件为：
 
-**model_samples.csv includes TEST.** Future training must use train.csv;
-candidate selection uses validation.csv and final evaluation uses test.csv.
-Targets, weights and baseline outputs must not enter X. test_set_policy is
-final_evaluation_only; this builder does not implement an optimizer access system.
-Fix the same model_dataset_id for one candidate comparison campaign.
+```text
+manifest.json、schema.json、policy.json
+model_samples.csv、event_splits.csv
+splits/train.csv、splits/validation.csv、splits/test.csv
+diagnostic_samples.csv、excluded_samples.csv
+reports/statistics.json、reports/split-balance.json、reports/errors.csv
+```
 
-replay_path is relative to the explicitly supplied source Raw root, not the
-Model package. No Replay payload is copied and no filesystem link is created.
-Move/archive complete Raw, GT and Model packages together, preserving ID folder
-names. Deleting one never cascades to another; without sources only internal
-checks remain possible. See the Chinese V2.5.0 guide under ref_docs/PRD.
+样本表有 94 列：79 列冻结 Raw 字段（源 `id` 在这里成为 `snapshot_id`）及 15 列元数据。Schema 标记字段角色，默认只有 20 个 feature 可进入预测输入 X；`gt_basis` 是目标审计元数据，不进入 X。旧 GT Policy 1 的 basis 仅在 Model 视图映射为 `OBSERVATION_AGGREGATED`，原状态与 confidence 不被提升。
 
-gt_basis follows gt_status in samples and Event rows; it is target metadata,
-never an X feature. Statistics report basis per Event globally and per split.
-Legacy GT Policy 1 values are never upgraded by Model Builder: their basis maps
-to OBSERVATION_AGGREGATED and original status/confidence remain unchanged.
-Model Schema 1 / Policy 1 packages remain fully readable under their frozen
-contracts. New packages use model_v2 IDs. Only supported upstream combinations
-are Raw1 + GT1/Policy1, GT2/Policy1, or GT3/Policy2.
+`model_samples.csv` **包含 TEST**，不得把它作为训练输入；训练只读 `splits/train.csv`，候选选择读取 VALIDATION，TEST 留给最终冻结候选评估。目标、权重和内部 baseline 输出也不能进入 X。`replay_path` 相对显式提供的 Raw 根目录，Model 包不复制 Replay Payload 或建立文件系统链接。
 
-## 终端进度提示（2026-09-15）
+CSV 使用 UTF-8 BOM + CRLF，JSON 为规范化 UTF-8、无 BOM 和末尾换行。表格软件应导入查看副本，不要覆盖正式包文件。
 
-model-dataset:build、model-dataset:plan、model-dataset:validate 和 model-dataset:stats 默认输出中文阶段与累计耗时，支持追加 --quiet 关闭提示。进度写 stderr，最终 JSON 继续写 stdout；npm 自身可能输出命令横幅。
+## 验证、发布与维护
 
-build / plan 显示 Raw 文件指纹、完整 Raw 校验（含 Replay）、GT 来源关联、Snapshot 关联处理数量、Event 资格与权重、日期边界搜索、计划统计。build 另显示样本门禁、写 staging、来源校验及锁内发布/去重。交互终端的计数提示节流约每秒一次，非交互环境保留阶段日志；异步等待约每 10 秒显示耗时，同步日期搜索使用边界计数反馈。
+`model-dataset:validate -- <model_dir>` 只做 `PACKAGE_INTERNAL`；同时提供匹配的 `--raw` 与 `--gt` 才做 `SOURCE_LINKED`。包内校验不能证明源行没有遗漏，也不能证明 Replay Payload 仍可取得。`stats` 先做包内校验。`plan` / `validate` / `stats` 可用 `--report-dir` 写入包外新目录，分别生成 `plan.json` / `validation.json` / `statistics.json`；已有报告不覆盖。
 
-plan 样本不足仍正常返回 INSUFFICIENT_SPLIT_DATA（退出码 0），build 不足仍失败且不发布包。validate / stats 显示整体校验阶段和等待耗时。进度不影响数据选择、Schema/Policy、包 ID、Hash、统计、退出码及去重，不进入数据包或报告。仅更新本地工具即可生效，无需网站部署。
+发布前重新校验来源，在排他锁内复核后原子发布；同内容去重，同 ID 内容冲突失败。中断留下的 staging、疑似残留锁不自动猜测清理。命令支持 `--quiet` 关闭 stderr 的中文进度；最终 JSON 在 stdout，npm 可能另有命令横幅。
 
-## 30 个 PRIMARY Event 构建门槛（2026-09-15）
-
-当前默认 Model Policy 3，Model Schema 仍为 2。构建要求 PRIMARY Event 总量至少 30，TRAIN / VALIDATION / TEST 分别至少 15 / 5 / 5，至少三个可分离的完整日期块。总量达到 30 仍须满足按日期划分的每组下限；不能拆散同一天的数据来凑数。继续以 70% / 15% / 15% 为优化目标，保留原有同分边界选择、GT 资格、时间和权重规则。
-
-日志中的日期数量 3、4、10、8、8（总计 33）可以按 17 / 8 / 8 构建。29 个及以下不能构建；只有一个日期块或验证/测试组不足也不能构建。
-
-旧 Model Policy 1/2 包按原 30/10/10 规则校验；新包采用 Policy 3 并生成不同内容 ID。Raw 和 GT 不需要重新导出或构建，可直接用原来的 --raw / --gt 路径重跑 model-dataset:plan 与 model-dataset:build，再用 model-dataset:validate 做来源关联校验。放宽构建门槛不表示少量样本已足以证明模型效果。
+保留完整 Raw、GT、Model 包及各自 ID 目录，才能长期执行 `SOURCE_LINKED` 复核。Phase 1–5 正式包的血缘查看和授权级联清理走 [数据维护工具](../maintenance/README.md)；不要单独手删上游包。另见 [Model Dataset 中文操作说明](../../../ref_docs/PRD/V2.5.0_Model_Dataset_Builder操作说明.md)。

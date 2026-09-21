@@ -13,8 +13,8 @@ export const STATUSES = Object.freeze({
 });
 
 export const DEFAULT_CITIES = Object.freeze([
-  '深圳', '广州', '北京', '上海', '兰州', '西宁', '银川',
-  '西安', '太原', '武汉', '长沙', '南京', '杭州', '昆明'
+  '深圳', '广州', '北京', '上海', '西安', '太原', '武汉', '长沙',
+  '南京', '杭州', '昆明', '厦门', '青岛', '南宁', '香港'
 ]);
 
 export const MAX_METADATA_CITIES = 20;

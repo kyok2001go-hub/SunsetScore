@@ -73,10 +73,13 @@ test('city matching is strict after suffix normalization and never uses broad co
   assert.equal(collector.cityMatches('', '深圳'), false);
 });
 
-test('configuration defaults to fourteen cities, clamps concurrency and supports a controlled city subset', async () => {
+test('configuration uses the maintained default cities, clamps concurrency and supports a controlled city subset', async () => {
   const collector = await collectorPromise;
   const defaults = collector.readConfig({ METADATA_SLOT: '1213' });
-  assert.equal(defaults.cities.length, 14);
+  assert.deepEqual(defaults.cities, [
+    '深圳', '广州', '北京', '上海', '西安', '太原', '武汉', '长沙',
+    '南京', '杭州', '昆明', '厦门', '青岛', '南宁', '香港'
+  ]);
   assert.equal(defaults.concurrency, 2);
   assert.equal(defaults.submit, false);
   assert.equal(defaults.baseUrl, 'https://sunsetscore.pages.dev');
@@ -318,6 +321,7 @@ test('workflow enforces Cloudflare cron dispatch inputs without native schedule 
   assert.match(workflow, /METADATA_SLOT:\s*\$\{\{ steps\.collector-mode\.outputs\.slot \}\}/);
   assert.match(workflow, /METADATA_RUN_TYPE:\s*\$\{\{ steps\.collector-mode\.outputs\.run_type \}\}/);
   assert.match(workflow, /METADATA_CITIES:\s*\$\{\{ steps\.collector-mode\.outputs\.cities \}\}/);
+  assert.match(workflow, /DEFAULT_METADATA_CITIES:\s*'深圳,广州,北京,上海,西安,太原,武汉,长沙,南京,杭州,昆明,厦门,青岛,南宁,香港'/);
   assert.match(workflow, /METADATA_TIMEZONE:\s*\$\{\{ env\.METADATA_TIMEZONE \}\}/);
   assert.match(workflow, /SUNSETSCORE_URL:\s*https:\/\/sunsetscore\.pages\.dev/);
   assert.match(workflow, /timeout-minutes:\s*60/);
