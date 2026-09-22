@@ -9,6 +9,26 @@
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
 
+  <nav id="sticky-prediction-summary" class="sticky-prediction-summary" aria-label="当前城市晚霞评分" aria-hidden="true">
+    <div class="sticky-prediction-summary-inner">
+      <div class="sticky-summary-score">
+        <strong id="sticky-summary-score">—</strong>
+        <span>晚霞评分</span>
+      </div>
+      <span class="sticky-summary-divider" aria-hidden="true"></span>
+      <div class="sticky-summary-location">
+        <strong id="sticky-summary-city">—</strong>
+        <time id="sticky-summary-date">—</time>
+      </div>
+      <button id="sticky-summary-search" class="sticky-summary-search" type="button" aria-label="返回页面顶部并聚焦城市搜索框">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="10.8" cy="10.8" r="6.8"></circle>
+          <path d="m16 16 5 5"></path>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
   <header class="header">
     <h1>🌇 SunsetScore</h1>
     <p class="subtitle">你所在城市今天的晚霞怎么样？</p>
@@ -355,6 +375,7 @@
 <script src="js/observation_service.js?v=2.4.6-replay1"></script>
 <script src="js/radar_view.js?v=2.4.6-replay1"></script>
 <script src="js/debug.js?v=2.4.6-replay1"></script>
+<script src="js/sticky_summary.js?v=2.4.6-replay1"></script>
 <script src="js/ui.js?v=2.4.6-replay1"></script>
 <script src="js/feedback_ui.js?v=2.4.6-replay1"></script>
 <script src="js/city_search_ui.js?v=2.4.6-replay1"></script>

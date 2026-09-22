@@ -74,6 +74,21 @@ test('city combobox keeps 16px input at every breakpoint and loads its two modul
   assert.ok(html.indexOf('src="js/city_search_ui.js') < html.indexOf('src="js/app.js'));
 });
 
+test('prediction summary exposes the current score, city, date and an accessible return-to-search action', () => {
+  const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+  const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
+  const sticky = readFileSync(join(__dirname, '..', 'js/sticky_summary.js'), 'utf8');
+  assert.match(html, /id="sticky-prediction-summary"[^>]*aria-hidden="true"/);
+  assert.match(html, /id="sticky-summary-score"[\s\S]*晚霞评分[\s\S]*id="sticky-summary-city"[\s\S]*id="sticky-summary-date"/);
+  assert.match(html, /id="sticky-summary-search"[^>]*aria-label="返回页面顶部并聚焦城市搜索框"/);
+  assert.match(css, /\.sticky-prediction-summary\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*1000/);
+  assert.match(css, /\.sticky-prediction-summary\.is-visible\s*\{[^}]*visibility:\s*visible/);
+  assert.match(sticky, /getBoundingClientRect\(\)\.top <= 0/);
+  assert.match(sticky, /scrollTo\(\{ top: 0, behavior:/);
+  assert.match(sticky, /focus\(\{ preventScroll: true \}\)/);
+  assert.ok(html.indexOf('src="js/sticky_summary.js') < html.indexOf('src="js/ui.js'));
+});
+
 test('static resources, edge logs and server identifiers match the app version and asset revision', async () => {
   const SS = load(createRuntime(), ['js/config.js']);
   const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');

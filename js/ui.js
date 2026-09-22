@@ -37,6 +37,7 @@
   function clearStatus() { hide($('status')); hide($('loading')); hide($('error')); }
   function beginPrediction() {
     clearStatus(); hide($('result')); hide($('floating-feedback-wrapper'));
+    if (SS.stickySummary) SS.stickySummary.update();
     var button = $('search-btn'); if (button) button.disabled = true;
   }
   function endPrediction() { var button = $('search-btn'); if (button) button.disabled = false; }
@@ -387,7 +388,8 @@
     SS.domain.assertPredictionResult(result);
     currentResult = result;
     clearStatus(); show($('result')); show($('floating-feedback-wrapper'));
-    setText('r-city', SS.citySearch.title({ name: result.city, admin1: result.admin1, country: result.country }));
+    var cityTitle = SS.citySearch.title({ name: result.city, admin1: result.admin1, country: result.country });
+    setText('r-city', cityTitle);
     setText('r-local-time', '当地 ' + (result.local_time_str || '—') + ' (' +
       (result.timezone_str || SS.time.formatUtcOffset(result.utc_offset_seconds || 0)) + ')');
     var meta = (result.country ? result.country + ' · ' : '') + result.date + (result.sampling_mode ? ' · ' + result.sampling_mode + ' 采样' : '');
@@ -410,6 +412,7 @@
     renderList('r-reasons', result.reasons, false); renderList('r-warnings', result.warnings, true); renderDetails(result);
     if (SS.radarView) SS.radarView.render(result);
     if (SS.debugView) SS.debugView.render(result);
+    if (SS.stickySummary) SS.stickySummary.setData(result, cityTitle);
     var resultHost = $('result'); if (resultHost && resultHost.scrollIntoView) resultHost.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function toggleDetails() {

@@ -87,6 +87,7 @@
       if (search) search.setQuery(button.dataset.city);
     });
     if (details) details.addEventListener('click', SS.ui.toggleDetails);
+    if (SS.stickySummary) SS.stickySummary.init();
     if (SS.ui.initScoreHelp) SS.ui.initScoreHelp();
     if (SS.feedbackUi) SS.feedbackUi.init();
     var deepLinkCity = getDeepLinkCity();
