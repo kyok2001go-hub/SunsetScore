@@ -10,7 +10,8 @@ const VALIDATORS = Object.freeze({
   ground_truth: async () => (await import('../../ground-truth/validate-ground-truth.mjs')).inspectGroundTruth,
   model: async () => (await import('../../model-dataset/validate-model-dataset.mjs')).inspectModelDataset,
   evaluation: async () => (await import('../../evaluation/validate-evaluation.mjs')).inspectEvaluation,
-  sensitivity: async () => (await import('../../tuning/validate-sensitivity.mjs')).inspectSensitivity
+  sensitivity: async () => (await import('../../tuning/validate-sensitivity.mjs')).inspectSensitivity,
+  optimization: async () => (await import('../../optimization/validate-optimization.mjs')).inspectOptimization
 });
 
 export async function verifyPackages(nodes, options = {}) {

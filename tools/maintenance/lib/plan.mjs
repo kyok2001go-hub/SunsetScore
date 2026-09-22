@@ -242,7 +242,7 @@ export async function applyPrunePlan(options) {
 
     await mkdir(quarantine, { recursive: true });
     const log = await readLog(logPath);
-    progress.stage('按 Phase 5 → Phase 1 顺序清理');
+    progress.stage('按 Phase 6 → Phase 1 顺序清理');
     for (const target of plan.targets.slice().sort(compareNodesDescending)) {
       const { source } = targetPaths(datasetRoot, target);
       const destination = path.join(quarantine, `phase${target.phase}`, target.id);

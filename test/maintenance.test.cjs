@@ -15,6 +15,7 @@ function api() {
     'maintenance/lib/plan',
     'maintenance/lib/render',
     'maintenance/lib/args',
+    'maintenance/lib/verify',
     'maintenance/lineage',
     'maintenance/prune',
     'dataset/lib/common'
@@ -30,7 +31,8 @@ const ID = {
   evalV1: 'baseline_v1_333333333333_444444444444',
   evalV2: 'baseline_v2_333333333333_555555555555',
   sensV1: 'sensitivity_v1_333333333333_666666666666',
-  sensV2: 'sensitivity_v2_333333333333_777777777777'
+  sensV2: 'sensitivity_v2_333333333333_777777777777',
+  optV1: 'optimization_v1_333333333333_888888888888'
 };
 
 async function tempDataset(t) {
@@ -96,7 +98,16 @@ async function buildFixture(m, datasetRoot) {
     validation_disclosure_evidence_id: ID.evalV1,
     validation_disclosure_evidence_sha256: evalV1.manifestSha256
   });
-  return { rawA, rawB, gtA, gtB, modelA, evalV1, evalV2, sensV1, sensV2 };
+  const optV1 = await writePackage(m, datasetRoot, 'optimization/exports', ID.optV1, {
+    optimization_schema_version: 1, optimization_policy_version: 1, optimization_id: ID.optV1,
+    model_dataset_id: ID.modelA, model_dataset_manifest_sha256: modelA.manifestSha256,
+    evaluation_id: ID.evalV2, evaluation_manifest_sha256: evalV2.manifestSha256,
+    sensitivity_id: ID.sensV2, sensitivity_manifest_sha256: sensV2.manifestSha256,
+    source_dataset_id: ID.rawA, ground_truth_id: ID.gtA,
+    validation_disclosure_evidence_id: ID.evalV1,
+    validation_disclosure_evidence_sha256: evalV1.manifestSha256
+  });
+  return { rawA, rawB, gtA, gtB, modelA, evalV1, evalV2, sensV1, sensV2, optV1 };
 }
 
 const exists = async file => fs.access(file).then(() => true, () => false);
@@ -106,11 +117,11 @@ test('Lineage scan finds one node per published package and no diagnostics on a 
   const root = await tempDataset(t);
   await buildFixture(m, root);
   const graph = await m.scanDataset({ datasetRoot: root });
-  assert.equal(graph.nodes.length, 9);
+  assert.equal(graph.nodes.length, 10);
   assert.deepEqual(graph.diagnostics, []);
   assert.deepEqual(
-    Object.fromEntries([1, 2, 3, 4, 5].map(phase => [phase, graph.nodes.filter(n => n.phase === phase).length])),
-    { 1: 2, 2: 2, 3: 1, 4: 2, 5: 2 });
+    Object.fromEntries([1, 2, 3, 4, 5, 6].map(phase => [phase, graph.nodes.filter(n => n.phase === phase).length])),
+    { 1: 2, 2: 2, 3: 1, 4: 2, 5: 2, 6: 1 });
   for (const node of graph.nodes) {
     assert.equal(node.declared_id, node.id);
     assert.equal(node.status, 'OK');
@@ -120,6 +131,18 @@ test('Lineage scan finds one node per published package and no diagnostics on a 
   assert.ok(graph.edges.every(edge => edge.parent_phase < edge.child_phase));
 });
 
+test('Package verification dispatch recognizes Phase 6 Optimization', async () => {
+  const m = await api();
+  const result = await m.verifyPackages([{
+    id: ID.optV1,
+    phase: 6,
+    phase_key: 'optimization',
+    status: 'BROKEN',
+    absolute_path: null
+  }]);
+  assert.deepEqual(result, [{ id: ID.optV1, phase: 6, status: 'SKIPPED', error_code: null }]);
+});
+
 test('Cascade closure follows declared sources and the validation disclosure evidence', async t => {
   const m = await api();
   const root = await tempDataset(t);
@@ -127,20 +150,24 @@ test('Cascade closure follows declared sources and the validation disclosure evi
   const graph = await m.scanDataset({ datasetRoot: root });
 
   const evalV1 = [...m.descendantsOf(graph, ID.evalV1)].sort();
-  assert.deepEqual(evalV1, [ID.evalV1, ID.sensV1, ID.sensV2].sort());
+  assert.deepEqual(evalV1, [ID.evalV1, ID.sensV1, ID.sensV2, ID.optV1].sort());
   assert.ok(!evalV1.includes(ID.evalV2));
 
   const evalV2 = [...m.descendantsOf(graph, ID.evalV2)].sort();
-  assert.deepEqual(evalV2, [ID.evalV2, ID.sensV2].sort());
+  assert.deepEqual(evalV2, [ID.evalV2, ID.sensV2, ID.optV1].sort());
   assert.ok(!evalV2.includes(ID.sensV1));
 
   const rawA = [...m.descendantsOf(graph, ID.rawA)].sort();
-  assert.deepEqual(rawA, [ID.rawA, ID.gtA, ID.modelA, ID.evalV1, ID.evalV2, ID.sensV1, ID.sensV2].sort());
+  assert.deepEqual(rawA,
+    [ID.rawA, ID.gtA, ID.modelA, ID.evalV1, ID.evalV2, ID.sensV1, ID.sensV2, ID.optV1].sort());
   assert.ok(!rawA.includes(ID.rawB));
   assert.ok(!rawA.includes(ID.gtB));
 
   const single = [...m.descendantsOf(graph, ID.sensV1)].sort();
   assert.deepEqual(single, [ID.sensV1]);
+
+  assert.deepEqual([...m.descendantsOf(graph, ID.sensV2)].sort(), [ID.sensV2, ID.optV1].sort());
+  assert.deepEqual([...m.descendantsOf(graph, ID.optV1)], [ID.optV1]);
 });
 
 test('Mermaid graph keeps one labelled node per package and honours --focus', async t => {
@@ -173,8 +200,8 @@ test('The drawing keeps direct relationships only while cascade reachability is 
   const graph = await m.scanDataset({ datasetRoot: root });
   const reduced = m.reduceEdgesForDrawing(graph.edges);
 
-  assert.equal(graph.edges.length, 15);
-  assert.equal(reduced.length, 8);
+  assert.equal(graph.edges.length, 21);
+  assert.equal(reduced.length, 9);
   // Phase 1 and Phase 2 no longer draw straight into Phase 5.
   assert.ok(!reduced.some(edge => edge.kind === 'REFERENCE'));
   assert.ok(!reduced.some(edge => edge.parent_phase === 1 && edge.child_phase === 5));
@@ -182,6 +209,8 @@ test('The drawing keeps direct relationships only while cascade reachability is 
   // The validation disclosure evidence is a direct relationship and must survive.
   assert.ok(reduced.some(edge => edge.kind === 'EVIDENCE' &&
     edge.parent_id === ID.evalV1 && edge.child_id === ID.sensV2));
+  assert.ok(reduced.some(edge => edge.kind === 'SOURCE' &&
+    edge.parent_id === ID.sensV2 && edge.child_id === ID.optV1));
 
   // Every dependent set is unchanged, so the compact drawing still explains cascades.
   const reducedGraph = { edges: reduced };
@@ -203,17 +232,17 @@ test('Lineage omits transitive edges from the drawing and keeps every edge in JS
   assert.ok(mermaid.payload.includes('|EVIDENCE|'));
 
   const parsed = JSON.parse((await m.datasetLineage({ datasetRoot: root, format: 'json' })).payload);
-  assert.equal(parsed.edges.length, 15);
-  assert.equal(parsed.display_edges.length, 8);
-  assert.deepEqual(parsed.drawing, { edge_count: 15, drawn_edge_count: 8, hidden_edge_count: 7 });
+  assert.equal(parsed.edges.length, 21);
+  assert.equal(parsed.display_edges.length, 9);
+  assert.deepEqual(parsed.drawing, { edge_count: 21, drawn_edge_count: 9, hidden_edge_count: 12 });
   assert.ok(parsed.edges.some(edge => edge.kind === 'REFERENCE'));
   assert.ok(!parsed.display_edges.some(edge => edge.kind === 'REFERENCE'));
 
   const text = await m.datasetLineage({ datasetRoot: root, format: 'text' });
-  assert.ok(text.payload.includes('Transitive edges left out of the drawing (7)'));
+  assert.ok(text.payload.includes('Transitive edges left out of the drawing (12)'));
 });
 
-test('Prune plan for Evaluation V1 selects exactly the three affected packages', async t => {
+test('Prune plan for Evaluation V1 includes the dependent Phase 6 package', async t => {
   const m = await api();
   const root = await tempDataset(t);
   await buildFixture(m, root);
@@ -222,16 +251,33 @@ test('Prune plan for Evaluation V1 selects exactly the three affected packages',
     mode: 'plan', datasetRoot: root, phase: 4, id: ID.evalV1, planPath
   });
   assert.equal(result.status, 'READY');
-  assert.deepEqual(result.targets.map(item => item.id).sort(), [ID.evalV1, ID.sensV1, ID.sensV2].sort());
+  assert.deepEqual(result.targets.map(item => item.id).sort(),
+    [ID.evalV1, ID.sensV1, ID.sensV2, ID.optV1].sort());
   assert.deepEqual(result.execution_order, [
+    { phase: 6, id: ID.optV1 },
     { phase: 5, id: ID.sensV1 }, { phase: 5, id: ID.sensV2 }, { phase: 4, id: ID.evalV1 }
   ]);
-  assert.deepEqual(result.summary.evidence_edges,
-    [`${ID.evalV1} -> ${ID.sensV2}: VALIDATION EVIDENCE`]);
+  assert.deepEqual(result.summary.evidence_edges, [
+    `${ID.evalV1} -> ${ID.optV1}: VALIDATION EVIDENCE`,
+    `${ID.evalV1} -> ${ID.sensV2}: VALIDATION EVIDENCE`
+  ]);
   assert.deepEqual(result.blockers, []);
   const written = JSON.parse(await fs.readFile(planPath, 'utf8'));
   assert.equal(written.plan_sha256, result.plan_sha256);
   assert.equal(m.planDigest(written), written.plan_sha256);
+});
+
+test('A Phase 6 prune target selects only that Optimization package', async t => {
+  const m = await api();
+  const root = await tempDataset(t);
+  await buildFixture(m, root);
+  const result = await m.datasetPrune({
+    mode: 'plan', datasetRoot: root, phase: 6, id: ID.optV1,
+    planPath: path.join(root, 'maintenance/plans/optimization.json')
+  });
+  assert.equal(result.status, 'READY');
+  assert.deepEqual(result.targets.map(item => item.id), [ID.optV1]);
+  assert.deepEqual(result.execution_order, [{ phase: 6, id: ID.optV1 }]);
 });
 
 test('Prune plan refuses a phase that does not own the id and a missing id', async t => {
@@ -307,10 +353,11 @@ test('Apply removes the closure and never touches unrelated branches', async t =
 
   const result = await m.datasetPrune({ mode: 'apply', datasetRoot: root, planPath });
   assert.equal(result.status, 'PRUNED');
-  assert.equal(result.deleted_count, 3);
-  for (const id of [ID.evalV1, ID.sensV1, ID.sensV2]) {
+  assert.equal(result.deleted_count, 4);
+  for (const id of [ID.evalV1, ID.sensV1, ID.sensV2, ID.optV1]) {
     assert.equal(await exists(path.join(root, 'evaluation/exports', id)), false, id);
     assert.equal(await exists(path.join(root, 'tuning/exports', id)), false, id);
+    assert.equal(await exists(path.join(root, 'optimization/exports', id)), false, id);
   }
   for (const id of [ID.rawA, ID.rawB, ID.gtA, ID.gtB, ID.modelA, ID.evalV2]) {
     assert.ok(await exists(path.join(root, 'evaluation/exports', id)) ||
@@ -319,7 +366,7 @@ test('Apply removes the closure and never touches unrelated branches', async t =
       await exists(path.join(root, 'model/exports', id)), id);
   }
   const log = (await fs.readFile(result.operation_log, 'utf8')).trim().split('\n').map(JSON.parse);
-  assert.equal(log.filter(entry => entry.status === 'DELETED').length, 3);
+  assert.equal(log.filter(entry => entry.status === 'DELETED').length, 4);
   assert.equal(await exists(path.join(root, 'maintenance/quarantine', result.plan_sha256, 'phase4', ID.evalV1)), false);
 });
 
@@ -336,11 +383,12 @@ test('Resume finishes a run interrupted after the quarantine move', async t => {
   await fs.rename(path.join(root, 'tuning/exports', ID.sensV1), quarantine);
 
   const result = await m.datasetPrune({ mode: 'resume', datasetRoot: root, planPath });
-  assert.equal(result.deleted_count, 3);
+  assert.equal(result.deleted_count, 4);
   assert.equal(await exists(path.join(root, 'tuning/exports', ID.sensV1)), false);
   assert.equal(await exists(path.join(root, 'tuning/exports', ID.sensV2)), false);
   assert.equal(await exists(path.join(root, 'evaluation/exports', ID.evalV1)), false);
   assert.equal(await exists(path.join(root, 'evaluation/exports', ID.evalV2)), true);
+  assert.equal(await exists(path.join(root, 'optimization/exports', ID.optV1)), false);
   assert.equal(await exists(quarantine), false);
 });
 
@@ -428,6 +476,8 @@ test('A build lease is scoped to its own output root, not the repository dataset
   assert.equal(m.datasetRootForPhaseOutput('raw', rawOutput), path.join(root, 'dataset'));
   assert.equal(m.datasetRootForPhaseOutput('evaluation', path.join(root, 'dataset/evaluation')),
     path.join(root, 'dataset'));
+  assert.equal(m.datasetRootForPhaseOutput('optimization', path.join(root, 'dataset/optimization')),
+    path.join(root, 'dataset'));
 
   const datasetRoot = m.datasetRootForPhaseOutput('model', modelOutput);
   await m.withBuildLease('model', async () => {
@@ -449,6 +499,7 @@ test('Prune takes a bare package id and detects the phase from the manifest', as
   assert.equal(m.parsePruneArgs([ID.evalV1, '--dry-run']).dryRun, true);
   assert.equal(m.parsePruneArgs(['--id', ID.evalV1]).id, ID.evalV1);
   assert.equal(m.parsePruneArgs([ID.evalV1, '--phase', '4']).phase, 4);
+  assert.equal(m.parsePruneArgs([ID.optV1, '--phase', '6']).phase, 6);
   assert.throws(() => m.parsePruneArgs([ID.evalV1, ID.sensV1]),
     error => error.reason_code === 'ONE_ID_AT_A_TIME');
   assert.throws(() => m.parsePruneArgs([ID.evalV1, '--phase', '9']),
@@ -463,23 +514,27 @@ test('Bare id prune previews, then deletes the closure in one command', async t 
 
   const preview = await m.datasetPrune({ mode: 'auto', datasetRoot: root, id: ID.evalV1, dryRun: true });
   assert.equal(preview.status, 'PLANNED');
-  assert.deepEqual(preview.targets.map(item => item.id).sort(), [ID.evalV1, ID.sensV1, ID.sensV2].sort());
-  for (const id of [ID.evalV1, ID.sensV1, ID.sensV2]) {
+  assert.deepEqual(preview.targets.map(item => item.id).sort(),
+    [ID.evalV1, ID.sensV1, ID.sensV2, ID.optV1].sort());
+  for (const id of [ID.evalV1, ID.sensV1, ID.sensV2, ID.optV1]) {
     assert.ok(await exists(path.join(root, 'evaluation/exports', id)) ||
-      await exists(path.join(root, 'tuning/exports', id)), `preview must not delete ${id}`);
+      await exists(path.join(root, 'tuning/exports', id)) ||
+      await exists(path.join(root, 'optimization/exports', id)), `preview must not delete ${id}`);
   }
 
   const result = await m.datasetPrune({ mode: 'auto', datasetRoot: root, id: ID.evalV1 });
   assert.equal(result.status, 'PRUNED');
-  assert.equal(result.deleted_count, 3);
+  assert.equal(result.deleted_count, 4);
   assert.equal(await exists(path.join(root, 'evaluation/exports', ID.evalV1)), false);
   assert.equal(await exists(path.join(root, 'tuning/exports', ID.sensV1)), false);
   assert.equal(await exists(path.join(root, 'tuning/exports', ID.sensV2)), false);
+  assert.equal(await exists(path.join(root, 'optimization/exports', ID.optV1)), false);
   assert.equal(await exists(path.join(root, 'evaluation/exports', ID.evalV2)), true);
   assert.equal(await exists(path.join(root, 'model/exports', ID.modelA)), true);
   // The auto plan file is a durable record of what the one command did.
   assert.ok(await exists(path.join(root, 'maintenance/plans', `${ID.evalV1}.json`)));
   assert.equal(result.summary.phase_counts['5'], 2);
+  assert.equal(result.summary.phase_counts['6'], 1);
 });
 
 test('Bare id prune still refuses an unknown id and a mismatched phase', async t => {

@@ -8,7 +8,7 @@ import { ancestorsOf, descendantsOf, nodeById, reduceEdgesForDrawing, scanDatase
 import { verifyPackages } from './lib/verify.mjs';
 
 /**
- * Read-only Phase 1-5 lineage listing. The five published export roots are enumerated, every
+ * Read-only Phase 1-6 lineage listing. The six published export roots are enumerated, every
  * manifest is read for identity and declared sources, and each published package becomes exactly
  * one graph node labelled with its full primary id.
  */

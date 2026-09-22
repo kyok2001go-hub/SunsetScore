@@ -180,7 +180,7 @@ function reachableThrough(edges, from, to) {
 /**
  * Transitive reduction of the drawn edges only.
  *
- * Phase 1-5 run in order, so an edge whose target is already reachable through other packages
+ * Phase 1-6 run in order, so an edge whose target is already reachable through other packages
  * adds a line without adding information: Tuning restates its Raw / GT sources, and the Model
  * edge that already carries them. Each candidate is tested against the edges kept so far, so
  * reachability is preserved exactly and the compact drawing still answers "what dies with what".
@@ -202,7 +202,7 @@ export function reduceEdgesForDrawing(edges) {
 }
 
 /**
- * Enumerates the five published package roots and derives the dependency edges from manifest
+ * Enumerates the six published package roots and derives the dependency edges from manifest
  * fields only. Directory names are never used to guess a parent, and a 12 character hash prefix
  * is never treated as proof of lineage.
  */
@@ -212,7 +212,7 @@ export async function scanDataset(options = {}) {
   const diagnostics = [];
   const roots = [];
   const nodes = [];
-  progress.stage('扫描五阶段发布目录');
+  progress.stage('扫描六阶段发布目录');
   for (const phase of PHASES) {
     roots.push({
       phase: phase.phase, key: phase.key, label: phase.label,

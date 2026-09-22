@@ -32,6 +32,10 @@
     ,"tuning:candidate": "node tools/tuning/evaluate-candidate.mjs"
     ,"tuning:validate": "node tools/tuning/validate-sensitivity.mjs"
     ,"tuning:stats": "node tools/tuning/sensitivity-stats.mjs"
+    ,"optimization:plan": "node tools/optimization/plan-optimization.mjs"
+    ,"optimization:run": "node tools/optimization/run-optimization.mjs"
+    ,"optimization:validate": "node tools/optimization/validate-optimization.mjs"
+    ,"optimization:stats": "node tools/optimization/optimization-stats.mjs"
     ,"dataset:lineage": "node tools/maintenance/lineage.mjs"
     ,"dataset:prune": "node tools/maintenance/prune.mjs"
   },

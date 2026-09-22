@@ -71,7 +71,7 @@ export function parsePruneArgs(argv) {
   const ids = positional.concat(raw.id === undefined ? [] : [raw.id]);
   if (ids.length > 1) fail('INVALID_ARGUMENTS', { reason_code: 'ONE_ID_AT_A_TIME' });
   const phase = raw.phase === undefined ? null : Number(raw.phase);
-  if (phase !== null && (!Number.isInteger(phase) || phase < 1 || phase > 5)) {
+  if (phase !== null && (!Number.isInteger(phase) || phase < 1 || phase > 6)) {
     fail('INVALID_ARGUMENTS', { reason_code: 'PHASE_OUT_OF_RANGE' });
   }
   if (mode === 'plan') {

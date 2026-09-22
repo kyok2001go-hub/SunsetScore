@@ -8,17 +8,17 @@ import { applyPrunePlan, buildPrunePlan, planSummary, writePlan } from './lib/pl
 import { nodeById, scanDataset } from './lib/scan.mjs';
 
 /**
- * Cascade removal for Phase 1-5 packages.
+ * Cascade removal for Phase 1-6 packages.
  *
  * `dataset:prune -- <id>` is the everyday form: the phase is read from the manifest, the
  * dependent closure is resolved, a frozen plan is written under `dataset/maintenance/plans/`,
- * and the packages are removed Phase 5 -> Phase 1. `--dry-run` previews the same closure without
+ * and the packages are removed Phase 6 -> Phase 1. `--dry-run` previews the same closure without
  * deleting, and `--plan` / `--apply` / `--resume` remain for explicit two step control.
  */
 export async function datasetPrune(options) {
   const progress = options.progress || silentProgress;
   if (options.mode === 'auto') {
-    progress.stage('扫描五阶段发布目录');
+    progress.stage('扫描六阶段发布目录');
     const graph = await scanDataset({ datasetRoot: options.datasetRoot, progress });
     const target = nodeById(graph, options.id);
     if (!target) fail('MAINTENANCE_TARGET_MISSING', { target_id: options.id });
@@ -49,7 +49,7 @@ export async function datasetPrune(options) {
         blockers: plan.blockers, advisories: plan.advisories
       };
     }
-    progress.stage(`删除 ${plan.targets.length} 个数据包（Phase 5 → Phase 1）`);
+    progress.stage(`删除 ${plan.targets.length} 个数据包（Phase 6 → Phase 1）`);
     const result = await applyPrunePlan({
       planPath: written, datasetRoot: graph.dataset_root, resume: false, progress
     });
@@ -57,7 +57,7 @@ export async function datasetPrune(options) {
     return { ...result, targets: plan.targets.map(summarizeTarget), summary: planSummary(plan) };
   }
   if (options.mode === 'plan') {
-    progress.stage('扫描五阶段发布目录');
+    progress.stage('扫描六阶段发布目录');
     const graph = await scanDataset({ datasetRoot: options.datasetRoot, progress });
     const target = nodeById(graph, options.id);
     if (!target) fail('MAINTENANCE_TARGET_MISSING', { target_id: options.id });

@@ -1,5 +1,5 @@
 import { canonicalJson, compare, fail, hash } from '../../dataset/lib/common.mjs';
-import { computeHeadlineMetrics } from '../../evaluation/metrics.mjs';
+import { computeHeadlineMetrics, formatMetric } from '../../evaluation/metrics.mjs';
 import { silentProgress } from '../../progress.mjs';
 import { candidatePolicy } from '../candidate-policy.mjs';
 import { buildModelConfig, cloneConfig, resolvePath, writePath } from './base-config.mjs';
@@ -20,6 +20,13 @@ function reject(reason_code, detail) {
 
 function unitIndex(units) {
   return new Map(units.map(unit => [unit.parameter_id, unit]));
+}
+
+const CANDIDATE_DECIMALS = 12;
+
+function quantize(value) {
+  const rounded = Number(Number(value).toFixed(CANDIDATE_DECIMALS));
+  return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 /**
@@ -52,16 +59,16 @@ export function normalizeCandidate(vector, units) {
         if (!unit.members.includes(member)) return reject('UNKNOWN_SIMPLEX_MEMBER', `${parameterId}.${member}`);
         if (!Number.isFinite(value[member])) return reject('PARAMETER_NOT_NUMERIC', `${parameterId}.${member}`);
         changes.push({
-          unit, parameter_id: parameterId, member, path: `${unit.canonical_path}.${member}`, value: Number(value[member])
+          unit, parameter_id: parameterId, member, path: `${unit.canonical_path}.${member}`, value: quantize(value[member])
         });
       }
-      normalized[parameterId] = Object.fromEntries(members.map(member => [member, Number(value[member])]));
+      normalized[parameterId] = Object.fromEntries(members.map(member => [member, quantize(value[member])]));
       continue;
     }
     if (unit.unit_category !== 'OAT') return reject('UNSUPPORTED_UNIT_CATEGORY', parameterId);
     if (!Number.isFinite(value)) return reject('PARAMETER_NOT_NUMERIC', parameterId);
-    changes.push({ unit, parameter_id: parameterId, member: null, path: unit.canonical_path, value: Number(value) });
-    normalized[parameterId] = Number(value);
+    changes.push({ unit, parameter_id: parameterId, member: null, path: unit.canonical_path, value: quantize(value) });
+    normalized[parameterId] = quantize(value);
   }
   return { ok: true, changes, vector: normalized };
 }
@@ -98,12 +105,17 @@ function installCandidate(config, changes) {
     const unspecified = allMembers.filter(name => !given.has(name));
     const remaining = 1 - [...given.values()].reduce((sum, value) => sum + value, 0);
     const othersSum = unspecified.reduce((sum, name) => sum + Number(base[name]), 0);
-    for (const name of allMembers) {
-      const value = given.has(name)
-        ? given.get(name)
-        : (othersSum > 0 ? remaining * (Number(base[name]) / othersSum) : remaining / unspecified.length);
-      base[name] = Number(value.toFixed(12));
+    const expanded = allMembers.map(name => given.has(name)
+      ? given.get(name)
+      : (othersSum > 0 ? remaining * (Number(base[name]) / othersSum) : remaining / unspecified.length));
+    const expandedSum = expanded.reduce((sum, value) => sum + value, 0);
+    const quantized = expanded.map(quantize);
+    // A valid SIMPLEX expansion sums to one before quantization. Put the rounding residual on
+    // the declared final member so equivalent partial/full spellings produce identical bytes.
+    if (Math.abs(expandedSum - 1) <= 1e-9 && quantized.length) {
+      quantized[quantized.length - 1] = quantize(1 - quantized.slice(0, -1).reduce((sum, value) => sum + value, 0));
     }
+    for (let index = 0; index < allMembers.length; index++) base[allMembers[index]] = quantized[index];
     composition[parameterId] = Object.fromEntries(allMembers.map(name => [name, base[name]]));
   }
   return { config: next, composition };
@@ -186,23 +198,15 @@ export async function prepareCandidateRun({ cohort, config, units, runReplay, pr
   };
 }
 
-/** One vector -> objective value, under the policy's constraint and coverage gates. */
-export async function evaluateCandidate({ prepared, vector, label = null }) {
-  const { cohort, units, config, control, controlFailures, runReplay, policy, controlMetrics } = prepared;
+/**
+ * Shared Candidate replay. Both the aggregate evaluator and the V2.5.3 detailed evaluator read
+ * their paired rows from here, so the two paths can never drift apart.
+ */
+async function replayPairedRows({ prepared, vector }) {
+  const { cohort, units, config, control, controlFailures, runReplay } = prepared;
   const resolved = resolveCandidate({ vector, units, config });
-  const base = {
-    candidate_id: resolved.candidate_id,
-    candidate_label: label,
-    vector: resolved.vector ?? null,
-    changes: resolved.changes ?? null,
-    composition: resolved.composition ?? null,
-    control_metrics: { weighted: controlMetrics.weighted }
-  };
   if (resolved.status === 'INFEASIBLE') {
-    return {
-      ...base, status: 'INFEASIBLE', reason_code: resolved.reason_code, detail: resolved.detail ?? null,
-      coverage: null, metrics: null, deltas: null, objective: null, objective_value: null
-    };
+    return { resolved, rows: [], experimentFailureCount: 0, modelConfig: null };
   }
 
   const modelConfig = buildModelConfig(resolved.config);
@@ -231,6 +235,14 @@ export async function evaluateCandidate({ prepared, vector, label = null }) {
       gt_ordinal: cohortRow.gt_ordinal,
       gt_confidence: cohortRow.gt_confidence,
       event_normalized_weight: cohortRow.event_normalized_weight,
+      gt_status: cohortRow.gt_status ?? null,
+      gt_basis: cohortRow.gt_basis ?? null,
+      regime_label: cohortRow.regime_label ?? null,
+      sky_evolution_state: cohortRow.sky_evolution_state ?? null,
+      scheduled_slot: cohortRow.scheduled_slot ?? null,
+      snapshot_source: cohortRow.snapshot_source ?? null,
+      tile_radar_available: cohortRow.tile_radar_available ?? null,
+      tile_sat_available: cohortRow.tile_sat_available ?? null,
       control_score: controlRow.control_score,
       experiment_score: experimentScore,
       score_delta: experimentScore - controlRow.control_score,
@@ -242,6 +254,71 @@ export async function evaluateCandidate({ prepared, vector, label = null }) {
       abs_error_delta: Math.abs(experimentOrdinal - cohortRow.gt_ordinal) -
         Math.abs(controlRow.control_ordinal - cohortRow.gt_ordinal)
     });
+  }
+  return { resolved, rows, experimentFailureCount, modelConfig, controlFailures };
+}
+
+/**
+ * V2.5.3 detailed interface. `evaluateCandidate` only publishes aggregates, which is enough for
+ * the Sensitivity package but not for Date Robustness, Slice Regression or the two-denominator
+ * Coverage gate. This returns the paired rows plus the Control/vs-Cohort accounting that the
+ * Optimization Policy needs, and leaves the Phase 5 evaluator untouched.
+ */
+export async function evaluateCandidateDetailed({ prepared, vector }) {
+  const { cohort, control, controlFailures } = prepared;
+  const replayed = await replayPairedRows({ prepared, vector });
+  const { resolved, rows, experimentFailureCount } = replayed;
+  const coverage = {
+    cohort_sample_count: cohort.length,
+    control_success_count: control.length,
+    candidate_success_count: rows.length,
+    control_failure_count: controlFailures.length,
+    candidate_failure_count: experimentFailureCount,
+    control_source_coverage_rate: cohort.length ? formatMetric(control.length / cohort.length) : null,
+    candidate_control_coverage_rate: control.length ? formatMetric(rows.length / control.length) : null
+  };
+  if (resolved.status === 'INFEASIBLE') {
+    return {
+      status: 'INFEASIBLE', reason_code: resolved.reason_code, detail: resolved.detail ?? null,
+      candidate: resolved, rows: [], coverage, config: null
+    };
+  }
+  if (!control.length) {
+    return {
+      status: 'UNEVALUABLE', reason_code: 'CONTROL_HAS_NO_SUCCESSFUL_REPLAY', detail: null,
+      candidate: resolved, rows: [], coverage, config: resolved.config
+    };
+  }
+  if (!rows.length) {
+    return {
+      status: 'UNEVALUABLE', reason_code: 'CANDIDATE_HAS_NO_SUCCESSFUL_REPLAY', detail: null,
+      candidate: resolved, rows, coverage, config: resolved.config
+    };
+  }
+  return {
+    status: 'EVALUABLE', reason_code: null, detail: null,
+    candidate: resolved, rows, coverage, config: resolved.config
+  };
+}
+
+/** One vector -> objective value, under the policy's constraint and coverage gates. */
+export async function evaluateCandidate({ prepared, vector, label = null }) {
+  const { cohort, controlFailures, policy, controlMetrics } = prepared;
+  const replayed = await replayPairedRows({ prepared, vector });
+  const { resolved, rows, experimentFailureCount } = replayed;
+  const base = {
+    candidate_id: resolved.candidate_id,
+    candidate_label: label,
+    vector: resolved.vector ?? null,
+    changes: resolved.changes ?? null,
+    composition: resolved.composition ?? null,
+    control_metrics: { weighted: controlMetrics.weighted }
+  };
+  if (resolved.status === 'INFEASIBLE') {
+    return {
+      ...base, status: 'INFEASIBLE', reason_code: resolved.reason_code, detail: resolved.detail ?? null,
+      coverage: null, metrics: null, deltas: null, objective: null, objective_value: null
+    };
   }
   const coverage = coverageFor({
     cohortSampleCount: cohort.length,

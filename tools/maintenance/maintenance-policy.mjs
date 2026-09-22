@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { fail } from '../dataset/lib/common.mjs';
 
-export const TOOL_VERSION = '2.5.2.2';
+export const TOOL_VERSION = '2.5.3';
 export const MAINTENANCE_SCHEMA_VERSION = 1;
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -17,7 +17,7 @@ export function resolveDefaultDatasetRoot(cwd = process.cwd()) {
 
 /**
  * The maintenance gate lives next to the data it protects. Phase 1 writes `<output>/exports`,
- * so its dataset root is the output itself; the other four write `<output>/exports`, so their
+ * so its dataset root is the output itself; Phases 2–6 write `<output>/exports`, so their
  * dataset root is the output's parent. Deriving this from the output keeps temporary or custom
  * build roots from sharing the default `dataset/` gate.
  */
@@ -59,6 +59,12 @@ export const PHASES = Object.freeze([
     phase: 5, key: 'sensitivity', label: 'Phase 5 Parameter Sensitivity', relativeRoot: 'tuning/exports',
     idField: 'sensitivity_id', schemaField: 'tuning_schema_version', policyField: 'tuning_policy_version',
     supportedVersions: Object.freeze([[1, 1], [2, 2]])
+  }),
+  Object.freeze({
+    phase: 6, key: 'optimization', label: 'Phase 6 Parameter Optimization', relativeRoot: 'optimization/exports',
+    idField: 'optimization_id', schemaField: 'optimization_schema_version',
+    policyField: 'optimization_policy_version',
+    supportedVersions: Object.freeze([[1, 1]])
   })
 ]);
 
@@ -118,6 +124,14 @@ export function dependenciesOf(phase, manifest) {
     case 'sensitivity':
       add('model_dataset_id', 'model_dataset_manifest_sha256', 'SOURCE');
       add('evaluation_id', 'evaluation_manifest_sha256', 'SOURCE');
+      add('source_dataset_id', null, 'REFERENCE');
+      add('ground_truth_id', null, 'REFERENCE');
+      add('validation_disclosure_evidence_id', 'validation_disclosure_evidence_sha256', 'EVIDENCE');
+      break;
+    case 'optimization':
+      add('model_dataset_id', 'model_dataset_manifest_sha256', 'SOURCE');
+      add('evaluation_id', 'evaluation_manifest_sha256', 'SOURCE');
+      add('sensitivity_id', 'sensitivity_manifest_sha256', 'SOURCE');
       add('source_dataset_id', null, 'REFERENCE');
       add('ground_truth_id', null, 'REFERENCE');
       add('validation_disclosure_evidence_id', 'validation_disclosure_evidence_sha256', 'EVIDENCE');
