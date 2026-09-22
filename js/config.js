@@ -10,7 +10,7 @@
     app: '2.4.6',
     model: '2.4.6',
     schema: 3,
-    assetRevision: 'sticky1',
+    assetRevision: 'sticky2',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3

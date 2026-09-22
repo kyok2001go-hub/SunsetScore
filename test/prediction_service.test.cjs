@@ -99,7 +99,8 @@ test('Replay capture bypasses result cache, uses UTC axes and passes server sche
     snapshot_source: 'github_manual', scheduled_slot: '1213', query_id: replayResult.query_id,
     prediction_time_utc: replayResult.prediction_time_utc, app_version: replayResult.app_version,
     model_version: replayResult.model_version, schema_version: replayResult.schema_version,
-    dataset_schema_version: 3, asset_revision: 'replay1', predicted_score: replayResult.score, predicted_level: replayResult.level
+    dataset_schema_version: 3, asset_revision: SS.version.assetRevision,
+    predicted_score: replayResult.score, predicted_level: replayResult.level
   });
   await assert.doesNotReject(schema.validateReplayPayload(replayResult.replay_payload, row));
 });

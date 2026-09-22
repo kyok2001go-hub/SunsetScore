@@ -413,7 +413,6 @@
     if (SS.radarView) SS.radarView.render(result);
     if (SS.debugView) SS.debugView.render(result);
     if (SS.stickySummary) SS.stickySummary.setData(result, cityTitle);
-    var resultHost = $('result'); if (resultHost && resultHost.scrollIntoView) resultHost.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function toggleDetails() {
     var details = $('details'); if (!details) return;

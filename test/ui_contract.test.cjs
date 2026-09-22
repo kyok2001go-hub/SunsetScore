@@ -78,14 +78,18 @@ test('prediction summary exposes the current score, city, date and an accessible
   const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
   const css = readFileSync(join(__dirname, '..', 'css/style.css'), 'utf8');
   const sticky = readFileSync(join(__dirname, '..', 'js/sticky_summary.js'), 'utf8');
+  const ui = readFileSync(join(__dirname, '..', 'js/ui.js'), 'utf8');
   assert.match(html, /id="sticky-prediction-summary"[^>]*aria-hidden="true"/);
   assert.match(html, /id="sticky-summary-score"[\s\S]*晚霞评分[\s\S]*id="sticky-summary-city"[\s\S]*id="sticky-summary-date"/);
   assert.match(html, /id="sticky-summary-search"[^>]*aria-label="返回页面顶部并聚焦城市搜索框"/);
   assert.match(css, /\.sticky-prediction-summary\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*1000/);
   assert.match(css, /\.sticky-prediction-summary\.is-visible\s*\{[^}]*visibility:\s*visible/);
+  const innerRule = css.match(/\.sticky-prediction-summary-inner\s*\{([^}]+)\}/)[1];
+  assert.doesNotMatch(innerRule, /border-top(?:-color)?:/);
   assert.match(sticky, /getBoundingClientRect\(\)\.top <= 0/);
   assert.match(sticky, /scrollTo\(\{ top: 0, behavior:/);
   assert.match(sticky, /focus\(\{ preventScroll: true \}\)/);
+  assert.doesNotMatch(ui, /resultHost[\s\S]*scrollIntoView/);
   assert.ok(html.indexOf('src="js/sticky_summary.js') < html.indexOf('src="js/ui.js'));
 });
 
