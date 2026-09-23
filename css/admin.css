@@ -178,11 +178,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 .admin-clear-filter:hover { color: #883e21; background: #f4ded3; }
 .admin-clear-filter[hidden] { display: none; }
 .admin-filter-actions { display: flex; align-items: end; gap: 10px; }
-<<<<<<< HEAD
 .admin-result-wrap { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
-=======
-.admin-result-wrap { max-width: 100%; max-height: max(900px, 100vh); overflow: auto; }
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 .admin-result-table { min-width: max-content; }
 .admin-result-table th, .admin-result-table td { min-width: 110px; max-width: 320px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .admin-result-table th { background: #fff; }

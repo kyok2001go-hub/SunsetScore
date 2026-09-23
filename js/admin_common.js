@@ -79,7 +79,6 @@
       control.value = values.includes(selected) ? selected : '';
     });
     updateClearButtons();
-<<<<<<< HEAD
   }
 
   function updateStickyHead() {
@@ -103,8 +102,6 @@
     stickyThead.replaceChildren(copy);
     stickyTable.style.width = resultTable.getBoundingClientRect().width + 'px';
     updateStickyHead();
-=======
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
   }
 
   function renderTable(columns, items) {
@@ -187,12 +184,9 @@
   pageSize.addEventListener('change', function () { loadPage(1); });
   prev.addEventListener('click', function () { if (currentPage > 1) loadPage(currentPage - 1); });
   next.addEventListener('click', function () { if (currentPage < pageCount) loadPage(currentPage + 1); });
-<<<<<<< HEAD
   resultWrap.addEventListener('scroll', updateStickyHead, { passive: true });
   window.addEventListener('scroll', updateStickyHead, { passive: true });
   window.addEventListener('resize', syncStickyHead);
-=======
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
   updateClearButtons();
   loadPage(1);
 })();

@@ -16,11 +16,8 @@ test('all admin pages share navigation and list pages expose their filters', () 
       assert.ok(html.includes('href="' + href + '"'), name + ': ' + href);
     }
     assert.match(html, new RegExp('aria-current="page"[^>]*>' + current));
-<<<<<<< HEAD
-    assert.ok(html.includes('/css/admin.css?v=2.5.3.3-admin3'));
-=======
-    assert.ok(html.includes('/css/admin.css?v=2.5.3.3-admin2'));
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
+    assert.ok(html.includes('/css/admin.css?v=2.5.3.3-admin4'));
+    assert.equal((html.match(/\/css\/admin\.css\?v=/g) || []).length, 1, name + ': one stylesheet revision');
     assert.doesNotMatch(html, /<script(?!\s+src=)/i);
   }
   const snapshot = source('admin/snapshot.html');
@@ -34,9 +31,10 @@ test('all admin pages share navigation and list pages expose their filters', () 
     assert.ok(observation.includes('name="' + filter + '"'), filter);
     assert.ok(observation.includes('data-clear-for="' + filter + '"'), filter + ' clear');
   }
-<<<<<<< HEAD
-  assert.ok(snapshot.includes('/js/admin_common.js?v=2.5.3.3-admin3'));
-  assert.ok(observation.includes('/js/admin_common.js?v=2.5.3.3-admin3'));
+  assert.ok(snapshot.includes('/js/admin_common.js?v=2.5.3.3-admin4'));
+  assert.ok(observation.includes('/js/admin_common.js?v=2.5.3.3-admin4'));
+  assert.equal((snapshot.match(/\/js\/admin_common\.js\?v=/g) || []).length, 1);
+  assert.equal((observation.match(/\/js\/admin_common\.js\?v=/g) || []).length, 1);
   for (const html of [snapshot, observation]) {
     for (const id of ['admin-result-wrap', 'admin-result-table', 'admin-sticky-head',
       'admin-sticky-table', 'admin-sticky-thead']) assert.ok(html.includes('id="' + id + '"'));
@@ -46,11 +44,6 @@ test('all admin pages share navigation and list pages expose their filters', () 
   assert.ok(observation.includes('默认按提交时间从新到旧排序。'));
   assert.match(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*overflow-x:\s*auto;\s*overflow-y:\s*hidden/);
   assert.doesNotMatch(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*max-height:/);
-=======
-  assert.ok(snapshot.includes('/js/admin_common.js?v=2.5.3.3-admin2'));
-  assert.ok(observation.includes('/js/admin_common.js?v=2.5.3.3-admin2'));
-  assert.match(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*max-height:\s*max\(900px, 100vh\)/);
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 });
 
 test('list UI renders only text, paginates and ignores a superseded response', async () => {
@@ -58,7 +51,6 @@ test('list UI renders only text, paginates and ignores a superseded response', a
     constructor() { this.children = []; this.listeners = {}; this.value = ''; this.disabled = false; this.attributes = {}; this.style = {}; this.scrollLeft = 0; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     getAttribute(name) { return this.attributes[name]; }
-<<<<<<< HEAD
     get firstElementChild() { return this.children[0] || null; }
     getBoundingClientRect() { return this.rect || { top: 100, bottom: 600, left: 20, width: 120, height: 40 }; }
     cloneNode(deep) {
@@ -67,8 +59,6 @@ test('list UI renders only text, paginates and ignores a superseded response', a
       if (deep) clone.children = this.children.map(child => child.cloneNode(true));
       return clone;
     }
-=======
->>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
     focus() { this.focused = true; }
     appendChild(node) { this.children.push(node); }
     replaceChildren(...nodes) { this.children = nodes; }
