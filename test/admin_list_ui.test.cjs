@@ -16,7 +16,11 @@ test('all admin pages share navigation and list pages expose their filters', () 
       assert.ok(html.includes('href="' + href + '"'), name + ': ' + href);
     }
     assert.match(html, new RegExp('aria-current="page"[^>]*>' + current));
+<<<<<<< HEAD
+    assert.ok(html.includes('/css/admin.css?v=2.5.3.3-admin3'));
+=======
     assert.ok(html.includes('/css/admin.css?v=2.5.3.3-admin2'));
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
     assert.doesNotMatch(html, /<script(?!\s+src=)/i);
   }
   const snapshot = source('admin/snapshot.html');
@@ -30,16 +34,41 @@ test('all admin pages share navigation and list pages expose their filters', () 
     assert.ok(observation.includes('name="' + filter + '"'), filter);
     assert.ok(observation.includes('data-clear-for="' + filter + '"'), filter + ' clear');
   }
+<<<<<<< HEAD
+  assert.ok(snapshot.includes('/js/admin_common.js?v=2.5.3.3-admin3'));
+  assert.ok(observation.includes('/js/admin_common.js?v=2.5.3.3-admin3'));
+  for (const html of [snapshot, observation]) {
+    for (const id of ['admin-result-wrap', 'admin-result-table', 'admin-sticky-head',
+      'admin-sticky-table', 'admin-sticky-thead']) assert.ok(html.includes('id="' + id + '"'));
+    assert.match(html, /id="admin-sticky-thead"[^]*?<\/table>\s*<\/div>\s*<div class="admin-pagination">/);
+  }
+  assert.ok(snapshot.includes('默认按提交时间从新到旧排序。'));
+  assert.ok(observation.includes('默认按提交时间从新到旧排序。'));
+  assert.match(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*overflow-x:\s*auto;\s*overflow-y:\s*hidden/);
+  assert.doesNotMatch(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*max-height:/);
+=======
   assert.ok(snapshot.includes('/js/admin_common.js?v=2.5.3.3-admin2'));
   assert.ok(observation.includes('/js/admin_common.js?v=2.5.3.3-admin2'));
   assert.match(source('css/admin.css'), /\.admin-result-wrap\s*\{[^}]*max-height:\s*max\(900px, 100vh\)/);
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 });
 
 test('list UI renders only text, paginates and ignores a superseded response', async () => {
   class Node {
-    constructor() { this.children = []; this.listeners = {}; this.value = ''; this.disabled = false; this.attributes = {}; }
+    constructor() { this.children = []; this.listeners = {}; this.value = ''; this.disabled = false; this.attributes = {}; this.style = {}; this.scrollLeft = 0; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     getAttribute(name) { return this.attributes[name]; }
+<<<<<<< HEAD
+    get firstElementChild() { return this.children[0] || null; }
+    getBoundingClientRect() { return this.rect || { top: 100, bottom: 600, left: 20, width: 120, height: 40 }; }
+    cloneNode(deep) {
+      const clone = new Node();
+      clone.textContent = this.textContent;
+      if (deep) clone.children = this.children.map(child => child.cloneNode(true));
+      return clone;
+    }
+=======
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
     focus() { this.focused = true; }
     appendChild(node) { this.children.push(node); }
     replaceChildren(...nodes) { this.children = nodes; }
@@ -48,8 +77,11 @@ test('list UI renders only text, paginates and ignores a superseded response', a
   }
   const nodes = Object.fromEntries([
     'admin-filter-form', 'admin-list-status', 'admin-result-head', 'admin-result-body',
-    'admin-total', 'admin-page-info', 'admin-page-size', 'admin-prev', 'admin-next', 'admin-reset'
+    'admin-result-wrap', 'admin-result-table', 'admin-sticky-head', 'admin-sticky-table',
+    'admin-sticky-thead', 'admin-total', 'admin-page-info', 'admin-page-size', 'admin-prev', 'admin-next', 'admin-reset'
   ].map(id => [id, new Node()]));
+  nodes['admin-result-wrap'].rect = { top: 100, bottom: 600, left: 20, width: 500, height: 500 };
+  nodes['admin-result-table'].rect = { top: 100, bottom: 600, left: 26, width: 1000, height: 500 };
   const submit = new Node();
   const city = new Node(); city.name = 'city';
   const rating = new Node(); rating.name = 'rating'; rating.attributes['data-options'] = 'rating';
@@ -64,9 +96,11 @@ test('list UI renders only text, paginates and ignores a superseded response', a
   nodes['admin-filter-form'].reset = () => { city.value = ''; rating.value = ''; };
   const requests = [];
   const fetch = (url, options) => new Promise(resolve => requests.push({ url, options, resolve }));
+  const windowListeners = {};
   vm.runInNewContext(source('js/admin_common.js'), {
     document: { body: { getAttribute: () => '/api/admin/observations' },
       getElementById: id => nodes[id], createElement: () => new Node() },
+    window: { addEventListener(name, callback) { windowListeners[name] = callback; } },
     URLSearchParams, AbortController, fetch
   });
   const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -83,6 +117,17 @@ test('list UI renders only text, paginates and ignores a superseded response', a
   reply(0, [{ id: 'first', comment: '<script>alert(1)</script>' }], 51);
   await flush();
   assert.equal(nodes['admin-result-body'].children[0].children[1].textContent, '<script>alert(1)</script>');
+  assert.equal(nodes['admin-sticky-head'].hidden, true);
+  nodes['admin-result-wrap'].rect.top = -100;
+  windowListeners.scroll();
+  assert.equal(nodes['admin-sticky-head'].hidden, false);
+  assert.equal(nodes['admin-sticky-head'].style.width, '500px');
+  nodes['admin-result-wrap'].scrollLeft = 300;
+  nodes['admin-result-wrap'].listeners.scroll();
+  assert.equal(nodes['admin-sticky-head'].scrollLeft, 300);
+  nodes['admin-result-wrap'].rect.bottom = 20;
+  windowListeners.scroll();
+  assert.equal(nodes['admin-sticky-head'].hidden, true);
   assert.equal(nodes['admin-next'].disabled, false);
   nodes['admin-next'].listeners.click();
   assert.ok(requests[1].url.includes('page=2'));

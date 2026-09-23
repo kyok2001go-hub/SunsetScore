@@ -178,10 +178,28 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 .admin-clear-filter:hover { color: #883e21; background: #f4ded3; }
 .admin-clear-filter[hidden] { display: none; }
 .admin-filter-actions { display: flex; align-items: end; gap: 10px; }
+<<<<<<< HEAD
+.admin-result-wrap { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+=======
 .admin-result-wrap { max-width: 100%; max-height: max(900px, 100vh); overflow: auto; }
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 .admin-result-table { min-width: max-content; }
 .admin-result-table th, .admin-result-table td { min-width: 110px; max-width: 320px; overflow-wrap: anywhere; white-space: pre-wrap; }
-.admin-result-table th { position: sticky; top: 0; z-index: 1; background: #fff; }
+.admin-result-table th { background: #fff; }
+.admin-sticky-head {
+  position: fixed;
+  top: 0;
+  z-index: 20;
+  overflow: hidden;
+  padding: 0 6px;
+  border-bottom: 1px solid #e4ddd7;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(66, 49, 39, .10);
+  pointer-events: none;
+}
+.admin-sticky-head[hidden] { display: none; }
+.admin-sticky-head .admin-result-table { table-layout: fixed; min-width: 0; }
+.admin-sticky-head th { min-width: 0; }
 .admin-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
 .admin-pagination > span:first-child { margin-right: auto; }
 .admin-pagination label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }

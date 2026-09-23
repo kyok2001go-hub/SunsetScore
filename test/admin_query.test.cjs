@@ -125,6 +125,32 @@ test('admin Observation API shares public export columns and filters by rating a
   } finally { sqlite.close(); }
 });
 
+test('both admin lists default to newest submission first and break timestamp ties by id', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    sqlite.exec(`UPDATE prediction_snapshots SET submitted_at_epoch = CASE id
+      WHEN 's2' THEN 3000 WHEN 's1' THEN 2000 ELSE 1000 END`);
+    const insert = sqlite.prepare(`INSERT INTO sunset_observations (
+      id, submission_id, event_id, event_date_local, location_key, city, latitude, longitude,
+      timezone, sunset_time_utc, sunset_time_local, submitted_at_utc, submitted_at_epoch,
+      rating, rating_label, source, dataset_schema_version
+    ) VALUES (?, ?, 'event-s4', '2026-09-23', 'loc', '深圳', 22, 114,
+      'Asia/Shanghai', '2026-09-23T10:00:00Z', '2026-09-23 18:00',
+      '2026-09-23T11:00:00Z', ?, 'good', '普通有霞', 'user', 3)`);
+    for (const [id, epoch] of [['o2', 2000], ['o3', 3000], ['o4', 1000]]) {
+      insert.run(id, 'sub-' + id, epoch);
+    }
+    const { onRequest: snapshots } = await import('../functions/api/admin/snapshots.js');
+    const { onRequest: observations } = await import('../functions/api/admin/observations.js');
+    const snapshotRows = await (await snapshots(context(db, '/api/admin/snapshots'))).json();
+    const observationRows = await (await observations(context(db, '/api/admin/observations'))).json();
+    assert.deepEqual(snapshotRows.items.map(row => row.id), ['s2', 's1', 's4', 's3']);
+    assert.deepEqual(observationRows.items.map(row => row.id), ['o3', 'o2', 'o4', 'o1']);
+    assert.deepEqual(snapshotRows.items.map(row => row.submitted_at_epoch), [3000, 2000, 1000, 1000]);
+    assert.deepEqual(observationRows.items.map(row => row.submitted_at_epoch), [3000, 2000, 1000, 1000]);
+  } finally { sqlite.close(); }
+});
+
 test('admin APIs reject invalid filters, parameters and write methods', async () => {
   const { sqlite, db } = fixture();
   try {

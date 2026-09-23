@@ -8,6 +8,11 @@
   var status = document.getElementById('admin-list-status');
   var head = document.getElementById('admin-result-head');
   var body = document.getElementById('admin-result-body');
+  var resultWrap = document.getElementById('admin-result-wrap');
+  var resultTable = document.getElementById('admin-result-table');
+  var stickyHead = document.getElementById('admin-sticky-head');
+  var stickyTable = document.getElementById('admin-sticky-table');
+  var stickyThead = document.getElementById('admin-sticky-thead');
   var total = document.getElementById('admin-total');
   var pageInfo = document.getElementById('admin-page-info');
   var pageSize = document.getElementById('admin-page-size');
@@ -74,6 +79,32 @@
       control.value = values.includes(selected) ? selected : '';
     });
     updateClearButtons();
+<<<<<<< HEAD
+  }
+
+  function updateStickyHead() {
+    var wrapRect = resultWrap.getBoundingClientRect();
+    var headerHeight = head.getBoundingClientRect().height;
+    stickyHead.hidden = !body.children.length || !headerHeight ||
+      wrapRect.top > 0 || wrapRect.bottom <= headerHeight;
+    if (stickyHead.hidden) return;
+    stickyHead.style.left = wrapRect.left + 'px';
+    stickyHead.style.width = wrapRect.width + 'px';
+    stickyHead.scrollLeft = resultWrap.scrollLeft;
+  }
+
+  function syncStickyHead() {
+    var sourceRow = head.firstElementChild;
+    if (!sourceRow) { stickyHead.hidden = true; return; }
+    var copy = sourceRow.cloneNode(true);
+    for (var i = 0; i < sourceRow.children.length; i++) {
+      copy.children[i].style.width = sourceRow.children[i].getBoundingClientRect().width + 'px';
+    }
+    stickyThead.replaceChildren(copy);
+    stickyTable.style.width = resultTable.getBoundingClientRect().width + 'px';
+    updateStickyHead();
+=======
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
   }
 
   function renderTable(columns, items) {
@@ -96,6 +127,7 @@
       });
       body.appendChild(tr);
     });
+    syncStickyHead();
   }
 
   async function loadPage(page) {
@@ -131,6 +163,7 @@
       prev.disabled = currentPage <= 1;
       next.disabled = currentPage >= pageCount;
       setStatus(data.items.length ? '已显示 ' + data.items.length + ' 条记录。' : '没有符合条件的数据。', false);
+      updateStickyHead();
     } catch (error) {
       if (sequence !== requestNumber || error.name === 'AbortError') return;
       setStatus(error.message || '数据查询暂时失败，请重试。', true);
@@ -154,6 +187,12 @@
   pageSize.addEventListener('change', function () { loadPage(1); });
   prev.addEventListener('click', function () { if (currentPage > 1) loadPage(currentPage - 1); });
   next.addEventListener('click', function () { if (currentPage < pageCount) loadPage(currentPage + 1); });
+<<<<<<< HEAD
+  resultWrap.addEventListener('scroll', updateStickyHead, { passive: true });
+  window.addEventListener('scroll', updateStickyHead, { passive: true });
+  window.addEventListener('resize', syncStickyHead);
+=======
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
   updateClearButtons();
   loadPage(1);
 })();

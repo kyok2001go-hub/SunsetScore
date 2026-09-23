@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SunsetScore Admin · 反馈记录</title>
+<<<<<<< HEAD
+  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin3">
+=======
   <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin2">
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 </head>
 <body data-admin-api="/api/admin/observations">
   <div class="admin-layout">
@@ -41,9 +45,13 @@
       </section>
       <section class="panel" aria-labelledby="list-title">
         <h2 id="list-title">查询结果</h2>
+        <p>默认按提交时间从新到旧排序。</p>
         <p id="admin-list-status" class="status" role="status" aria-live="polite">正在加载…</p>
-        <div class="table-wrap admin-result-wrap" tabindex="0" aria-label="反馈记录结果，可横向滚动">
-          <table class="admin-result-table"><thead id="admin-result-head"></thead><tbody id="admin-result-body"></tbody></table>
+        <div id="admin-result-wrap" class="table-wrap admin-result-wrap" tabindex="0" aria-label="反馈记录结果，可横向滚动">
+          <table id="admin-result-table" class="admin-result-table"><thead id="admin-result-head"></thead><tbody id="admin-result-body"></tbody></table>
+        </div>
+        <div id="admin-sticky-head" class="admin-sticky-head" aria-hidden="true" hidden>
+          <table id="admin-sticky-table" class="admin-result-table"><thead id="admin-sticky-thead"></thead></table>
         </div>
         <div class="admin-pagination">
           <span id="admin-total">共 0 条</span>
@@ -55,6 +63,10 @@
       </section>
     </main>
   </div>
+<<<<<<< HEAD
+  <script src="/js/admin_common.js?v=2.5.3.3-admin3"></script>
+=======
   <script src="/js/admin_common.js?v=2.5.3.3-admin2"></script>
+>>>>>>> 6bec122578d587cccd78585b6aed1ee743e9fc5f
 </body>
 </html>
