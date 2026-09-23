@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SunsetScore Admin · 数据快照</title>
-  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin1">
+  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin2">
 </head>
 <body data-admin-api="/api/admin/snapshots">
   <div class="admin-layout">
@@ -29,13 +29,13 @@
       <section class="panel" aria-labelledby="filter-title">
         <h2 id="filter-title">筛选条件</h2>
         <form id="admin-filter-form" class="admin-filter-grid">
-          <label>日期<input name="event_date_local" type="date"></label>
-          <label>城市<input name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"></label>
-          <label>预测等级<select name="predicted_level" data-options="predicted_level"><option value="">全部</option></select></label>
-          <label>基准等级<select name="baseline_level" data-options="baseline_level"><option value="">全部</option></select></label>
-          <label>天气型<select name="regime_label" data-options="regime_label"><option value="">全部</option></select></label>
-          <label>天空演化状态<select name="sky_evolution_state" data-options="sky_evolution_state"><option value="">全部</option></select></label>
-          <label>Snapshot 来源<select name="snapshot_source" data-options="snapshot_source"><option value="">全部</option></select></label>
+          <div class="admin-filter-field"><label for="snapshot-date">日期</label><span class="admin-filter-control"><input id="snapshot-date" name="event_date_local" type="date"><button type="button" class="admin-clear-filter" data-clear-for="event_date_local" aria-label="清空日期" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-city">城市</label><span class="admin-filter-control"><input id="snapshot-city" name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"><button type="button" class="admin-clear-filter" data-clear-for="city" aria-label="清空城市" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-predicted">预测等级</label><span class="admin-filter-control"><select id="snapshot-predicted" name="predicted_level" data-options="predicted_level"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="predicted_level" aria-label="清空预测等级" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-baseline">基准等级</label><span class="admin-filter-control"><select id="snapshot-baseline" name="baseline_level" data-options="baseline_level"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="baseline_level" aria-label="清空基准等级" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-regime">天气型</label><span class="admin-filter-control"><select id="snapshot-regime" name="regime_label" data-options="regime_label"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="regime_label" aria-label="清空天气型" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-sky">天空演化状态</label><span class="admin-filter-control"><select id="snapshot-sky" name="sky_evolution_state" data-options="sky_evolution_state"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="sky_evolution_state" aria-label="清空天空演化状态" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="snapshot-source">Snapshot 来源</label><span class="admin-filter-control"><select id="snapshot-source" name="snapshot_source" data-options="snapshot_source"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="snapshot_source" aria-label="清空 Snapshot 来源" hidden>×</button></span></div>
           <div class="admin-filter-actions">
             <button class="button primary" type="submit">查询</button>
             <button id="admin-reset" class="button secondary" type="button">重置</button>
@@ -58,6 +58,6 @@
       </section>
     </main>
   </div>
-  <script src="/js/admin_common.js?v=2.5.3.3-admin1"></script>
+  <script src="/js/admin_common.js?v=2.5.3.3-admin2"></script>
 </body>
 </html>

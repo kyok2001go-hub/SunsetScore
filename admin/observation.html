@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>SunsetScore Admin · 反馈记录</title>
-  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin1">
+  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin2">
 </head>
 <body data-admin-api="/api/admin/observations">
   <div class="admin-layout">
@@ -29,10 +29,10 @@
       <section class="panel" aria-labelledby="filter-title">
         <h2 id="filter-title">筛选条件</h2>
         <form id="admin-filter-form" class="admin-filter-grid">
-          <label>日期<input name="event_date_local" type="date"></label>
-          <label>城市<input name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"></label>
-          <label>反馈等级<select name="rating" data-options="rating"><option value="">全部</option></select></label>
-          <label>来源<select name="source" data-options="source"><option value="">全部</option></select></label>
+          <div class="admin-filter-field"><label for="observation-date">日期</label><span class="admin-filter-control"><input id="observation-date" name="event_date_local" type="date"><button type="button" class="admin-clear-filter" data-clear-for="event_date_local" aria-label="清空日期" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="observation-city">城市</label><span class="admin-filter-control"><input id="observation-city" name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"><button type="button" class="admin-clear-filter" data-clear-for="city" aria-label="清空城市" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="observation-rating">反馈等级</label><span class="admin-filter-control"><select id="observation-rating" name="rating" data-options="rating"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="rating" aria-label="清空反馈等级" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="observation-source">来源</label><span class="admin-filter-control"><select id="observation-source" name="source" data-options="source"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="source" aria-label="清空来源" hidden>×</button></span></div>
           <div class="admin-filter-actions">
             <button class="button primary" type="submit">查询</button>
             <button id="admin-reset" class="button secondary" type="button">重置</button>
@@ -55,6 +55,6 @@
       </section>
     </main>
   </div>
-  <script src="/js/admin_common.js?v=2.5.3.3-admin1"></script>
+  <script src="/js/admin_common.js?v=2.5.3.3-admin2"></script>
 </body>
 </html>

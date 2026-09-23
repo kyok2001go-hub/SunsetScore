@@ -6,6 +6,13 @@ import {
 } from './event-dataset.js';
 
 const NULL_FILTER = '__NULL__';
+const PREDICTION_LEVELS = Object.freeze(['极佳', '很好', '一般', '较差', '很差']);
+const REGIME_LABELS = Object.freeze([
+  '晴朗', '多云间晴', '雨后转晴', '雨后转晴（强）', '锋面过境', '阴天', '雾霾', '风暴逼近'
+]);
+const SKY_EVOLUTION_STATES = Object.freeze([
+  'CLEAR', 'OPENING', 'STABLE', 'CLOSING', 'CLOUD_ARRIVING', 'UNCERTAIN'
+]);
 const SNAPSHOT_SOURCES = Object.freeze(['github_schedule', 'github_manual', 'user_feedback']);
 const OBSERVATION_SOURCES = Object.freeze(['user', 'rednote_agent', 'rednote_manual']);
 const SOURCE_LABELS = Object.freeze({
@@ -33,6 +40,12 @@ const DATASETS = Object.freeze({
     table: 'prediction_snapshots', columns: ADMIN_SNAPSHOT_LIST_FIELDS,
     filters: SNAPSHOT_FILTERS,
     dynamicOptions: ['predicted_level', 'baseline_level', 'regime_label', 'sky_evolution_state'],
+    presetOptions: {
+      predicted_level: PREDICTION_LEVELS,
+      baseline_level: [...PREDICTION_LEVELS, NULL_FILTER],
+      regime_label: [...REGIME_LABELS, NULL_FILTER],
+      sky_evolution_state: [...SKY_EVOLUTION_STATES, NULL_FILTER]
+    },
     staticOptions: { snapshot_source: SNAPSHOT_SOURCES },
     staticLabels: { snapshot_source: SOURCE_LABELS }
   }),
@@ -133,7 +146,10 @@ export async function queryFilterOptions(db, config) {
   const options = { ...config.staticOptions };
   for (const name of config.dynamicOptions) {
     const rows = await db.prepare(`SELECT DISTINCT ${name} AS value FROM ${config.table} ORDER BY ${name} ASC`).all();
-    options[name] = (rows.results || []).map((row) => row.value === null ? NULL_FILTER : row.value);
+    const known = config.presetOptions?.[name] || [];
+    const observed = (rows.results || []).map((row) => row.value === null ? NULL_FILTER : row.value)
+      .filter((value) => value !== '');
+    options[name] = [...new Set([...known, ...observed])];
   }
   return options;
 }

@@ -15,6 +15,7 @@
   var next = document.getElementById('admin-next');
   var reset = document.getElementById('admin-reset');
   var submit = form.querySelector('[type="submit"]');
+  var clearButtons = form.querySelectorAll('[data-clear-for]');
   var currentPage = 1;
   var pageCount = 0;
   var activeFilters = new URLSearchParams();
@@ -35,6 +36,25 @@
     return filters;
   }
 
+  function updateClearButtons() {
+    clearButtons.forEach(function (button) {
+      var control = form.elements.namedItem(button.getAttribute('data-clear-for'));
+      button.hidden = !control || control.value === '';
+    });
+  }
+
+  clearButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      var control = form.elements.namedItem(button.getAttribute('data-clear-for'));
+      if (!control) return;
+      control.value = '';
+      updateClearButtons();
+      control.focus();
+    });
+  });
+  form.addEventListener('input', updateClearButtons);
+  form.addEventListener('change', updateClearButtons);
+
   function fillOptions(options, labels) {
     form.querySelectorAll('[data-options]').forEach(function (control) {
       var selected = control.value;
@@ -53,6 +73,7 @@
       });
       control.value = values.includes(selected) ? selected : '';
     });
+    updateClearButtons();
   }
 
   function renderTable(columns, items) {
@@ -125,6 +146,7 @@
   });
   reset.addEventListener('click', function () {
     form.reset();
+    updateClearButtons();
     activeFilters = new URLSearchParams();
     optionsLoaded = false;
     loadPage(1);
@@ -132,5 +154,6 @@
   pageSize.addEventListener('change', function () { loadPage(1); });
   prev.addEventListener('click', function () { if (currentPage > 1) loadPage(currentPage - 1); });
   next.addEventListener('click', function () { if (currentPage < pageCount) loadPage(currentPage + 1); });
+  updateClearButtons();
   loadPage(1);
 })();

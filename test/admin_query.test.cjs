@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const vm = require('node:vm');
 
 const ROOT = join(__dirname, '..');
 
@@ -67,7 +68,27 @@ test('admin Snapshot API has exactly 39 safe columns, deterministic order and co
     assert.deepEqual(all.items.map(row => row.id), ['s4', 's3', 's2', 's1']);
     assert.ok(!('raw_snapshot_json' in all.items[0]));
     assert.ok(!('replay_object_key' in all.items[0]));
-    assert.deepEqual(all.filter_options.baseline_level, ['__NULL__', '一般']);
+    const levels = ['极佳', '很好', '一般', '较差', '很差'];
+    assert.deepEqual(all.filter_options.predicted_level, levels);
+    assert.deepEqual(all.filter_options.baseline_level, [...levels, '__NULL__']);
+    assert.deepEqual(all.filter_options.regime_label, [
+      '晴朗', '多云间晴', '雨后转晴', '雨后转晴（强）', '锋面过境', '阴天', '雾霾', '风暴逼近',
+      '__NULL__', '晴'
+    ]);
+    assert.deepEqual(all.filter_options.sky_evolution_state, [
+      'CLEAR', 'OPENING', 'STABLE', 'CLOSING', 'CLOUD_ARRIVING', 'UNCERTAIN', '__NULL__'
+    ]);
+    const model = {};
+    vm.runInNewContext(readFileSync(join(ROOT, 'js/config.js'), 'utf8'), model);
+    vm.runInNewContext(readFileSync(join(ROOT, 'js/sky_state.js'), 'utf8'), model);
+    assert.deepEqual(all.filter_options.predicted_level,
+      Array.from(model.SunsetScore.config.levels, level => level.label));
+    const regimeLabels = Object.values(model.SunsetScore.config.regimeLabels);
+    const expectedRegimes = regimeLabels.flatMap(label => label === '雨后转晴'
+      ? [label, label + '（强）'] : [label]);
+    assert.deepEqual(all.filter_options.regime_label.slice(0, expectedRegimes.length), expectedRegimes);
+    assert.deepEqual(all.filter_options.sky_evolution_state.slice(0, -1),
+      Object.keys(model.SunsetScore.skyState.STATE_META));
     const query = '/api/admin/snapshots?event_date_local=2026-09-23&city=%E6%B7%B1' +
       '&predicted_level=%E5%BE%88%E5%A5%BD&baseline_level=__NULL__' +
       '&regime_label=%E5%A4%9A%E4%BA%91%E9%97%B4%E6%99%B4&sky_evolution_state=OPENING' +
