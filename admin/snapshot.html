@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>SunsetScore Admin · 数据快照</title>
+  <link rel="stylesheet" href="/css/admin.css?v=2.5.3.3-admin1">
+</head>
+<body data-admin-api="/api/admin/snapshots">
+  <div class="admin-layout">
+    <aside class="admin-sidebar" aria-label="管理员导航">
+      <a class="admin-brand" href="/admin/backfill">SunsetScore <span>Admin</span></a>
+      <nav class="admin-nav" aria-label="后台页面">
+        <a href="/admin/backfill">反馈补录</a>
+        <a href="/admin/snapshot" aria-current="page">数据快照</a>
+        <a href="/admin/observation">反馈记录</a>
+      </nav>
+    </aside>
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p class="eyebrow">SunsetScore Admin</p>
+          <h1>数据快照</h1>
+          <p>查看已记录的预测快照。列表展示从 id 到 gw_factor 的 39 个字段。</p>
+        </div>
+        <div class="guardrail">只读查询</div>
+      </header>
+      <section class="panel" aria-labelledby="filter-title">
+        <h2 id="filter-title">筛选条件</h2>
+        <form id="admin-filter-form" class="admin-filter-grid">
+          <label>日期<input name="event_date_local" type="date"></label>
+          <label>城市<input name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"></label>
+          <label>预测等级<select name="predicted_level" data-options="predicted_level"><option value="">全部</option></select></label>
+          <label>基准等级<select name="baseline_level" data-options="baseline_level"><option value="">全部</option></select></label>
+          <label>天气型<select name="regime_label" data-options="regime_label"><option value="">全部</option></select></label>
+          <label>天空演化状态<select name="sky_evolution_state" data-options="sky_evolution_state"><option value="">全部</option></select></label>
+          <label>Snapshot 来源<select name="snapshot_source" data-options="snapshot_source"><option value="">全部</option></select></label>
+          <div class="admin-filter-actions">
+            <button class="button primary" type="submit">查询</button>
+            <button id="admin-reset" class="button secondary" type="button">重置</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel" aria-labelledby="list-title">
+        <h2 id="list-title">查询结果</h2>
+        <p id="admin-list-status" class="status" role="status" aria-live="polite">正在加载…</p>
+        <div class="table-wrap admin-result-wrap" tabindex="0" aria-label="数据快照结果，可横向滚动">
+          <table class="admin-result-table"><thead id="admin-result-head"></thead><tbody id="admin-result-body"></tbody></table>
+        </div>
+        <div class="admin-pagination">
+          <span id="admin-total">共 0 条</span>
+          <label>每页<select id="admin-page-size"><option value="20">20</option><option value="50" selected>50</option><option value="100">100</option></select>条</label>
+          <button id="admin-prev" class="button secondary" type="button" disabled>上一页</button>
+          <span id="admin-page-info">1 / 1</span>
+          <button id="admin-next" class="button secondary" type="button" disabled>下一页</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/admin_common.js?v=2.5.3.3-admin1"></script>
+</body>
+</html>

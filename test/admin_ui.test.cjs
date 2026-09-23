@@ -19,8 +19,8 @@ test('administrator backfill page exposes the five-level preview/commit contract
     assert.match(html, new RegExp('id="' + id + '"'));
   }
   assert.match(html, /noindex,nofollow/);
-  assert.match(html, /\/css\/admin\.css\?v=2\.5\.2\.1-backfill5/);
-  assert.match(html, /\/js\/admin_backfill\.js\?v=2\.5\.2\.1-backfill5/);
+  assert.match(html, /\/css\/admin\.css\?v=2\.5\.3\.3-admin1/);
+  assert.match(html, /\/js\/admin_backfill\.js\?v=2\.5\.3\.3-admin1/);
   assert.match(html, /<option value="" selected>请选择等级<\/option>/);
   assert.doesNotMatch(html, /<script(?!\s+src=)/i, 'admin page must not require inline scripts under CSP');
 });

@@ -5,7 +5,7 @@
  * Binding: env.DB (D1 database)
  * Optional auth: env.ADMIN_SECRET (Authorization: Bearer <SECRET>)
  */
-import { OBSERVATION_FIELDS, SNAPSHOT_PUBLIC_EXPORT_FIELDS } from '../../server/event-dataset.js';
+import { OBSERVATION_PUBLIC_EXPORT_FIELDS, SNAPSHOT_PUBLIC_EXPORT_FIELDS } from '../../server/event-dataset.js';
 import { feedbackColumns, feedbackEpochSql, feedbackSelectSql } from '../../server/feedback-db.js';
 
 const MAX_EXPORT_ROWS = 5000;
@@ -107,9 +107,6 @@ const FEEDBACK_COLUMNS = Object.freeze([
 
 // Direct-link exports are public while ADMIN_SECRET is unset. Keep rate-limit and
 // client fingerprint fields out of the new observation dataset by default.
-const PUBLIC_OBSERVATION_COLUMNS = Object.freeze(
-  OBSERVATION_FIELDS.filter((name) => name !== 'user_ip_hash' && name !== 'client_ua')
-);
 
 const DATASETS = Object.freeze({
   prediction_snapshots: Object.freeze({
@@ -119,7 +116,7 @@ const DATASETS = Object.freeze({
   }),
   sunset_observations: Object.freeze({
     table: 'sunset_observations',
-    columns: PUBLIC_OBSERVATION_COLUMNS,
+    columns: OBSERVATION_PUBLIC_EXPORT_FIELDS,
     orderBy: 'submitted_at_epoch DESC, id DESC'
   })
 });

@@ -239,11 +239,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_idempotency ON prediction_snapsho
 CREATE INDEX IF NOT EXISTS idx_snapshot_source_slot ON prediction_snapshots(snapshot_source, scheduled_slot, event_date_local);
 CREATE INDEX IF NOT EXISTS idx_snapshot_model ON prediction_snapshots(model_version);
 CREATE INDEX IF NOT EXISTS idx_snapshot_city_date ON prediction_snapshots(city COLLATE NOCASE, event_date_local, event_id);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_date ON prediction_snapshots(event_date_local, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_predicted_level ON prediction_snapshots(predicted_level, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_baseline_level ON prediction_snapshots(baseline_level, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_regime ON prediction_snapshots(regime_label, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_sky_state ON prediction_snapshots(sky_evolution_state, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_admin_source ON prediction_snapshots(snapshot_source, submitted_at_epoch DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_observation_event ON sunset_observations(event_id, submitted_at_epoch);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_submission ON sunset_observations(submission_id);
 CREATE INDEX IF NOT EXISTS idx_observation_rate_limit ON sunset_observations(user_ip_hash, city, submitted_at_epoch);
 CREATE INDEX IF NOT EXISTS idx_observation_rating ON sunset_observations(rating);
 CREATE INDEX IF NOT EXISTS idx_observation_source ON sunset_observations(source);
+CREATE INDEX IF NOT EXISTS idx_observation_admin_date ON sunset_observations(event_date_local, submitted_at_epoch DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_observation_admin_city_date ON sunset_observations(city COLLATE NOCASE, event_date_local, submitted_at_epoch DESC, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_manual_event
 ON sunset_observations(event_id)
 WHERE source = 'rednote_manual';

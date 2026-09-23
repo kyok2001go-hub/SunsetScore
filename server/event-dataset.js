@@ -38,6 +38,13 @@ export const SNAPSHOT_REPLAY_METADATA_FIELDS = Object.freeze([
 ]);
 
 export const SNAPSHOT_PUBLIC_EXPORT_FIELDS = Object.freeze(Array.from(SNAPSHOT_INSERT_FIELDS));
+export const ADMIN_SNAPSHOT_LIST_FIELDS = Object.freeze(
+  SNAPSHOT_PUBLIC_EXPORT_FIELDS.slice(0, SNAPSHOT_PUBLIC_EXPORT_FIELDS.indexOf('gw_factor') + 1)
+);
+if (ADMIN_SNAPSHOT_LIST_FIELDS.length !== 39 || ADMIN_SNAPSHOT_LIST_FIELDS[0] !== 'id' ||
+    ADMIN_SNAPSHOT_LIST_FIELDS.at(-1) !== 'gw_factor') {
+  throw new Error('ADMIN_SNAPSHOT_LIST_FIELDS contract changed');
+}
 // Backward-compatible name for snapshot/observation writers.
 export const SNAPSHOT_FIELDS = SNAPSHOT_INSERT_FIELDS;
 
@@ -49,6 +56,9 @@ export const OBSERVATION_FIELDS = Object.freeze([
   'rating_label', 'comment', 'source', 'confidence', 'evidence_count',
   'user_ip_hash', 'client_ua', 'dataset_schema_version'
 ]);
+export const OBSERVATION_PUBLIC_EXPORT_FIELDS = Object.freeze(
+  OBSERVATION_FIELDS.filter((name) => name !== 'user_ip_hash' && name !== 'client_ua')
+);
 
 export const ADMIN_AUDIT_FIELDS = Object.freeze([
   'id', 'request_id', 'request_fingerprint', 'observation_id', 'event_id',

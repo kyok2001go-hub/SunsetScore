@@ -11,6 +11,33 @@ body { margin: 0; min-width: 320px; }
 
 button, input, select, textarea { font: inherit; }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.admin-sidebar {
+  padding: 32px 18px;
+  border-right: 1px solid #e4ddd7;
+  background: #fff;
+}
+
+.admin-brand {
+  display: block;
+  margin-bottom: 30px;
+  color: #25211f;
+  font-size: 19px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.admin-brand span { display: block; color: #a44c28; font-size: 13px; letter-spacing: .08em; }
+.admin-nav { display: flex; flex-direction: column; gap: 6px; }
+.admin-nav a { padding: 12px 14px; border-radius: 9px; color: #5f554f; text-decoration: none; font-weight: 700; }
+.admin-nav a:hover, .admin-nav a:focus-visible { background: #f8eee8; }
+.admin-nav a[aria-current="page"] { color: #883e21; background: #f4ded3; }
+
 .admin-shell {
   width: min(1480px, calc(100% - 32px));
   margin: 0 auto;
@@ -121,6 +148,17 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 .status { min-height: 24px; margin: 14px 0 0; }
 .status.success { color: #1c6b46; }
 .status.error { color: #a22929; }
+.admin-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+.admin-filter-grid > label { display: grid; align-content: start; gap: 7px; color: #4f4742; font-weight: 700; }
+.admin-filter-actions { display: flex; align-items: end; gap: 10px; }
+.admin-result-wrap { max-width: 100%; max-height: 65vh; overflow: auto; }
+.admin-result-table { min-width: max-content; }
+.admin-result-table th, .admin-result-table td { min-width: 110px; max-width: 320px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.admin-result-table th { position: sticky; top: 0; z-index: 1; background: #fff; }
+.admin-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.admin-pagination > span:first-child { margin-right: auto; }
+.admin-pagination label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.admin-pagination select { width: auto; min-width: 75px; }
 .notes li { margin: 8px 0; color: #675f59; }
 
 .bulk-dialog {
@@ -238,6 +276,12 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 }
 
 @media (max-width: 720px) {
+  .admin-layout { display: block; }
+  .admin-sidebar { padding: 14px 10px; border-right: 0; border-bottom: 1px solid #e4ddd7; }
+  .admin-brand { margin: 0 0 8px 4px; font-size: 16px; }
+  .admin-brand span { display: inline; margin-left: 4px; }
+  .admin-nav { flex-direction: row; overflow-x: auto; }
+  .admin-nav a { flex: 0 0 auto; padding: 9px 12px; }
   .admin-shell { width: min(100% - 20px, 1480px); padding-top: 20px; }
   .admin-header, .panel-heading { align-items: flex-start; flex-direction: column; }
   .guardrail { white-space: normal; }
@@ -248,4 +292,6 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   .actions .button { width: 100%; }
   .bulk-dialog-heading { flex-direction: column; }
   .bulk-close { width: 100%; }
+  .admin-filter-actions { grid-column: 1 / -1; }
+  .admin-pagination > span:first-child { flex-basis: 100%; }
 }
