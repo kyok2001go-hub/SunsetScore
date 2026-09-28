@@ -1,4 +1,4 @@
-import { canonicalJson, compare, fail, hash } from '../../dataset/lib/common.mjs';
+import { canonicalJson, compare, errorCode, fail, hash } from '../../dataset/lib/common.mjs';
 import { computeHeadlineMetrics, formatMetric } from '../../evaluation/metrics.mjs';
 import { silentProgress } from '../../progress.mjs';
 import { candidatePolicy } from '../candidate-policy.mjs';
@@ -212,14 +212,20 @@ async function replayPairedRows({ prepared, vector }) {
   const modelConfig = buildModelConfig(resolved.config);
   const rows = [];
   let experimentFailureCount = 0;
+  const experimentFailures = [];
   for (const controlRow of control) {
     const cohortRow = cohort[controlRow.index];
     let report;
     try {
       report = await runReplay(cohortRow.replay, { modelConfig });
-    } catch {
+    } catch (error) {
+      if (error.code === 'VALIDATION_VALIDATION_FAILED') throw error;
       // A Snapshot the candidate cannot score leaves only this candidate's paired cohort.
       experimentFailureCount++;
+      experimentFailures.push({
+        candidate_id: resolved.candidate_id, snapshot_id: cohortRow.snapshot_id,
+        event_id: cohortRow.event_id, phase: 'CANDIDATE', error_code: errorCode(error)
+      });
       continue;
     }
     const experimentScore = report.actual.score;
@@ -231,6 +237,8 @@ async function replayPairedRows({ prepared, vector }) {
       city: cohortRow.city,
       location_key: cohortRow.location_key,
       lead_time_bucket: cohortRow.lead_time_bucket,
+      lead_time_minutes: cohortRow.lead_time_minutes,
+      prediction_time_epoch: cohortRow.prediction_time_epoch,
       gt_label: cohortRow.gt_label,
       gt_ordinal: cohortRow.gt_ordinal,
       gt_confidence: cohortRow.gt_confidence,
@@ -255,7 +263,7 @@ async function replayPairedRows({ prepared, vector }) {
         Math.abs(controlRow.control_ordinal - cohortRow.gt_ordinal)
     });
   }
-  return { resolved, rows, experimentFailureCount, modelConfig, controlFailures };
+  return { resolved, rows, experimentFailureCount, experimentFailures, modelConfig, controlFailures };
 }
 
 /**
@@ -267,7 +275,7 @@ async function replayPairedRows({ prepared, vector }) {
 export async function evaluateCandidateDetailed({ prepared, vector }) {
   const { cohort, control, controlFailures } = prepared;
   const replayed = await replayPairedRows({ prepared, vector });
-  const { resolved, rows, experimentFailureCount } = replayed;
+  const { resolved, rows, experimentFailureCount, experimentFailures } = replayed;
   const coverage = {
     cohort_sample_count: cohort.length,
     control_success_count: control.length,
@@ -280,24 +288,24 @@ export async function evaluateCandidateDetailed({ prepared, vector }) {
   if (resolved.status === 'INFEASIBLE') {
     return {
       status: 'INFEASIBLE', reason_code: resolved.reason_code, detail: resolved.detail ?? null,
-      candidate: resolved, rows: [], coverage, config: null
+      candidate: resolved, rows: [], coverage, config: null, experimentFailures
     };
   }
   if (!control.length) {
     return {
       status: 'UNEVALUABLE', reason_code: 'CONTROL_HAS_NO_SUCCESSFUL_REPLAY', detail: null,
-      candidate: resolved, rows: [], coverage, config: resolved.config
+      candidate: resolved, rows: [], coverage, config: resolved.config, experimentFailures
     };
   }
   if (!rows.length) {
     return {
       status: 'UNEVALUABLE', reason_code: 'CANDIDATE_HAS_NO_SUCCESSFUL_REPLAY', detail: null,
-      candidate: resolved, rows, coverage, config: resolved.config
+      candidate: resolved, rows, coverage, config: resolved.config, experimentFailures
     };
   }
   return {
     status: 'EVALUABLE', reason_code: null, detail: null,
-    candidate: resolved, rows, coverage, config: resolved.config
+    candidate: resolved, rows, coverage, config: resolved.config, experimentFailures
   };
 }
 

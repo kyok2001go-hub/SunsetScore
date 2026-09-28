@@ -24,6 +24,7 @@ export async function computeControl({ cohort, config, runReplay, progress = sil
     try {
       report = await runReplay(row.replay, { modelConfig: controlConfig });
     } catch (error) {
+      if (error.code === 'VALIDATION_VALIDATION_FAILED') throw error;
       // A Snapshot without a Control score cannot be compared on either side, so it leaves
       // the cohort for every experiment.
       controlFailures.push(failureRecord('CONTROL', null, row, error));

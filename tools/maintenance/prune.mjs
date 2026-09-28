@@ -18,7 +18,7 @@ import { nodeById, scanDataset } from './lib/scan.mjs';
 export async function datasetPrune(options) {
   const progress = options.progress || silentProgress;
   if (options.mode === 'auto') {
-    progress.stage('扫描六阶段发布目录');
+    progress.stage('扫描离线发布目录');
     const graph = await scanDataset({ datasetRoot: options.datasetRoot, progress });
     const target = nodeById(graph, options.id);
     if (!target) fail('MAINTENANCE_TARGET_MISSING', { target_id: options.id });
@@ -57,7 +57,7 @@ export async function datasetPrune(options) {
     return { ...result, targets: plan.targets.map(summarizeTarget), summary: planSummary(plan) };
   }
   if (options.mode === 'plan') {
-    progress.stage('扫描六阶段发布目录');
+    progress.stage('扫描离线发布目录');
     const graph = await scanDataset({ datasetRoot: options.datasetRoot, progress });
     const target = nodeById(graph, options.id);
     if (!target) fail('MAINTENANCE_TARGET_MISSING', { target_id: options.id });

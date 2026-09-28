@@ -1,8 +1,8 @@
-# 数据检测与清理自动化（V2.5.3）
+# 数据检测与清理自动化（V2.5.4）
 
-本工具处理 Phase 1–6 的正式离线发布包，提供两项能力：
+本工具处理 Phase 1–7 的离线发布包（含 Phase 7 开发包），提供两项能力：
 
-1. `dataset:lineage`：只读枚举六阶段发布包，按每个包的完整主 ID 生成依赖图。
+1. `dataset:lineage`：只读枚举发布包、披露 Evidence 与 Plan，按每个包的完整主 ID 生成依赖图。
 2. `dataset:prune`：按阶段与完整主 ID 计算下游闭包，先生成冻结计划，再整包级联清理。
 
 纯本地运行：不联网、不写 D1 / R2、不修改包内字节、不修改评分代码或模型配置。
@@ -19,15 +19,18 @@
 | Phase 4 Baseline Evaluation | `dataset/evaluation/exports/` | `evaluation_id` | schema 1 + policy 1，schema 2 + policy 2 |
 | Phase 5 Parameter Sensitivity | `dataset/tuning/exports/` | `sensitivity_id` | schema 1 + policy 1，schema 2 + policy 2 |
 | Phase 6 Parameter Optimization | `dataset/optimization/exports/` | `optimization_id` | schema 1 + policy 1 |
+| Phase 7 Disclosure Evidence | `dataset/validation/evidence/exports/` | `evidence_id` | schema 1 |
+| Phase 7 Validation Plan | `dataset/validation/plans/` | `validation_plan_id` | schema 1 |
+| Phase 7 Validation Result | `dataset/validation/exports/` | `validation_id` | schema 1 + policy 1 |
 
 `dataset/staging/`、各阶段 `staging/`、`ground_truth/rechecks/`、`cache/`、`phase0-production/` 不是正式发布包，永远不会进入检测节点或清理列表；它们只能通过诊断码出现。Raw 包自身的 `replay/` 目录属于该 Raw 包。
 
-自定义 `--output` 构建的包只有在该根目录被显式登记后才会被扫描；默认契约只覆盖上表六个根目录。
+自定义 `--output` 构建的包只有在该根目录被显式登记后才会被扫描；默认契约只覆盖上表目录。`validation/access-ledger/` 是持久访问事实，不属于可清理发布包。
 
 ## 2. 检测
 
 ```powershell
-# 默认：六阶段包数、每个包的完整主 ID、诊断与 Mermaid 图
+# 默认：发布包数、每个包的完整主 ID、诊断与 Mermaid 图
 npm run dataset:lineage
 
 # 聚焦某个包的上游与下游
@@ -99,11 +102,11 @@ npm run dataset:prune -- --resume dataset/maintenance/plans/eval-v1.json
 
 无论走哪条路径，执行前都会先取维护独占窗口，再重新扫描并与 `graph_sha256`、目标 manifest Hash 逐项比对；有任何新增、删除或改写即 `MAINTENANCE_PLAN_STALE` 并要求重新做计划。`--resume` 用于中断后的续跑，只复核每个目标自身状态，不要求整图指纹仍等于计划值。
 
-逐包处理顺序为 Phase 6→1、同阶段按主 ID 字符码。每个包先原子重命名到 `dataset/maintenance/quarantine/<plan_sha256>/phase<N>/<主ID>`，写 `operations.log.jsonl` 的 `MOVED`，再删除隔离目录并写 `DELETED`。发布根目录只会看到包“完整存在”或“不存在”。中断恢复不承诺跨包整体原子性，但始终下游先行。
+逐包处理顺序为 Validation→Plan→Evidence→Phase 6→1、同阶段按主 ID 字符码。每个包先原子重命名到 `dataset/maintenance/quarantine/<plan_sha256>/phase<N>/<主ID>`，写 `operations.log.jsonl` 的 `MOVED`，再删除隔离目录并写 `DELETED`。发布根目录只会看到包“完整存在”或“不存在”。中断恢复不承诺跨包整体原子性，但始终下游先行。
 
 ## 5. 维护门禁
 
-六个构建器（Raw / GT / Model / Evaluation / Tuning / Optimization）在整个构建期间持有共享租约 `dataset/maintenance/leases/<uuid>/`：
+各构建器（Raw / GT / Model / Evaluation / Tuning / Optimization / Validation Plan / Validation Run）在整个构建期间持有共享租约 `dataset/maintenance/leases/<uuid>/`：
 
 ```text
 构建：先建共享租约，再确认维护窗口未开启；否则 DATASET_MAINTENANCE_ACTIVE
@@ -127,6 +130,7 @@ descriptor_sha256 缺失或与 descriptor 不符
 重复主 ID、发布根目录出现符号链接或非目录条目
 目标包存在 <主ID>.lock（可能仍在发布）
 目标不在闭包允许的阶段范围内，或清理闭包出现向前依赖
+Phase 7 Evidence 的持久账本缺失、损坏，或缺少对应 PLAN_REGISTERED 访问事实
 报告/计划写入发布根目录
 ```
 

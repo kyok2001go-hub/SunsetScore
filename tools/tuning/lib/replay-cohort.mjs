@@ -53,7 +53,7 @@ export async function loadReplayCohort({ rows, rawDir, progress = silentProgress
 }
 
 /** Replay Reference Control: replay with the historical config and compare to the Snapshot. */
-export async function verifyReplayParity({ cohort, runReplay, progress = silentProgress }) {
+export async function verifyReplayParity({ cohort, runReplay, progress = silentProgress, split = 'TRAIN' }) {
   progress.stage('Replay Reference Parity');
   const rows = [];
   for (const row of cohort) {
@@ -62,7 +62,7 @@ export async function verifyReplayParity({ cohort, runReplay, progress = silentP
     rows.push({
       snapshot_id: row.snapshot_id,
       event_id: row.event_id,
-      split: 'TRAIN',
+      split,
       event_date_local: row.event_date_local,
       city: row.city,
       lead_time_bucket: row.lead_time_bucket,

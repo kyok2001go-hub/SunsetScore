@@ -187,7 +187,9 @@ async function verifyPackage(directory, target, code) {
   if (path.basename(directory) !== target.id) {
     fail(code, { target_id: target.id, reason_code: 'DIRECTORY_NAME_MISMATCH' });
   }
-  const bytes = await readSafe(path.join(directory, 'manifest.json'));
+  const phase = phaseByNumber(target.phase);
+  const bytes = await readSafe(path.join(directory,
+    phase.key === 'validation_plan' ? 'plan_manifest.json' : 'manifest.json'));
   if (hash(bytes) !== target.manifest_sha256) {
     fail(code, { target_id: target.id, reason_code: 'MANIFEST_HASH_MISMATCH' });
   }

@@ -7,6 +7,7 @@ import {
   dependenciesOf, isSupportedVersion, supportedVersionLabel
 } from '../maintenance-policy.mjs';
 import { inspectMaintenanceState, maintenanceRoot } from './lease.mjs';
+import { readLedger } from '../../validation/lib/disclosure.mjs';
 
 const LOCK_SUFFIX = '.lock';
 
@@ -87,7 +88,8 @@ async function scanPhase(phase, { datasetRoot, diagnostics, progress }) {
     const absolute = path.join(root, entry.name);
     let bytes;
     try {
-      bytes = await readSafe(path.join(absolute, 'manifest.json'));
+      bytes = await readSafe(path.join(absolute,
+        phase.key === 'validation_plan' ? 'plan_manifest.json' : 'manifest.json'));
     } catch (error) {
       diagnostics.push(diagnostic('MANIFEST_UNREADABLE', { nodeId: entry.name, detail: errorCode(error) }));
       nodes.push(invalidNode(phase, entry.name, relative));
@@ -202,7 +204,7 @@ export function reduceEdgesForDrawing(edges) {
 }
 
 /**
- * Enumerates the six published package roots and derives the dependency edges from manifest
+ * Enumerates the published package roots and derives dependency edges from manifests
  * fields only. Directory names are never used to guess a parent, and a 12 character hash prefix
  * is never treated as proof of lineage.
  */
@@ -212,13 +214,34 @@ export async function scanDataset(options = {}) {
   const diagnostics = [];
   const roots = [];
   const nodes = [];
-  progress.stage('扫描六阶段发布目录');
+  progress.stage('扫描离线发布目录');
   for (const phase of PHASES) {
     roots.push({
       phase: phase.phase, key: phase.key, label: phase.label,
       relative_root: phase.relativeRoot, absolute_path: path.join(datasetRoot, phase.relativeRoot)
     });
     nodes.push(...await scanPhase(phase, { datasetRoot, diagnostics, progress }));
+  }
+
+  let validationLedger = { status: 'NOT_APPLICABLE', sequence: null, sha256: null };
+  const evidenceNodes = nodes.filter(node => node.phase_key === 'validation_evidence');
+  if (evidenceNodes.length) {
+    const ledgerRoot = path.join(datasetRoot, 'validation', 'access-ledger');
+    try {
+      await lstat(path.join(ledgerRoot, 'access.jsonl'));
+      const ledger = await readLedger(ledgerRoot);
+      validationLedger = { status: 'VALID', sequence: ledger.sequence, sha256: ledger.sha256 };
+      for (const node of evidenceNodes) {
+        const recorded = ledger.rows.some(row => row.action === 'PLAN_REGISTERED' &&
+          row.evidence_id === node.id);
+        if (!recorded) diagnostics.push(diagnostic('VALIDATION_EXPOSURE_NOT_RECORDED', { nodeId: node.id }));
+      }
+    } catch (error) {
+      validationLedger = { status: 'INVALID_OR_MISSING', sequence: null, sha256: null };
+      for (const node of evidenceNodes) diagnostics.push(diagnostic('VALIDATION_LEDGER_INVALID_OR_MISSING', {
+        nodeId: node.id, detail: errorCode(error)
+      }));
+    }
   }
 
   const byId = new Map();
@@ -271,6 +294,7 @@ export async function scanDataset(options = {}) {
     nodes: nodes.map(stripInternals).sort(compareNodes),
     edges: dedupeEdges(edges).sort(compareEdges),
     diagnostics: diagnostics.slice().sort(compareDiagnostics),
+    validation_ledger: validationLedger,
     maintenance
   };
   progress.stage('依赖图构建完成');
@@ -325,6 +349,7 @@ function compareDiagnostics(a, b) {
  */
 export function graphFingerprint(graph) {
   return hash(canonicalJson({
+    validation_ledger: graph.validation_ledger ?? null,
     nodes: graph.nodes.map(node => ({
       phase: node.phase, id: node.id, relative_path: node.relative_path,
       manifest_sha256: node.manifest_sha256, descriptor_sha256: node.descriptor_sha256,

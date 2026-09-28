@@ -38,6 +38,10 @@
     ,"optimization:stats": "node tools/optimization/optimization-stats.mjs"
     ,"dataset:lineage": "node tools/maintenance/lineage.mjs"
     ,"dataset:prune": "node tools/maintenance/prune.mjs"
+    ,"validation:plan": "node tools/validation/plan-validation.mjs"
+    ,"validation:run": "node tools/validation/run-validation.mjs"
+    ,"validation:validate": "node tools/validation/validate-validation.mjs"
+    ,"validation:stats": "node tools/validation/validation-stats.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

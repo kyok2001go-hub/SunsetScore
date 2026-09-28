@@ -11,7 +11,10 @@ const VALIDATORS = Object.freeze({
   model: async () => (await import('../../model-dataset/validate-model-dataset.mjs')).inspectModelDataset,
   evaluation: async () => (await import('../../evaluation/validate-evaluation.mjs')).inspectEvaluation,
   sensitivity: async () => (await import('../../tuning/validate-sensitivity.mjs')).inspectSensitivity,
-  optimization: async () => (await import('../../optimization/validate-optimization.mjs')).inspectOptimization
+  optimization: async () => (await import('../../optimization/validate-optimization.mjs')).inspectOptimization,
+  validation_evidence: async () => (await import('../../validation/lib/disclosure.mjs')).inspectEvidence,
+  validation_plan: async () => (await import('../../validation/lib/package.mjs')).inspectPlan,
+  validation: async () => (await import('../../validation/lib/package.mjs')).inspectValidation
 });
 
 export async function verifyPackages(nodes, options = {}) {

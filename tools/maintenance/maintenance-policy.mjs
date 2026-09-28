@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { fail } from '../dataset/lib/common.mjs';
 
-export const TOOL_VERSION = '2.5.3';
+export const TOOL_VERSION = '2.5.4';
 export const MAINTENANCE_SCHEMA_VERSION = 1;
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -64,6 +64,24 @@ export const PHASES = Object.freeze([
     phase: 6, key: 'optimization', label: 'Phase 6 Parameter Optimization', relativeRoot: 'optimization/exports',
     idField: 'optimization_id', schemaField: 'optimization_schema_version',
     policyField: 'optimization_policy_version',
+    supportedVersions: Object.freeze([[1, 1]])
+  }),
+  Object.freeze({
+    phase: 7, key: 'validation_evidence', label: 'Phase 7 Disclosure Evidence',
+    relativeRoot: 'validation/evidence/exports', idField: 'evidence_id',
+    schemaField: 'evidence_schema_version', policyField: null,
+    supportedVersions: Object.freeze([[1, null]])
+  }),
+  Object.freeze({
+    phase: 8, key: 'validation_plan', label: 'Phase 7 Validation Plan',
+    relativeRoot: 'validation/plans', idField: 'validation_plan_id',
+    schemaField: 'validation_plan_schema_version', policyField: null,
+    supportedVersions: Object.freeze([[1, null]])
+  }),
+  Object.freeze({
+    phase: 9, key: 'validation', label: 'Phase 7 Validation Result',
+    relativeRoot: 'validation/exports', idField: 'validation_id',
+    schemaField: 'validation_schema_version', policyField: 'validation_policy_version',
     supportedVersions: Object.freeze([[1, 1]])
   })
 ]);
@@ -136,6 +154,30 @@ export function dependenciesOf(phase, manifest) {
       add('ground_truth_id', null, 'REFERENCE');
       add('validation_disclosure_evidence_id', 'validation_disclosure_evidence_sha256', 'EVIDENCE');
       break;
+    case 'validation_evidence':
+      add('model_dataset_id', 'model_dataset_manifest_sha256', 'SOURCE');
+      break;
+    case 'validation_plan':
+    case 'validation': {
+      const source = manifest.source_ids || {};
+      for (const key of ['raw', 'gt', 'model', 'baseline', 'sensitivity', 'optimization']) {
+        const item = source[key];
+        if (!item) continue;
+        if (typeof item.id !== 'string' || !item.id ||
+            typeof item.manifest_sha256 !== 'string') {
+          fail('MAINTENANCE_INVALID_MANIFEST', { reason_code: 'INVALID_SOURCE_IDENTITY', detail: key });
+        }
+        dependencies.push({ idField: `source_ids.${key}.id`, id: item.id,
+          expectedManifestSha256: item.manifest_sha256, kind: 'SOURCE' });
+      }
+      if (phase.key === 'validation_plan') {
+        add('evidence_id', 'evidence_manifest_sha256', 'EVIDENCE');
+      } else {
+        add('validation_plan_id', null, 'SOURCE');
+        add('evidence_id', null, 'EVIDENCE');
+      }
+      break;
+    }
     default:
       break;
   }
