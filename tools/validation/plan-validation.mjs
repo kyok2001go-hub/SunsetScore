@@ -9,6 +9,7 @@ import { auditSources, readValidationInput, sourceIdentity, SOURCE_KEYS, assertS
 import { appendLedger, makeDevelopmentEvidence, publishEvidence, readLedger, withLedgerLock } from './lib/disclosure.mjs';
 import { effectiveSelectionPolicy, validationPolicy } from './validation-policy.mjs';
 import { runCli } from './lib/cli.mjs';
+import { supportCohort } from '../gt-level-support.mjs';
 
 export const defaultValidationRoot = () => path.resolve('dataset/validation');
 
@@ -63,9 +64,11 @@ async function buildPlan(options) {
   const output = await outside(options.output || defaultValidationRoot(), roots);
   const ledgerRoot = await outside(options.accessLedger || path.join(output, 'access-ledger'), roots);
   const audited = await auditSources(options, options);
-  const input = await readValidationInput(options, audited, { mode, progress: options.progress });
-  const policy = validationPolicy();
-  const selectionPolicy = effectiveSelectionPolicy(audited.manifest.validation_selection_rule);
+  const version = options.validationPolicyVersion ?? 1;
+  const input = await readValidationInput(options, audited, { mode, progress: options.progress,
+    validationPolicyVersion: version });
+  const policy = validationPolicy(version);
+  const selectionPolicy = effectiveSelectionPolicy(audited.manifest.validation_selection_rule, version);
   const blocking = [];
   if (!input.candidates.length) blocking.push('CANDIDATE_SET_EMPTY');
   if (mode === 'FORMAL_VALIDATION') {
@@ -90,7 +93,11 @@ async function buildPlan(options) {
     const members = input.rows.map(row => ({ snapshot_id: row.snapshot_id, event_id: row.event_id,
       location_key: row.location_key, event_date_local: row.event_date_local }));
     const core = {
-      validation_schema_version: 1, validation_policy_version: 1, mode, status,
+      validation_schema_version: 1, validation_policy_version: version, mode, status,
+      ...(version === 2 ? { gt_level_support: input.support.gt_level_support,
+        gt_level_support_sha256: input.support.gt_level_support_sha256,
+        gt_level_support_cohort: supportCohort(input.rows),
+        upstream_train_support: audited.manifest.upstream_train_support } : {}),
       blocking_reasons: [...new Set(blocking)], result_usage: 'DEVELOPMENT_ONLY',
       source: sourceIdentity(audited), source_fingerprints_sha256: hash(canonicalJson(audited.sourceFingerprints)),
       optimization_input_id: audited.manifest.optimization_input_id,
@@ -141,6 +148,7 @@ async function buildPlan(options) {
 }
 
 export async function planValidation(options) {
+  validationPolicy(options.validationPolicyVersion ?? 1);
   if (options.mode === 'formal') {
     if (!options.disclosureEvidence || options.acknowledgeExposedValidation) fail('INVALID_ARGUMENTS');
     const bytes = await readSafe(path.join(options.optimization, 'manifest.json'));

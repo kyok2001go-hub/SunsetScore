@@ -28,6 +28,9 @@ export async function optimizationStats(options) {
       global_readiness: summary.global_readiness
     },
     reasons: summary.reasons,
+    ...(manifest.optimization_policy_version === 2 ? { optimization_policy_version: 2,
+      gt_level_support: manifest.gt_level_support, upstream_train_support: manifest.upstream_train_support,
+      rare_level_audit: summary.rare_level_audit } : {}),
     warnings_summary: summary.warnings_summary,
     top_candidates: summary.top_candidates
   };

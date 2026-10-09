@@ -9,6 +9,8 @@ import { ledgerPrefixMatches, readLedger } from './lib/disclosure.mjs';
 import { inspectOptimization } from '../optimization/validate-optimization.mjs';
 import { loadModelHeader, readSplitRows } from '../tuning/lib/input.mjs';
 import { withValidationLeases } from './lib/lease.mjs';
+import { validationSupport } from './validation-policy.mjs';
+import { supportCohort } from '../gt-level-support.mjs';
 
 export async function validateValidation(options) {
   const inspected = await inspectValidation(options.path);
@@ -34,6 +36,12 @@ export async function validateValidation(options) {
   const validationRows = await readSplitRows(options.model, { manifest: header.manifest,
     schemaVersion: header.schemaVersion, split: 'VALIDATION',
     allowFiles: MODEL_ALLOW_FILES, progress: options.progress });
+  if (core.validation_policy_version === 2 && (optimizationManifest.optimization_policy_version !== 2 ||
+      canonicalJson(supportCohort(validationRows)) !== canonicalJson(core.gt_level_support_cohort) ||
+      canonicalJson(validationSupport(validationRows, 2)) !== canonicalJson(core.support) ||
+      canonicalJson(optimizationManifest.upstream_train_support) !== canonicalJson(core.upstream_train_support))) {
+    fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'MODEL_LINKED_SUPPORT_MISMATCH' });
+  }
   const members = validationRows.map(row => ({ snapshot_id: row.snapshot_id,
     event_id: row.event_id, location_key: row.location_key,
     event_date_local: row.event_date_local }));
@@ -65,7 +73,8 @@ export async function validateValidation(options) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'SOURCE_IDENTITY_MISMATCH' });
   }
   const input = await readValidationInput(options, audited, {
-    mode: core.mode, progress: options.progress, loadReplay: true
+    mode: core.mode, progress: options.progress, loadReplay: true,
+    validationPolicyVersion: core.validation_policy_version
   });
   if (input.validationCsvSha256 !== core.validation_csv_sha256) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'VALIDATION_COHORT_CHANGED' });

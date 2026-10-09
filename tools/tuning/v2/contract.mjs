@@ -1,5 +1,6 @@
 import { tuningPolicy } from '../tuning-policy.mjs';
 import { tuningSchema, CSV_TABLES } from '../tuning-schema.mjs';
+import { SUPPORT_POLICY, SUPPORT_FILE } from '../../gt-level-support.mjs';
 
 const field = (name, type = 'string', nullable = false, range = null) =>
   ({ name, type, nullable, range, enum: null, unit: null });
@@ -75,3 +76,26 @@ export const CSV_TABLES_V2 = Object.freeze({
   'parameter_summary.csv': schema.tables.parameter_summary
 });
 export const FILES_V2 = Object.freeze([...POLICY_V2.package.export_files]);
+
+const policy3 = structuredClone(POLICY_V2);
+policy3.tuning_policy_version = 3;
+policy3.gt_level_support_policy = SUPPORT_POLICY;
+policy3.formal_capable = false;
+policy3.package.export_files.push(SUPPORT_FILE);
+policy3.package.export_files.sort();
+export const POLICY_V3 = Object.freeze(policy3);
+const schema3 = structuredClone(SCHEMA_V2);
+schema3.tuning_policy_version = 3;
+schema3.files.export = [...policy3.package.export_files];
+for (const name of ['manifest', 'readiness', 'summary']) {
+  schema3.json[name].required.push('gt_level_support', 'gt_level_support_sha256');
+}
+schema3.json.gt_level_support = { required: ['cohort', 'cohort_sha256', 'gt_level_support',
+  'gt_level_support_sha256', 'rare_level_audit'] };
+export const SCHEMA_V3 = Object.freeze(schema3);
+export function tuningContract(version = 2) {
+  if (![2, 3].includes(version)) throw Object.assign(new Error('UNSUPPORTED_TUNING_POLICY'), { code: 'UNSUPPORTED_TUNING_POLICY' });
+  return { policy: version === 3 ? POLICY_V3 : POLICY_V2,
+    schema: version === 3 ? SCHEMA_V3 : SCHEMA_V2,
+    files: version === 3 ? policy3.package.export_files : FILES_V2 };
+}

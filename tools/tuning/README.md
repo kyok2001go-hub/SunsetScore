@@ -8,7 +8,41 @@
 
 ## Tuning V2（显式选择）
 
-不带 `--tuning-version` 的命令继续使用历史 V1 契约和 `sensitivity_v1_*` 包。新方案须显式传 `--tuning-version 2`，且 `--baseline` 必须是 Evaluation V2：
+### V2.5.4.1：Schema 2 / Policy 3
+
+显式传 `--tuning-version 3` 使用 excellent 稀有等级软门槛。至少 3 个等级各有 5 Event；poor、fair、good、very_good 的已出现等级仍各须 ≥5 Event。excellent 为 0 或 1–4 Event 时仅报告警告及 `EXCELLENT_PERFORMANCE_NOT_ESTABLISHED`，全部样本继续参与五级指标。100 Event、14 日期、Replay 与集中度门槛不变。Policy 3 固定代理探索语义：即使数据 READY，仍为 `PROVISIONAL_PROXY / EXPLORATORY_ONLY`。
+
+先在当前 PowerShell 会话声明真实包路径（`<…_id>` 需替换）：
+
+```powershell
+$Model = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\model\exports\<model_id>'
+$Raw = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\exports\<raw_id>'
+$GT = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\ground_truth\exports\<gt_id>'
+$Baseline = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\evaluation\exports\<evaluation_v2_id>'
+```
+
+路径示例：`$Model` 指向具体 Model 包目录，不能只指向 `dataset\model\exports`；Raw、GT、Evaluation 必须属于同一数据链。
+
+```powershell
+$TrainSources = @('--model', $Model, '--raw', $Raw, '--gt', $GT, '--baseline', $Baseline)
+npm run tuning:readiness -- --tuning-version 3 @TrainSources
+npm run tuning:plan -- --tuning-version 3 @TrainSources
+npm run tuning:sensitivity -- --tuning-version 3 @TrainSources
+```
+
+路径示例：构建返回 `directory`，例如 `D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\tuning\exports\sensitivity_v2_<model_hash>_<new_hash>`；`v2` 前缀代表 Schema 2，并不代表 Policy 2。把该新目录赋给 `$Sensitivity` 再进入 Phase 6。历史 V2 包不能直接充当新链输入。
+
+```powershell
+$Sensitivity = '<上一步返回的 directory>'
+npm run tuning:validate -- $Sensitivity @TrainSources
+npm run tuning:stats -- $Sensitivity
+```
+
+路径示例：`$Sensitivity = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\tuning\exports\sensitivity_v2_<model_hash>_<new_hash>'`。validate/stats 自动按包内 Policy 分派。可选的旧 Evaluation V1 `--validation-evidence <目录>` 保留已暴露事实，不会恢复盲验证资格。
+
+新包增加 `gt_level_support.json`，包含完整冻结 TRAIN 身份、五级支持度和各实验完整 rare Snapshot 审计；readiness、summary、manifest/descriptor 绑定支持度摘要。单级误差仅诊断，不增加候选门禁。旧 Policy 1/2 模板、CSV 列和校验保持原契约；不带版本的命令仍为 V1。
+
+不带 `--tuning-version` 的命令继续使用历史 V1 契约和 `sensitivity_v1_*` 包。下面的历史 V2 / Policy 2 命令须显式传 `--tuning-version 2`，且 `--baseline` 必须是 Evaluation V2（V2.5.4.1 新软门槛使用上文的 `--tuning-version 3`）：
 
 ```powershell
 npm run tuning:readiness -- --tuning-version 2 --model <Model目录> --raw <Raw目录> --gt <GT目录> --baseline <Evaluation-V2目录> --validation-evidence <Evaluation-V1目录>

@@ -2,14 +2,16 @@
 import path from 'node:path';
 import { canonicalJson, compare, errorCode, fail, hash, inventory, isMain, readSafe } from '../dataset/lib/common.mjs';
 import { readCsv } from '../dataset/lib/csv.mjs';
-import { CSV_TABLES, FILES, FREEZE_FILE, MANIFEST_FILE, SCHEMA, optimizationSchema } from './optimization-schema.mjs';
+import { CSV_TABLES, FREEZE_FILE, MANIFEST_FILE, optimizationSchema } from './optimization-schema.mjs';
 import { guardrailPolicyDocument, objectivePolicyDocument, optimizationPolicy } from './optimization-policy.mjs';
 import { identity } from './lib/package.mjs';
 import { runCli } from './lib/cli.mjs';
 import {
   buildOptimizationPackage, candidateSetIdentity, optimizationInputIdentity, searchResultIdentity
 } from './lib/build.mjs';
-import { buildFreezeDocument, compareRecords } from './lib/finalist.mjs';
+import { buildFreezeDocument, compareRecords, validationSelectionRuleDocument } from './lib/finalist.mjs';
+import { SUPPORT_FILE, inspectSupportDocument, supportDigest } from '../gt-level-support.mjs';
+import { cohortProfile, computeOptimizationReadiness } from './lib/readiness.mjs';
 
 export const parseJson = bytes => {
   const value = JSON.parse(bytes.toString('utf8'));
@@ -29,15 +31,19 @@ function requireKeys(value, keys, label) {
 
 export async function inspectOptimization(directory, options = {}) {
   try {
-    const policy = optimizationPolicy();
+    const sources = ['model', 'raw', 'gt', 'baseline', 'sensitivity'];
+    if (sources.some(key => options[key]) && !sources.every(key => options[key])) fail('INVALID_ARGUMENTS');
     const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
-    requireKeys(manifest, SCHEMA.json.manifest.required, 'manifest');
+    const policyVersion = manifest.optimization_policy_version;
+    const policy = optimizationPolicy(policyVersion);
+    const schema = optimizationSchema(1, policyVersion);
+    requireKeys(manifest, schema.json.manifest.required, 'manifest');
     if (manifest.optimization_schema_version !== policy.optimization_schema_version ||
         manifest.optimization_policy_version !== policy.optimization_policy_version) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_OPTIMIZATION_VERSION' });
     }
     const freezePresent = Boolean(manifest.candidate_freeze_allowed);
-    const expected = [...FILES, MANIFEST_FILE, ...(freezePresent ? [FREEZE_FILE] : [])].sort(compare);
+    const expected = [...policy.package.export_files, MANIFEST_FILE, ...(freezePresent ? [FREEZE_FILE] : [])].sort(compare);
     const actual = (await inventory(directory)).sort(compare);
     if (canonicalJson(actual) !== canonicalJson(expected)) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'INVENTORY_MISMATCH' });
@@ -55,7 +61,7 @@ export async function inspectOptimization(directory, options = {}) {
       }
       loaded[file] = bytes;
     }
-    if (canonicalJson(parseJson(loaded['schema.json'])) !== canonicalJson(optimizationSchema())) {
+    if (canonicalJson(parseJson(loaded['schema.json'])) !== canonicalJson(schema)) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SCHEMA_MISMATCH' });
     }
     if (canonicalJson(parseJson(loaded['policy.json'])) !== canonicalJson(policy)) {
@@ -74,8 +80,52 @@ export async function inspectOptimization(directory, options = {}) {
     const searchPoints = parseJson(loaded['search_points.json']);
     const finalists = parseJson(loaded['finalists.json']);
     const verifiedSources = parseJson(loaded['verified_source_identities.json']);
-    requireKeys(readiness, SCHEMA.json.readiness.required, 'readiness');
-    requireKeys(summary, SCHEMA.json.summary.required, 'summary');
+    requireKeys(readiness, schema.json.readiness.required, 'readiness');
+    requireKeys(summary, schema.json.summary.required, 'summary');
+    if (policyVersion === 2) {
+      const doc = parseJson(loaded[SUPPORT_FILE]);
+      const support = inspectSupportDocument(doc, 'TRAIN', 'OPTIMIZATION_VALIDATION_FAILED');
+      const upstream = verifiedSources.identities.upstream_train_support;
+      const check = (ok, reason_code) => { if (!ok) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code }); };
+      const equal = (a, b, reason) => check(canonicalJson(a) === canonicalJson(b), reason);
+      for (const value of [manifest, manifest.descriptor, readiness, summary,
+        parseJson(loaded['optimization_plan.json']), finalists]) {
+        equal(value.gt_level_support, support, 'GT_LEVEL_SUPPORT_MISMATCH');
+        equal(value.gt_level_support_sha256, doc.gt_level_support_sha256, 'GT_LEVEL_SUPPORT_SHA_MISMATCH');
+        equal(value.upstream_train_support, upstream, 'UPSTREAM_SUPPORT_MISMATCH');
+      }
+      equal(upstream.gt_level_support, support, 'UPSTREAM_SUPPORT_MISMATCH');
+      equal(upstream.gt_level_support_sha256, supportDigest(support), 'UPSTREAM_SUPPORT_SHA_MISMATCH');
+      equal(upstream.limitation_codes, support.limitation_codes, 'UPSTREAM_LIMITATION_MISMATCH');
+      equal(upstream.conclusion_limitations, support.conclusion_limitations, 'UPSTREAM_LIMITATION_MISMATCH');
+      check(upstream.sensitivity_id === verifiedSources.identities.sensitivity_id, 'UPSTREAM_SUPPORT_ID_MISMATCH');
+      check(verifiedSources.identities.tuning_policy_version === 3 &&
+        manifest.descriptor.source.result_usage === 'EXPLORATORY_ONLY', 'TUNING_POLICY_COMBINATION_UNSUPPORTED');
+      const recomputed = computeOptimizationReadiness({ rows: doc.cohort, profile: cohortProfile(doc.cohort),
+        replayUsableRate: readiness.metrics.replay_usable_rate, sensitivityLinkage: manifest.descriptor.source,
+        policyVersion });
+      for (const key of ['engineering_readiness', 'data_readiness', 'metric_readiness', 'label_concentration',
+        'reasons', 'thresholds', 'metrics', 'optimization_mode', 'optimization_readiness']) {
+        equal(readiness[key], recomputed[key], 'READINESS_RECOMPUTE_MISMATCH');
+      }
+      for (const value of [manifest, summary]) for (const key of ['engineering_readiness', 'data_readiness', 'metric_readiness']) {
+        equal(value[key], recomputed[key], 'READINESS_REPORT_MISMATCH');
+      }
+      check(manifest.cohort_sample_count === doc.cohort.length &&
+        manifest.cohort_event_count === new Set(doc.cohort.map(row => row.event_id)).size &&
+        manifest.cohort_date_count === new Set(doc.cohort.map(row => row.event_date_local)).size,
+      'SUPPORT_COHORT_COUNT_MISMATCH');
+      check(manifest.descriptor.optimization_schema_version === 1 &&
+        manifest.descriptor.optimization_policy_version === 2, 'DESCRIPTOR_POLICY_MISMATCH');
+      equal(manifest.validation_selection_rule, validationSelectionRuleDocument(policy), 'SELECTION_RULE_MISMATCH');
+      check(manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.result_usage === 'EXPLORATORY_ONLY' &&
+        manifest.candidate_freeze_allowed === false && manifest.validation_promotion_allowed === false,
+      'PROXY_FORMAL_PROMOTION_FORBIDDEN');
+      equal(summary.rare_level_audit, doc.rare_level_audit, 'RARE_AUDIT_MISMATCH');
+      equal(doc.rare_level_audit.map(row => row.run_id).sort(compare),
+        tables['candidate_metrics.csv'].map(row => row.candidate_id).sort(compare), 'RARE_AUDIT_CANDIDATE_MISMATCH');
+      for (const warning of support.warnings) check(readiness.warnings.includes(warning), 'RARE_WARNING_MISSING');
+    }
 
     if (manifest.search_space_sha256 !== hash(canonicalJson(searchSpace))) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SEARCH_SPACE_SHA_MISMATCH' });
@@ -86,11 +136,11 @@ export async function inspectOptimization(directory, options = {}) {
     if (manifest.descriptor.objective_policy_sha256 !== hash(canonicalJson(parseJson(loaded['objective_policy.json'])))) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'OBJECTIVE_POLICY_SHA_MISMATCH' });
     }
-    if (manifest.descriptor.objective_policy_sha256 !== hash(canonicalJson(objectivePolicyDocument()))) {
+    if (manifest.descriptor.objective_policy_sha256 !== hash(canonicalJson(objectivePolicyDocument(policyVersion)))) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'OBJECTIVE_POLICY_CONTRACT_MISMATCH' });
     }
     const guardrailPolicySha256 = hash(canonicalJson(parseJson(loaded['guardrail_policy.json'])));
-    if (guardrailPolicySha256 !== hash(canonicalJson(guardrailPolicyDocument()))) {
+    if (guardrailPolicySha256 !== hash(canonicalJson(guardrailPolicyDocument(policyVersion)))) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'GUARDRAIL_POLICY_SHA_MISMATCH' });
     }
     const descriptorFileNames = Object.keys(manifest.descriptor.file_sha256 || {}).sort(compare);
@@ -314,7 +364,7 @@ export async function inspectOptimization(directory, options = {}) {
       const rebuilt = await buildOptimizationPackage({
         model: options.model, raw: options.raw, gt: options.gt,
         baseline: options.baseline, sensitivity: options.sensitivity,
-        progress: options.progress
+        progress: options.progress, optimizationPolicyVersion: policyVersion
       });
       for (const file of expected.filter(name => name !== MANIFEST_FILE)) {
         if (!loaded[file].equals(Buffer.from(rebuilt.files[file]))) {

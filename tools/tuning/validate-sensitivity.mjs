@@ -58,10 +58,10 @@ export async function inspectSensitivity(directory, options = {}) {
   try {
     const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
     if (manifest.tuning_schema_version === 2 || manifest.tuning_policy_version === 2) {
-      if (options.tuningVersion === 1) fail('UNSUPPORTED_TUNING_SCHEMA');
+      if (options.tuningVersion && options.tuningVersion !== manifest.tuning_policy_version) fail('UNSUPPORTED_TUNING_SCHEMA');
       return await inspectSensitivityV2(directory, options);
     }
-    if (options.tuningVersion === 2) fail('UNSUPPORTED_TUNING_SCHEMA');
+    if ([2, 3].includes(options.tuningVersion)) fail('UNSUPPORTED_TUNING_SCHEMA');
     return await inspect(directory, options);
   } catch (error) {
     if (['UNSAFE_PATH', 'UNSUPPORTED_TUNING_SCHEMA', 'UNSUPPORTED_TUNING_POLICY', 'INVALID_ARGUMENTS',

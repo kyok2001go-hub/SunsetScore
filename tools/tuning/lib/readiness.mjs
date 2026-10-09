@@ -1,12 +1,13 @@
 import { formatMetric } from '../../evaluation/metrics.mjs';
 import { cohortProfiles } from './metrics.mjs';
 import { tuningPolicy } from '../tuning-policy.mjs';
+import { gtLevelSupport } from '../../gt-level-support.mjs';
 
 /**
  * Global Tuning Readiness. NOT_READY blocks Sensitivity entirely; EXPLORATORY allows the run
  * but marks the package EXPLORATORY_ONLY; TUNING_READY is required before formal optimisation.
  */
-export function computeGlobalReadiness({ profiles, replaySummary, integrity }) {
+export function computeGlobalReadiness({ profiles, replaySummary, integrity, rows, supportPolicyVersion }) {
   const policy = tuningPolicy();
   const thresholds = policy.readiness_thresholds;
   const reasons = [];
@@ -16,23 +17,26 @@ export function computeGlobalReadiness({ profiles, replaySummary, integrity }) {
   if (profiles.primary_events < thresholds.min_train_primary_events) reasons.push('TRAIN_PRIMARY_EVENTS_BELOW_MINIMUM');
   if (profiles.unique_dates < thresholds.min_train_unique_dates) reasons.push('TRAIN_UNIQUE_DATES_BELOW_MINIMUM');
   if (replaySummary.replay_usable_rate < thresholds.required_replay_usable_rate) reasons.push('REPLAY_USABLE_RATE_BELOW_REQUIRED');
-  if (profiles.gt_levels < thresholds.min_gt_levels) reasons.push('GT_LEVELS_BELOW_MINIMUM');
+  const support = supportPolicyVersion === 3 ? gtLevelSupport(rows, 'TRAIN') : null;
+  if (!support && profiles.gt_levels < thresholds.min_gt_levels) reasons.push('GT_LEVELS_BELOW_MINIMUM');
   const thinnest = Object.values(profiles.gt_level_event_counts);
-  if (thinnest.length < thresholds.min_gt_levels || Math.min(...thinnest) < thresholds.min_events_per_gt_level) {
+  if (!support && (thinnest.length < thresholds.min_gt_levels || Math.min(...thinnest) < thresholds.min_events_per_gt_level)) {
     reasons.push('GT_LEVEL_EVENT_COUNT_BELOW_MINIMUM');
   }
+  if (support) reasons.push(...support.reasons);
   if (profiles.max_date_event_share > thresholds.max_single_date_event_share) reasons.push('SINGLE_DATE_EVENT_SHARE_ABOVE_MAXIMUM');
   if (profiles.max_city_event_share > thresholds.max_single_city_event_share) reasons.push('SINGLE_CITY_EVENT_SHARE_ABOVE_MAXIMUM');
 
   const blocking = new Set(['UPSTREAM_SOURCE_LINKED_FAILED', 'REPLAY_PARITY_FAILED', 'REGISTRY_AUDIT_FAILED',
     'ALIAS_IDENTITY_BROKEN', 'BASE_CONFIG_INVALID', 'COMPOSITION_PARITY_FAILED', 'RUNTIME_IMPORT_GRAPH_DRIFT']);
   const global = reasons.some(reason => blocking.has(reason)) ? 'NOT_READY'
-    : (reasons.length ? 'EXPLORATORY' : 'TUNING_READY');
+    : (support || reasons.length ? 'EXPLORATORY' : 'TUNING_READY');
 
   return {
     global_readiness: global,
     reasons: [...new Set(reasons)].sort(),
     thresholds,
+    ...(support ? { gt_level_support: support } : {}),
     metrics: {
       samples: profiles.samples,
       primary_events: profiles.primary_events,

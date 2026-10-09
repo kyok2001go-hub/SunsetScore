@@ -8,12 +8,14 @@ import { tuningPolicy } from './tuning-policy.mjs';
 import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
 
 export async function tuningReadiness(options) {
-  if (options.tuningVersion === 2) {
+  if ([2, 3].includes(options.tuningVersion)) {
     const linkage = await inspectBaselineLinkage(options);
-    const legacy = await tuningReadiness({ ...options, tuningVersion: 1, validationEvidence: undefined });
-    const dataReasons = legacy.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
+    const legacy = await tuningReadiness({ ...options, tuningVersion: 1, validationEvidence: undefined,
+      supportPolicyVersion: options.tuningVersion === 3 ? 3 : undefined });
+    const dataReasons = options.tuningVersion === 3 ? legacy.reasons :
+      legacy.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
     return {
-      ...legacy, tuning_schema_version: 2, tuning_policy_version: 2,
+      ...legacy, tuning_schema_version: 2, tuning_policy_version: options.tuningVersion,
       global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
       engineering_readiness: { status: 'READY', reasons: [] },
       data_readiness: { status: dataReasons.length ? 'INSUFFICIENT' : 'READY', reasons: dataReasons },
@@ -44,6 +46,9 @@ export async function tuningReadiness(options) {
     };
   });
   const warnings = [];
+  for (const warning of ctx.readiness.gt_level_support?.warnings || []) {
+    warnings.push({ warning_code: warning, scope: 'gt_level_support' });
+  }
   if (ctx.observedBuilds.length > 1) warnings.push({ warning_code: 'MULTIPLE_ENGINE_BUILDS', scope: 'cohort' });
   if (ctx.observedConfigs.length !== 1) warnings.push({ warning_code: 'MULTIPLE_CONFIG_HASHES', scope: 'cohort' });
   for (const reason of ctx.readiness.reasons) warnings.push({ warning_code: 'READINESS_GAP:' + reason, scope: 'readiness' });
@@ -53,6 +58,7 @@ export async function tuningReadiness(options) {
   return {
     global_readiness: ctx.readiness.global_readiness,
     reasons: ctx.readiness.reasons,
+    ...(ctx.readiness.gt_level_support ? { gt_level_support: ctx.readiness.gt_level_support } : {}),
     metrics: ctx.readiness.metrics,
     thresholds: policy.readiness_thresholds,
     cohort: {

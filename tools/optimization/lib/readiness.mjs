@@ -1,6 +1,7 @@
 import { compare, unique } from '../../dataset/lib/common.mjs';
 import { formatMetric } from '../../evaluation/metrics.mjs';
 import { optimizationPolicy } from '../optimization-policy.mjs';
+import { gtLevelSupport, supportDigest } from '../../gt-level-support.mjs';
 
 /**
  * Phase 6 readiness. EXPLORATORY_SEARCH still produces a complete package; FORMAL_OPTIMIZATION
@@ -41,17 +42,18 @@ export function cohortProfile(rows) {
   };
 }
 
-function dataReadiness(profile, replayUsableRate) {
+function dataReadiness(profile, replayUsableRate, support) {
   const thresholds = optimizationPolicy().readiness_thresholds;
   const reasons = [];
   if (profile.primary_events < thresholds.min_train_primary_events) reasons.push('TRAIN_PRIMARY_EVENTS_BELOW_MINIMUM');
   if (profile.unique_dates < thresholds.min_train_unique_dates) reasons.push('TRAIN_UNIQUE_DATES_BELOW_MINIMUM');
   if (replayUsableRate < thresholds.required_replay_usable_rate) reasons.push('REPLAY_USABLE_RATE_BELOW_REQUIRED');
-  if (profile.gt_levels < thresholds.min_gt_levels) reasons.push('GT_LEVELS_BELOW_MINIMUM');
+  if (!support && profile.gt_levels < thresholds.min_gt_levels) reasons.push('GT_LEVELS_BELOW_MINIMUM');
   const counts = Object.values(profile.gt_level_event_counts);
-  if (counts.length < thresholds.min_gt_levels || Math.min(...counts) < thresholds.min_events_per_gt_level) {
+  if (!support && (counts.length < thresholds.min_gt_levels || Math.min(...counts) < thresholds.min_events_per_gt_level)) {
     reasons.push('GT_LEVEL_EVENT_COUNT_BELOW_MINIMUM');
   }
+  if (support) reasons.push(...support.reasons);
   if (profile.max_date_event_share > thresholds.max_single_date_event_share) reasons.push('SINGLE_DATE_EVENT_SHARE_ABOVE_MAXIMUM');
   if (profile.max_city_event_share > thresholds.max_single_city_event_share) reasons.push('SINGLE_CITY_EVENT_SHARE_ABOVE_MAXIMUM');
   return { status: reasons.length ? 'INSUFFICIENT' : 'READY', reasons: [...new Set(reasons)].sort(compare) };
@@ -68,13 +70,14 @@ function labelConcentration(profile) {
   };
 }
 
-export function computeOptimizationReadiness({ profile, replayUsableRate, sensitivityLinkage }) {
-  const policy = optimizationPolicy();
+export function computeOptimizationReadiness({ profile, replayUsableRate, sensitivityLinkage, rows, policyVersion = 1 }) {
+  const policy = optimizationPolicy(policyVersion);
+  const support = policyVersion === 2 ? gtLevelSupport(rows, 'TRAIN') : null;
   const engineering = {
     status: sensitivityLinkage.engineering_readiness?.status ?? 'UNKNOWN',
     reasons: [...(sensitivityLinkage.engineering_readiness?.reasons ?? [])]
   };
-  const data = dataReadiness(profile, replayUsableRate);
+  const data = dataReadiness(profile, replayUsableRate, support);
   const metric = {
     status: sensitivityLinkage.metric_readiness?.status ?? 'UNKNOWN',
     reasons: [...(sensitivityLinkage.metric_readiness?.reasons ?? [])]
@@ -87,15 +90,18 @@ export function computeOptimizationReadiness({ profile, replayUsableRate, sensit
   if (sensitivityLinkage.result_usage !== policy.formal_preconditions.sensitivity_result_usage) {
     reasons.push('SENSITIVITY_RESULT_USAGE_NOT_FORMAL');
   }
-  // Policy 2 permanently defines PROVISIONAL_PROXY / EXPLORATORY_ONLY. A tampered V2 manifest
-  // must never unlock FORMAL; only a newer, separately versioned Tuning policy may do so.
-  if (!Number.isInteger(sensitivityLinkage.tuning_policy_version) || sensitivityLinkage.tuning_policy_version <= 2) {
+  // Tuning Policies 2 and 3 permanently define proxy/exploratory semantics. Numeric >=3 is
+  // not evidence of formal capability; Policy 3 must never unlock FORMAL.
+  if (!Number.isInteger(sensitivityLinkage.tuning_policy_version) || sensitivityLinkage.tuning_policy_version <= 3) {
     reasons.push('SENSITIVITY_POLICY_NOT_FORMAL_CAPABLE');
   }
   if (concentration.status === 'FAIL') reasons.push('INSUFFICIENT_LABEL_BALANCE');
   const uniqueReasons = [...new Set(reasons)].sort(compare);
   const formal = uniqueReasons.length === 0;
   return {
+    ...(support ? { gt_level_support: support, gt_level_support_sha256: supportDigest(support),
+      upstream_train_support: sensitivityLinkage.upstream_train_support,
+      warnings: support.warnings } : {}),
     optimization_mode: formal ? 'FORMAL_OPTIMIZATION' : 'EXPLORATORY_SEARCH',
     optimization_readiness: formal ? 'READY' : 'EXPLORATORY',
     engineering_readiness: engineering,

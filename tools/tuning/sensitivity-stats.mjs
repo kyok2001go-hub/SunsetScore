@@ -32,6 +32,9 @@ export async function sensitivityStats(directory, options = {}) {
     evaluation_id: manifest.evaluation_id,
     global_readiness: readiness.global_readiness,
     result_usage: manifest.result_usage,
+    ...(manifest.tuning_policy_version === 3 ? { tuning_policy_version: 3,
+      gt_level_support: manifest.gt_level_support,
+      rare_level_audit: result.summary.rare_level_audit } : {}),
     ...(v2 ? {
       tuning_schema_version: 2,
       engineering_readiness: manifest.engineering_readiness,

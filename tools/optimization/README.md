@@ -7,6 +7,30 @@ V2.5.3 在 V2.5.2 Parameter Sensitivity 之上，对冻结的 Search Space 做�
 
 ## 命令
 
+### V2.5.4.1：显式 Policy 2
+
+`--optimization-policy-version 2` 仅接受真实语义校验通过的 Tuning Schema 2 / Policy 3；不带参数继续使用 Policy 1。新策略采用 excellent 软门槛，仍要求至少 3 个充分支持等级及所有非稀有已出现等级 ≥5 Event，保留 TRAIN 总量、日期、Replay、城市/日期集中度及单 GT 等级 ≤60% 的门槛。分母包含所有 excellent Event，不使用成功子集计算支持度。
+
+沿用 Phase 5 README 中声明的 `$TrainSources` 和新 `$Sensitivity`：
+
+```powershell
+$OptimizationSources = @($TrainSources) + @('--sensitivity', $Sensitivity)
+npm run optimization:plan -- --optimization-policy-version 2 @OptimizationSources
+npm run optimization:run -- --optimization-policy-version 2 @OptimizationSources
+```
+
+路径示例：`$Sensitivity = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\tuning\exports\sensitivity_v2_<model_hash>_<new_hash>'`，须为 Policy 3 新包。`plan` 是只读预估，`run` 会按所选策略在包内冻结 `optimization_plan.json`，执行中不重新解释策略；两个命令须使用同一显式版本。
+
+```powershell
+$Optimization = '<run 返回的 directory>'
+npm run optimization:validate -- $Optimization @OptimizationSources
+npm run optimization:stats -- $Optimization
+```
+
+路径示例：`$Optimization = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\optimization\exports\optimization_v1_<model_hash>_<new_hash>'`；`v1` 是 Schema，不是 Policy。校验/统计自动按包内版本分派。
+
+Policy 2 新增 `gt_level_support.json` 及本轮 TRAIN/上游 TRAIN 支持度绑定，逐候选记录所有 rare Snapshot 成功对与未配对身份，单级指标保留 null 原因。候选排序、Slice、LODO、指标与权重不变。Tuning Policy 3 永久探索，不能因版本数字 ≥3 解锁 FORMAL：本版只生成 `EXPLORATORY_SEARCH`，不能 Freeze 或 Validation 晋级。旧 Tuning 2→Optimization 1 链与新 Tuning 3→Optimization 2 链不得混用。
+
 ```powershell
 # 只做计划：模式、可用参数、搜索预算、冻结资格
 npm run optimization:plan -- --model <model_dir> --raw <raw_dir> --gt <gt_dir> `
@@ -34,9 +58,9 @@ npm run optimization:stats -- <optimization_dir>
 | `EXPLORATORY_SEARCH` | 工程就绪，但数据或指标语义未 Ready | 完整探索包，`candidate_freeze_allowed=false` |
 | `FORMAL_OPTIMIZATION` | `engineering/data/metric = READY`、Sensitivity `result_usage=FORMAL`、标签集中度通过 | 同上，且通过全部门禁时生成 `candidate_freeze.json` |
 
-Sensitivity V2 的 Policy 固定输出 `PROVISIONAL_PROXY / EXPLORATORY_ONLY`，因此当前真实数据
-只能进入探索模式；正式模式要求 Tuning Policy 3 或更高版本及对应新版 Evaluation Policy，
-不能用 CLI 参数、修改 V2 manifest 或伪造 readiness 绕过。
+Sensitivity Schema 2 的 Policy 2/3 均固定输出 `PROVISIONAL_PROXY / EXPLORATORY_ONLY`，因此当前真实数据
+只能进入探索模式；正式模式要求具备真实正式语义及独立映射证据的新 Tuning/Evaluation 策略，
+不能只按版本数字判断，也不能用 CLI 参数、修改 manifest 或伪造 readiness 绕过。
 
 ## 搜索算法
 

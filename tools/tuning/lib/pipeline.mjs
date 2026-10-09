@@ -18,7 +18,8 @@ import { canonicalJson, hash } from '../../dataset/lib/common.mjs';
  * only ever reads the TRAIN whitelist, and every integrity gate must pass before any
  * experiment runs.
  */
-export async function prepareContext({ model, raw, gt, baseline, progress = silentProgress, root = APP_ROOT }) {
+export async function prepareContext({ model, raw, gt, baseline, progress = silentProgress, root = APP_ROOT,
+  tuningVersion, supportPolicyVersion }) {
   validateRegistryShape();
   const upstream = await verifyUpstreamSources(model, raw, gt, progress);
   const input = await loadTuningInput(model, { progress });
@@ -47,7 +48,9 @@ export async function prepareContext({ model, raw, gt, baseline, progress = sile
     { id: 'COMPOSITION_PARITY_FAILED', ok: composition.check_count > 0 },
     { id: 'RUNTIME_IMPORT_GRAPH_DRIFT', ok: engineRuntime.runtime_file_count > 0 }
   ];
-  const readiness = computeGlobalReadiness({ profiles, replaySummary: parity.summary, integrity: { checks: integrityChecks } });
+  const readiness = computeGlobalReadiness({ profiles, replaySummary: parity.summary,
+    integrity: { checks: integrityChecks }, rows: input.rows,
+    supportPolicyVersion: tuningVersion === 3 ? 3 : supportPolicyVersion });
   if (readiness.global_readiness === 'NOT_READY') {
     fail('TUNING_VALIDATION_FAILED', { reason_code: 'TUNING_NOT_READY', detail: readiness.reasons });
   }

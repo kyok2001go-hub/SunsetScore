@@ -184,29 +184,41 @@ export const POLICY_V1 = deepFreeze({
   }
 });
 
+const policy2 = structuredClone(POLICY_V1);
+policy2.optimization_policy_version = 2;
+policy2.gt_level_support_policy = { support_policy_id: 'EXCELLENT_SOFT_SUPPORT', support_policy_version: 1,
+  rare_gt_levels: [{ gt_level: 'excellent', ordinal: 4 }], min_supported_levels: 3,
+  min_events_per_supported_level: 5, count_unit: 'EVENT' };
+policy2.required_tuning_policy_version = 3;
+policy2.package.export_files.push('gt_level_support.json');
+policy2.package.export_files.sort();
+export const POLICY_V2 = deepFreeze(policy2);
+
 export function optimizationPolicy(version = OPTIMIZATION_POLICY_VERSION) {
-  if (version !== OPTIMIZATION_POLICY_VERSION) {
+  if (![1, 2].includes(version)) {
     throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_POLICY'), { code: 'UNSUPPORTED_OPTIMIZATION_POLICY' });
   }
-  return POLICY_V1;
+  return version === 2 ? POLICY_V2 : POLICY_V1;
 }
 
-export function objectivePolicyDocument() {
+export function objectivePolicyDocument(version = 1) {
+  const policy = optimizationPolicy(version);
   return {
-    optimization_policy_version: OPTIMIZATION_POLICY_VERSION,
-    ...POLICY_V1.objective,
-    metric_compare_epsilon: POLICY_V1.numeric.metric_compare_epsilon
+    optimization_policy_version: version,
+    ...policy.objective,
+    metric_compare_epsilon: policy.numeric.metric_compare_epsilon
   };
 }
 
-export function guardrailPolicyDocument() {
+export function guardrailPolicyDocument(version = 1) {
+  const policy = optimizationPolicy(version);
   return {
-    optimization_policy_version: OPTIMIZATION_POLICY_VERSION,
-    ...POLICY_V1.guardrails,
-    coverage: POLICY_V1.coverage,
-    date_robustness: POLICY_V1.date_robustness,
-    slice_support: POLICY_V1.slice_support,
-    readiness_thresholds: POLICY_V1.readiness_thresholds,
-    finalist_count_max: POLICY_V1.finalist_count_max
+    optimization_policy_version: version,
+    ...policy.guardrails,
+    coverage: policy.coverage,
+    date_robustness: policy.date_robustness,
+    slice_support: policy.slice_support,
+    readiness_thresholds: policy.readiness_thresholds,
+    finalist_count_max: policy.finalist_count_max
   };
 }

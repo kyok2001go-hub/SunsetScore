@@ -186,14 +186,14 @@ const READINESS_JSON_SCHEMA = {
   ]
 };
 
-export function optimizationSchema(version = OPTIMIZATION_SCHEMA_VERSION) {
+export function optimizationSchema(version = OPTIMIZATION_SCHEMA_VERSION, policyVersion = 1) {
   if (version !== OPTIMIZATION_SCHEMA_VERSION) {
     throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_SCHEMA'), { code: 'UNSUPPORTED_OPTIMIZATION_SCHEMA' });
   }
-  const files = [...optimizationPolicy().package.export_files].sort();
+  const files = [...optimizationPolicy(policyVersion).package.export_files].sort();
   return {
     optimization_schema_version: version,
-    optimization_policy_version: OPTIMIZATION_POLICY_VERSION,
+    optimization_policy_version: policyVersion,
     modes: OPTIMIZATION_MODES,
     outcomes: OPTIMIZATION_OUTCOMES,
     files: { manifest: 'manifest.json', freeze: 'candidate_freeze.json', export: files },
@@ -205,9 +205,14 @@ export function optimizationSchema(version = OPTIMIZATION_SCHEMA_VERSION) {
       boolean: '0/1'
     },
     json: {
-      manifest: MANIFEST_JSON_SCHEMA,
-      readiness: READINESS_JSON_SCHEMA,
-      summary: SUMMARY_JSON_SCHEMA
+      manifest: policyVersion === 2 ? { required: [...MANIFEST_JSON_SCHEMA.required,
+        'gt_level_support', 'gt_level_support_sha256', 'upstream_train_support'] } : MANIFEST_JSON_SCHEMA,
+      readiness: policyVersion === 2 ? { required: [...READINESS_JSON_SCHEMA.required,
+        'gt_level_support', 'gt_level_support_sha256', 'upstream_train_support'] } : READINESS_JSON_SCHEMA,
+      summary: policyVersion === 2 ? { required: [...SUMMARY_JSON_SCHEMA.required,
+        'gt_level_support', 'gt_level_support_sha256', 'upstream_train_support', 'rare_level_audit'] } : SUMMARY_JSON_SCHEMA,
+      ...(policyVersion === 2 ? { gt_level_support: { required: ['cohort', 'cohort_sha256',
+        'gt_level_support', 'gt_level_support_sha256', 'rare_level_audit'] } } : {})
     },
     tables: {
       candidate_trace: CANDIDATE_TRACE_FIELDS,

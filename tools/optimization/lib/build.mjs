@@ -1,11 +1,12 @@
-import { canonicalJson, compare, hash } from '../../dataset/lib/common.mjs';
+import { canonicalJson, compare, hash, fail } from '../../dataset/lib/common.mjs';
 import { formatMetric } from '../../evaluation/metrics.mjs';
 import { silentProgress } from '../../progress.mjs';
 import { runReplay } from '../../replay/replay-runner.mjs';
 import { evaluateCandidateDetailed, prepareCandidateRun } from '../../tuning/lib/candidate.mjs';
 import { candidatePolicy } from '../../tuning/candidate-policy.mjs';
 import { optimizationPolicy, objectivePolicyDocument, guardrailPolicyDocument } from '../optimization-policy.mjs';
-import { FILES, FREEZE_FILE, MANIFEST_FILE, SCHEMA } from '../optimization-schema.mjs';
+import { FREEZE_FILE, MANIFEST_FILE, optimizationSchema } from '../optimization-schema.mjs';
+import { SUPPORT_FILE, supportDocument, gtLevelSupport } from '../../gt-level-support.mjs';
 import { loadOptimizationInput, sourceIdentity, verifiedSourceIdentities } from './input.mjs';
 import { buildSearchSpace, publicSearchSpace } from './search-space.mjs';
 import { coarseProposals } from './generator.mjs';
@@ -25,8 +26,8 @@ export function optimizationInputIdentity({ source, searchSpaceSha256, policy })
     search_space_sha256: searchSpaceSha256,
     algorithm: { ...policy.algorithm },
     numeric: { ...policy.numeric },
-    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument())),
-    guardrail_policy_sha256: hash(canonicalJson(guardrailPolicyDocument()))
+    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument(policy.optimization_policy_version))),
+    guardrail_policy_sha256: hash(canonicalJson(guardrailPolicyDocument(policy.optimization_policy_version)))
   };
 }
 
@@ -140,25 +141,35 @@ function leaderboardRow(record, rank) {
  */
 export async function buildOptimizationPackage(options) {
   const progress = options.progress || silentProgress;
-  const policy = optimizationPolicy();
+  const policyVersion = options.optimizationPolicyVersion ?? 1;
+  const policy = optimizationPolicy(policyVersion);
   const input = options.input ?? await loadOptimizationInput({
     model: options.model, raw: options.raw, gt: options.gt,
     baseline: options.baseline, sensitivity: options.sensitivity,
-    root: options.root, progress
+    root: options.root, progress, optimizationPolicyVersion: policyVersion
   });
   const replayRunner = options.runReplay ?? runReplay;
+  if (policyVersion === 2 ? input.sensitivity.linkage.tuning_policy_version !== 3 :
+      input.sensitivity.linkage.tuning_policy_version === 3) {
+    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
+  }
+  if (policyVersion === 2 && canonicalJson(input.sensitivity.linkage.upstream_train_support?.gt_level_support) !==
+      canonicalJson(gtLevelSupport(input.model.rows, 'TRAIN'))) {
+    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UPSTREAM_TRAIN_SUPPORT_MISMATCH' });
+  }
   const source = sourceIdentity(input);
   const profile = cohortProfile(input.model.rows);
   const replayUsableRate = input.sensitivity.readiness?.metrics?.replay_usable_rate ?? 1;
   const readiness = computeOptimizationReadiness({
-    profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage
+    profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage,
+    rows: input.model.rows, policyVersion
   });
   const mode = readiness.optimization_mode;
 
   progress.stage('冻结 Search Space');
   const searchSpaceBase = buildSearchSpace({
     mode, registry: input.sensitivity.registry, readiness: input.sensitivity.readiness,
-    baseConfig: input.sensitivity.baseConfig, linkage: input.sensitivity.linkage
+    baseConfig: input.sensitivity.baseConfig, linkage: input.sensitivity.linkage, policyVersion
   });
   const publicSpace = publicSearchSpace(searchSpaceBase);
   const searchSpaceSha256 = hash(canonicalJson(publicSpace));
@@ -172,6 +183,7 @@ export async function buildOptimizationPackage(options) {
   };
 
   const epsilon = policy.numeric.metric_compare_epsilon;
+  const auditRuns = [];
   const units = Object.values(searchSpace.registry_units);
   const prepared = await prepareCandidateRun({
     cohort: input.cohort, config: input.sensitivity.baseConfig.config, units,
@@ -185,6 +197,8 @@ export async function buildOptimizationPackage(options) {
     onProgress: value => progress.update(value),
     evaluate: async candidate => {
       const detailed = await evaluateCandidateDetailed({ prepared, vector: candidate.canonical_vector });
+      if (policyVersion === 2) auditRuns.push({ id: candidate.candidate_id, rows: detailed.rows || [],
+        failures: [...prepared.controlFailures, ...(detailed.experimentFailures || [])] });
       if (detailed.status !== 'EVALUABLE') {
         return {
           status: detailed.status === 'INFEASIBLE' ? 'INFEASIBLE' : 'UNEVALUABLE',
@@ -277,6 +291,7 @@ export async function buildOptimizationPackage(options) {
     if (!warningMap.has(key)) warningMap.set(key, { warning_code, scope, candidate_id: candidateId, detail });
   };
   for (const reason of readiness.reasons) pushWarning(reason, 'readiness');
+  for (const warning of readiness.warnings || []) pushWarning(warning, 'gt_level_support');
   if (mode === 'EXPLORATORY_SEARCH') pushWarning('EXPLORATORY_ONLY_RESULT', 'mode');
   if (!finalists.length) pushWarning(
     mode === 'FORMAL_OPTIMIZATION' ? 'NO_PROMOTABLE_CANDIDATE' : 'NO_EXPLORATORY_POINT', 'outcome'
@@ -289,7 +304,12 @@ export async function buildOptimizationPackage(options) {
   const warningCounts = {};
   for (const row of warningRows) warningCounts[row.warning_code] = (warningCounts[row.warning_code] || 0) + 1;
 
+  const supportDoc = policyVersion === 2 ? supportDocument(input.model.rows, 'TRAIN', auditRuns) : null;
+  const supportFields = supportDoc ? { gt_level_support: supportDoc.gt_level_support,
+    gt_level_support_sha256: supportDoc.gt_level_support_sha256,
+    upstream_train_support: input.sensitivity.linkage.upstream_train_support } : {};
   const plan = {
+    ...supportFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_input_id: optimizationInputId,
@@ -335,6 +355,7 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   const finalistDocument = {
+    ...supportFields,
     usage: freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY',
     optimization_mode: mode,
     optimization_outcome: outcome,
@@ -363,6 +384,7 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   const readinessDocument = {
+    ...supportFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_mode: mode,
@@ -380,10 +402,10 @@ export async function buildOptimizationPackage(options) {
   };
 
   const files = {
-    'schema.json': canonicalJson(SCHEMA),
+    'schema.json': canonicalJson(optimizationSchema(1, policyVersion)),
     'policy.json': canonicalJson(policy),
-    'objective_policy.json': canonicalJson(objectivePolicyDocument()),
-    'guardrail_policy.json': canonicalJson(guardrailPolicyDocument()),
+    'objective_policy.json': canonicalJson(objectivePolicyDocument(policyVersion)),
+    'guardrail_policy.json': canonicalJson(guardrailPolicyDocument(policyVersion)),
     'search_space.json': canonicalJson(publicSpace),
     'optimization_plan.json': canonicalJson(plan),
     'verified_source_identities.json': canonicalJson(verifiedSourceIdentities(input)),
@@ -413,6 +435,8 @@ export async function buildOptimizationPackage(options) {
   };
   const resultUsage = freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY';
   const summary = {
+    ...supportFields,
+    ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     optimization_id: null,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
@@ -451,6 +475,7 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   files['reports/summary.json'] = canonicalJson(summary);
+  if (supportDoc) files[SUPPORT_FILE] = canonicalJson(supportDoc);
 
   if (freezeAllowed) {
     files[FREEZE_FILE] = canonicalJson(buildFreezeDocument({
@@ -458,17 +483,19 @@ export async function buildOptimizationPackage(options) {
       source, searchSpace, searchSpaceSha256
     }));
   }
-  const descriptorFiles = [...FILES, ...(freezeAllowed ? [FREEZE_FILE] : [])];
+  const descriptorFiles = [...policy.package.export_files, ...(freezeAllowed ? [FREEZE_FILE] : [])];
   const metadata = filesMetadata(files, descriptorFiles);
   const descriptor = descriptorOf({
     source: { ...source, ...input.sensitivity.linkage },
-    metadata, searchSpace, searchSpaceSha256, mode, counts
+    metadata, searchSpace, searchSpaceSha256, mode, counts, policyVersion
   });
+  Object.assign(descriptor, supportFields);
   const id = identity(descriptor);
   summary.optimization_id = id.optimization_id;
   files['reports/summary.json'] = canonicalJson(summary);
 
   const manifest = {
+    ...supportFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_id: id.optimization_id,

@@ -46,7 +46,7 @@ export function parseArgs(args, mode) {
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
     else if (key === 'tuning-version') {
-      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
       result.tuningVersion = Number(value);
     }
     else if (key === 'validation-evidence') result.validationEvidence = path.resolve(value);
@@ -55,10 +55,10 @@ export function parseArgs(args, mode) {
   }
   const required = REQUIRED[mode];
   if (required && required.some(key => !result[key])) fail('INVALID_ARGUMENTS');
-  if (result.validationEvidence && result.tuningVersion !== 2 && mode !== 'validate') fail('INVALID_ARGUMENTS');
+  if (result.validationEvidence && ![2, 3].includes(result.tuningVersion) && mode !== 'validate') fail('INVALID_ARGUMENTS');
   if (result.validationEvidence && mode === 'validate' && (result.tuningVersion === 1 ||
       !(result.model && result.raw && result.gt && result.baseline))) fail('INVALID_ARGUMENTS');
-  if (mode === 'validate' && result.tuningVersion === 2) {
+  if (mode === 'validate' && [2, 3].includes(result.tuningVersion)) {
     if ((result.raw || result.gt || result.baseline) && !(result.model && result.raw && result.gt && result.baseline)) fail('INVALID_ARGUMENTS');
   }
   return result;

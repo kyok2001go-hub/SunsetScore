@@ -4,8 +4,9 @@ import { canonicalJson, compare, fail, hash, inventory, readSafe, removeOwned, r
 import { readCsv } from '../../dataset/lib/csv.mjs';
 import { formatMetric, scoreToOrdinal } from '../../evaluation/metrics.mjs';
 import { pairMetrics, dateRobustness, sliceAnalysis, noSkillMae } from '../../optimization/lib/metrics.mjs';
-import { CSV_TABLES, RESULT_FILES, SELECTED_FILES, validationSchema } from '../validation-schema.mjs';
-import { validationPolicy } from '../validation-policy.mjs';
+import { CSV_TABLES, SELECTED_FILES, validationSchema, validationResultFiles } from '../validation-schema.mjs';
+import { validationPolicy, auditSupportPlan } from '../validation-policy.mjs';
+import { SUPPORT_FILE, inspectSupportDocument, supportDocument } from '../../gt-level-support.mjs';
 import { planIdentity, planManifest } from '../plan-validation.mjs';
 import { dateBlockBootstrap } from './stability.mjs';
 import { classifyCandidate, rankEligible, selectOutcome } from './selection.mjs';
@@ -19,15 +20,17 @@ function assert(condition, reason) {
 export function packageManifest(files, planId, { legacy = false } = {}) {
   const plan = JSON.parse(files['validation_plan.json']);
   const core = plan.plan_core;
+  const policyVersion = core.validation_policy_version ?? 1;
+  const baseFiles = validationResultFiles(policyVersion);
   const selection = JSON.parse(files['selection_result.json']);
   const fixture = selection.result_usage === 'TEST_FIXTURE_ONLY';
   const selected = fixture && selection.outcome === 'SELECTED';
-  const names = selected ? [...RESULT_FILES, ...SELECTED_FILES] : RESULT_FILES;
+  const names = selected ? [...baseFiles, ...SELECTED_FILES] : baseFiles;
   const contents = Object.fromEntries(names.map(name => {
     assert(typeof files[name] === 'string', 'RESULT_FILE_MISSING');
     return [name, { sha256: hash(files[name]), bytes: Buffer.byteLength(files[name]) }];
   }));
-  const resultFiles = RESULT_FILES.filter(name => name !== 'reports/summary.json');
+  const resultFiles = baseFiles.filter(name => name !== 'reports/summary.json');
   const evaluationResultsSha256 = hash(canonicalJson(resultFiles.map(name => [name, contents[name].sha256])));
   const summaryTemplateSha256 = contents['reports/summary.json'].sha256;
   const coverageByCandidate = readCsv(CSV_TABLES['candidate_validation_metrics.csv'],
@@ -36,7 +39,10 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
     control_source_coverage_rate: row.control_source_coverage_rate,
     candidate_control_coverage_rate: row.candidate_control_coverage_rate
   }));
-  const descriptor = { validation_schema_version: 1, validation_policy_version: 1,
+  const supportFields = policyVersion === 2 ? { gt_level_support: core.gt_level_support,
+    gt_level_support_sha256: core.gt_level_support_sha256, upstream_train_support: core.upstream_train_support } : {};
+  const descriptor = { validation_schema_version: 1, validation_policy_version: policyVersion,
+    ...supportFields,
     ...(legacy ? {} : { manifest_contract_revision: 2 }),
     validation_plan_id: planId, validation_plan_sha256: hash(files['validation_plan.json']),
     evaluation_results_sha256: evaluationResultsSha256,
@@ -45,7 +51,8 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
     ...(legacy ? {} : { coverage_by_candidate: coverageByCandidate }),
     files: contents };
   const digest = hash(canonicalJson(descriptor));
-  return { validation_schema_version: 1, validation_policy_version: 1,
+  return { validation_schema_version: 1, validation_policy_version: policyVersion,
+    ...supportFields,
     validation_id: `validation_v1_${digest.slice(0, 16)}`,
     descriptor, descriptor_sha256: digest, files: contents,
     validation_plan_id: planId, validation_plan_sha256: hash(files['validation_plan.json']),
@@ -76,6 +83,7 @@ export async function readPlan(directory) {
   const planBytes = await readSafe(path.join(directory, 'validation_plan.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   const plan = JSON.parse(planBytes.toString('utf8'));
+  auditSupportPlan(plan.plan_core);
   const id = planIdentity(plan.plan_core);
   assert(canonicalJson(manifest) === manifestBytes.toString('utf8') &&
     canonicalJson(plan) === planBytes.toString('utf8'), 'PLAN_NOT_CANONICAL');
@@ -97,12 +105,15 @@ export async function inspectPlan(directory) {
 export async function inspectValidation(directory) {
   const manifestBytes = await readSafe(path.join(directory, 'manifest.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  const policyVersion = manifest.validation_policy_version;
+  validationPolicy(policyVersion);
   assert(canonicalJson(manifest) === manifestBytes.toString('utf8'), 'MANIFEST_NOT_CANONICAL');
   const preliminarySelection = JSON.parse((await readSafe(path.join(directory,
     'selection_result.json'))).toString('utf8'));
   const includeSelected = preliminarySelection.result_usage === 'TEST_FIXTURE_ONLY' &&
     preliminarySelection.outcome === 'SELECTED';
-  const resultFiles = includeSelected ? [...RESULT_FILES, ...SELECTED_FILES] : RESULT_FILES;
+  const baseFiles = validationResultFiles(policyVersion);
+  const resultFiles = includeSelected ? [...baseFiles, ...SELECTED_FILES] : baseFiles;
   assert(canonicalJson((await inventory(directory)).sort(compare)) ===
     canonicalJson([...resultFiles, 'manifest.json'].sort(compare)), 'INVENTORY_MISMATCH');
   const files = {};
@@ -118,11 +129,13 @@ export async function inspectValidation(directory) {
     }
   }
   const plan = JSON.parse(files['validation_plan.json']);
+  assert((plan.plan_core.validation_policy_version ?? 1) === policyVersion, 'PLAN_RESULT_POLICY_MISMATCH');
+  auditSupportPlan(plan.plan_core);
   const identity = planIdentity(plan.plan_core);
   assert(canonicalJson(identity.payload) === canonicalJson(plan), 'PLAN_IDENTITY_MISMATCH');
   assert(canonicalJson(JSON.parse(files['schema.json'])) ===
-      canonicalJson(validationSchema({ includeSelected })) &&
-    canonicalJson(JSON.parse(files['policy.json'])) === canonicalJson(validationPolicy()),
+      canonicalJson(validationSchema({ includeSelected, policyVersion })) &&
+    canonicalJson(JSON.parse(files['policy.json'])) === canonicalJson(validationPolicy(policyVersion)),
   'SCHEMA_POLICY_MISMATCH');
   const legacy = manifest.descriptor?.manifest_contract_revision == null;
   assert(!legacy || manifest.validation_mode === 'DEVELOPMENT_VALIDATION',
@@ -131,6 +144,32 @@ export async function inspectValidation(directory) {
   assert(canonicalJson(expected) === canonicalJson(manifest), 'MANIFEST_IDENTITY_MISMATCH');
   const selection = JSON.parse(files['selection_result.json']);
   const summary = JSON.parse(files['reports/summary.json']);
+  if (policyVersion === 2) {
+    const doc = JSON.parse(files[SUPPORT_FILE]);
+    const support = inspectSupportDocument(doc, 'VALIDATION', 'VALIDATION_VALIDATION_FAILED',
+      plan.plan_core.gt_level_support_cohort);
+    for (const value of [selection, summary]) {
+      assert(canonicalJson(value.gt_level_support) === canonicalJson(support) &&
+        value.gt_level_support_sha256 === doc.gt_level_support_sha256 &&
+        canonicalJson(value.upstream_train_support) === canonicalJson(plan.plan_core.upstream_train_support),
+      'RESULT_SUPPORT_MISMATCH');
+    }
+    const samples = readCsv(CSV_TABLES['candidate_sample_predictions.csv'], files['candidate_sample_predictions.csv']);
+    const failures = readCsv(CSV_TABLES['replay_failures.csv'], files['replay_failures.csv']);
+    const rebuilt = supportDocument(doc.cohort, 'VALIDATION', plan.plan_core.candidates.map(item => ({
+      id: item.candidate_id, rows: samples.filter(row => row.candidate_id === item.candidate_id)
+        .map(row => ({ ...row, experiment_ordinal: row.candidate_ordinal })),
+      failures: failures.filter(row => row.candidate_id === null || row.candidate_id === item.candidate_id)
+    })));
+    assert(canonicalJson(rebuilt) === canonicalJson(doc) &&
+      canonicalJson(summary.rare_level_audit) === canonicalJson(doc.rare_level_audit), 'RARE_AUDIT_MISMATCH');
+    const members = new Map(doc.cohort.map(row => [row.snapshot_id, row]));
+    assert(samples.every(row => ['event_id', 'location_key', 'event_date_local', 'gt_ordinal', 'gt_confidence']
+      .every(key => members.get(row.snapshot_id)?.[key] === row[key])), 'SUPPORT_SAMPLE_GT_MISMATCH');
+    const warnings = readCsv(CSV_TABLES['reports/warnings.csv'], files['reports/warnings.csv']);
+    assert(support.warnings.every(code => warnings.some(row => row.warning_code === code && row.candidate_id === null)),
+      'RARE_WARNING_MISSING');
+  }
   assert(canonicalJson(JSON.parse(files['verified_source_identities.json'])) ===
     canonicalJson(plan.plan_core.source), 'SOURCE_IDENTITY_MISMATCH');
   const fixtureFormal = plan.plan_core.mode === 'FORMAL_VALIDATION' &&
@@ -169,7 +208,7 @@ function auditDerivedTables(files, plan, selection) {
   const failures = table('replay_failures.csv');
   const parity = table('replay_reference_parity.csv');
   const comparison = table('candidate_comparison.csv');
-  const policy = validationPolicy();
+  const policy = validationPolicy(plan.plan_core.validation_policy_version ?? 1);
   const expectedIds = plan.plan_core.candidates.map(item => item.candidate_id);
   const membersById = new Map(plan.plan_core.validation_members.map(row => [row.snapshot_id, row]));
   assert(membersById.size === plan.plan_core.validation_members.length &&

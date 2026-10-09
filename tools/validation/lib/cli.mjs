@@ -4,7 +4,7 @@ import { createProgress } from '../../progress.mjs';
 
 const SOURCE_FLAGS = ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'optimization'];
 const FLAGS = {
-  plan: [...SOURCE_FLAGS, 'mode', 'output', 'access-ledger', 'disclosure-evidence'],
+  plan: [...SOURCE_FLAGS, 'mode', 'output', 'access-ledger', 'disclosure-evidence', 'validation-policy-version'],
   run: [...SOURCE_FLAGS, 'plan', 'mode', 'output', 'access-ledger'],
   validate: [...SOURCE_FLAGS, 'access-ledger'],
   stats: []
@@ -32,6 +32,10 @@ export function parseArgs(args, command) {
     const name = flag.slice(2);
     if (name === 'access-ledger') options.accessLedger = path.resolve(value);
     else if (name === 'disclosure-evidence') options.disclosureEvidence = path.resolve(value);
+    else if (name === 'validation-policy-version') {
+      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      options.validationPolicyVersion = Number(value);
+    }
     else if (name === 'mode') options.mode = value;
     else options[name] = path.resolve(value);
   }

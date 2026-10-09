@@ -1,6 +1,36 @@
 # Phase 7 · V2.5.4 验证说明
 
-本实现严格区分两种运行模式。`development`（开发模式）允许在模型数据集（Model Dataset）的 `VALIDATION` 划分上，评估最多 5 个来自 Phase 6 的探索性 `TOP_SEARCH_POINT` 候选。所有输出均永久标记为 `DEVELOPMENT_ONLY`，不能用于选择生产候选，也不能授予正式晋级资格。`formal`（正式模式）采用前置条件不满足即拒绝运行的机制；只有真实上游的评估/敏感性分析 Policy 3、正式优化冻结（Optimization Freeze）、独立披露证据及运行时（Runtime）证明均已实现且可用，才允许执行。
+本实现严格区分两种运行模式。`development`（开发模式）允许在模型数据集（Model Dataset）的 `VALIDATION` 划分上，评估最多 5 个来自 Phase 6 的探索性 `TOP_SEARCH_POINT` 候选。所有输出均永久标记为 `DEVELOPMENT_ONLY`，不能用于选择生产候选，也不能授予正式晋级资格。`formal`（正式模式）采用前置条件不满足即拒绝运行的机制；只有具备真实正式语义及独立映射证据的新版上游、正式优化冻结（Optimization Freeze）、独立披露证据及运行时（Runtime）证明均已实现且可用，才允许执行。V2.5.4.1 的 Tuning Policy 3 仍是代理探索策略，不是正式能力证明。
+
+## V2.5.4.1：Validation Policy 2 开发链
+
+旧命令默认 Policy 1，新 Plan 显式选择 `--validation-policy-version 2`，只接受 Optimization Policy 2，适配器为 `OPTIMIZATION_V2_TO_VALIDATION_V2`。VALIDATION 仍要求 ≥30 Event、≥7 日期、城市 ≤50%、日期 ≤35%；至少 3 个等级各 ≥5 Event，非稀有已出现等级仍各 ≥5 Event。excellent 为 0 或 1–4 时只提示警告和单级结论限制，不阻断整体支持度；不减少 rare 样本或改变五级指标。
+
+沿用 Phase 5/6 README 的 PowerShell 变量（来源必须是本轮新链）：
+
+```powershell
+$ValidationSources = @($OptimizationSources) + @('--optimization', $Optimization)
+npm run validation:plan -- --validation-policy-version 2 --mode development --acknowledge-exposed-validation @ValidationSources
+```
+
+路径示例：`$Optimization = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\optimization\exports\optimization_v1_<model_hash>_<new_hash>'`，此包应声明 Policy 2。Plan 返回 `plan_dir`，如 `dataset\validation\plans\validation_plan_v1_<new_hash>`。
+
+```powershell
+$ValidationPlan = '<plan 返回的 plan_dir>'
+npm run validation:run -- --plan $ValidationPlan @ValidationSources
+```
+
+路径示例：`$ValidationPlan = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\validation\plans\validation_plan_v1_<new_hash>'`。run 自动继承 Plan 的策略，**不能再传 `--validation-policy-version`**，也不能替换六源。自定义 `--output` 时，plan/run 必须指向同一个 Validation 根目录以保留 Evidence 和访问账本。
+
+```powershell
+$Validation = '<run 返回的 directory>'
+npm run validation:validate -- $Validation @ValidationSources
+npm run validation:stats -- $Validation
+```
+
+路径示例：`$Validation = 'D:\Codex_Project\Sunsetscore_Project\SunsetScore-main\dataset\validation\exports\validation_v1_<new_hash>'`。validate/stats 自动分派。新包保存完整 VALIDATION 支持度 cohort 与 rare 审计，分别传播 TRAIN/VALIDATION 限制，支持度摘要及内容进入包身份；重新计算外层 Hash 不能跳过内部语义重算。
+
+不带参数的旧 Plan/结果仍按 Policy 1 检查所有已出现等级最小数量。已有包不改写，复用已查看的开发数据不会恢复盲验证资格。本版 `formal` 仍 BLOCKED；新包只能作为开发诊断。
 
 在 `SunsetScore-main` 目录下运行，并提供 6 个不可变的源数据包目录：
 
@@ -36,4 +66,4 @@ npm run validation:stats -- <validation-export-directory>
 
 新版结果清单会在顶层及描述对象中同时声明 `result_usage`。已有本地开发包即使缺少顶层字段，仍可按旧版清单格式读取，且不会被原地重写。
 
-`test/validation-fixture.cjs` 是仅供测试使用、在内存中构造正式流程数据的测试夹具。它可生成 `TEST_FIXTURE_ONLY` 数据包，用于覆盖已选出候选、结论不确定及无合格候选这三类结果。任何命令行入口都不能创建此类数据包；这些数据包不能通过 `MODEL_LINKED` / `SOURCE_LINKED` 校验，不能使候选晋级，也不能作为 Phase 8 的输入。真实的 `formal` 命令行调用仍会在前置条件不满足时拒绝运行，直到文档规定的 Policy 3、冻结、独立披露及运行时条件全部具备。
+`test/validation-fixture.cjs` 是仅供测试使用、在内存中构造正式流程数据的测试夹具。它可生成 `TEST_FIXTURE_ONLY` 数据包，用于覆盖已选出候选、结论不确定及无合格候选这三类结果。任何命令行入口都不能创建此类数据包；这些数据包不能通过 `MODEL_LINKED` / `SOURCE_LINKED` 校验，不能使候选晋级，也不能作为 Phase 8 的输入。真实的 `formal` 命令行调用仍会在前置条件不满足时拒绝运行，直到具备真实正式语义的独立新策略、冻结、披露及运行时条件全部满足；本版 Policy 3 不满足此条件。

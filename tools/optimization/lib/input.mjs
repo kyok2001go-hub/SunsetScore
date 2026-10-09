@@ -7,6 +7,8 @@ import { loadReplayCohort } from '../../tuning/lib/replay-cohort.mjs';
 import { runtimeDocument } from '../../tuning/lib/engine-runtime.mjs';
 import { inspectEvaluation } from '../../evaluation/validate-evaluation.mjs';
 import { inspectSensitivity } from '../../tuning/validate-sensitivity.mjs';
+import { tuningContract } from '../../tuning/v2/contract.mjs';
+import { supportDigest, gtLevelSupport } from '../../gt-level-support.mjs';
 
 /**
  * Phase 6 access boundary.
@@ -99,7 +101,7 @@ async function inspectForwardCompatiblePackage(directory, manifest, label) {
 
 async function inspectForwardCompatibleSensitivity(directory, manifest) {
   if (!Number.isInteger(manifest.tuning_schema_version) || manifest.tuning_schema_version < 2 ||
-      !Number.isInteger(manifest.tuning_policy_version) || manifest.tuning_policy_version < 3) {
+      !Number.isInteger(manifest.tuning_policy_version) || manifest.tuning_policy_version < 4) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_VERSION_UNSUPPORTED' });
   }
   return inspectForwardCompatiblePackage(directory, manifest, 'SENSITIVITY');
@@ -156,6 +158,17 @@ export async function loadSensitivityPackage(directory, options = {}) {
   const readiness = parseCanonical(await readSensitivityFile(directory, 'readiness.json'), 'readiness.json');
   const schema = parseCanonical(await readSensitivityFile(directory, 'schema.json'), 'schema.json');
   const sourcePolicy = parseCanonical(await readSensitivityFile(directory, 'policy.json'), 'policy.json');
+  if (manifest.tuning_policy_version === 3) {
+    const contract = tuningContract(3);
+    if (canonicalJson(schema) !== canonicalJson(contract.schema) ||
+        canonicalJson(sourcePolicy) !== canonicalJson(contract.policy) ||
+        manifest.result_usage !== 'EXPLORATORY_ONLY' || manifest.metric_readiness?.status !== 'PROVISIONAL_PROXY' ||
+        readiness.global_readiness !== 'EXPLORATORY' || manifest.mapping_status !== 'PROVISIONAL' ||
+        canonicalJson(readiness.gt_level_support) !== canonicalJson(manifest.gt_level_support) ||
+        supportDigest(manifest.gt_level_support) !== manifest.gt_level_support_sha256) {
+      fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_POLICY_3_CONTRACT' });
+    }
+  }
   if (schema.tuning_schema_version !== manifest.tuning_schema_version ||
       sourcePolicy.tuning_policy_version !== manifest.tuning_policy_version) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_VERSION_MISMATCH' });
@@ -216,7 +229,13 @@ export async function loadSensitivityPackage(directory, options = {}) {
         ? 'DEVELOPMENT_EXPOSED' : manifest.validation_disclosure_status,
       validation_disclosure_evidence_id: manifest.validation_disclosure_evidence_id ?? null,
       validation_disclosure_evidence_sha256: manifest.validation_disclosure_evidence_sha256 ?? null,
-      validation_access_ledger_sha256: manifest.validation_access_ledger_sha256 ?? null
+      validation_access_ledger_sha256: manifest.validation_access_ledger_sha256 ?? null,
+      ...(manifest.tuning_policy_version === 3 ? { upstream_train_support: {
+        sensitivity_id: manifest.sensitivity_id, gt_level_support: manifest.gt_level_support,
+        gt_level_support_sha256: manifest.gt_level_support_sha256,
+        limitation_codes: manifest.gt_level_support.limitation_codes,
+        conclusion_limitations: manifest.gt_level_support.conclusion_limitations
+      } } : {})
     },
     fingerprints: after
   };
@@ -263,7 +282,8 @@ export function cohortSummary(rows) {
  * frozen identities, and refuses to continue when the frozen Runtime no longer matches the
  * engine that would actually replay the candidates.
  */
-export async function loadOptimizationInput({ model, raw, gt, baseline, sensitivity, progress = silentProgress, root }) {
+export async function loadOptimizationInput({ model, raw, gt, baseline, sensitivity, progress = silentProgress, root,
+  optimizationPolicyVersion = 1 }) {
   progress.stage('Phase A：上游来源关联验收');
   const upstream = await verifyUpstreamSources(model, raw, gt, progress);
   const evaluationManifest = parseCanonical(await readSafe(path.join(baseline, 'manifest.json')), 'manifest.json');
@@ -274,7 +294,11 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
     await inspectForwardCompatibleEvaluation(baseline, evaluationManifest);
   }
   const sensitivityManifest = parseCanonical(await readSafe(path.join(sensitivity, 'manifest.json')), 'manifest.json');
-  if (sensitivityManifest.tuning_schema_version === 2 && sensitivityManifest.tuning_policy_version === 2) {
+  if (optimizationPolicyVersion === 2 ? sensitivityManifest.tuning_policy_version !== 3 :
+      sensitivityManifest.tuning_policy_version === 3) {
+    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
+  }
+  if (sensitivityManifest.tuning_schema_version === 2 && [2, 3].includes(sensitivityManifest.tuning_policy_version)) {
     await inspectSensitivity(sensitivity, { model, raw, gt, baseline, progress, root });
   } else {
     await inspectForwardCompatibleSensitivity(sensitivity, sensitivityManifest);
@@ -305,6 +329,10 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
   const modelDatasetId = header.manifest.model_dataset_id;
   const evaluationId = evaluation.evaluation_id;
   const linkage = sensitivityInput.linkage;
+  if (optimizationPolicyVersion === 2 && canonicalJson(gtLevelSupport(rows, 'TRAIN')) !==
+      canonicalJson(linkage.upstream_train_support.gt_level_support)) {
+    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UPSTREAM_TRAIN_SUPPORT_MISMATCH' });
+  }
   const checks = [
     ['MODEL_DATASET_MISMATCH', linkage.model_dataset_id === modelDatasetId],
     ['MODEL_MANIFEST_SHA_MISMATCH', linkage.model_dataset_manifest_sha256 === modelFingerprints['manifest.json']],
@@ -379,7 +407,10 @@ export function sourceIdentity(input) {
     validation_disclosure_status: input.sensitivity.linkage.validation_disclosure_status,
     validation_disclosure_evidence_id: input.sensitivity.linkage.validation_disclosure_evidence_id,
     validation_disclosure_evidence_sha256: input.sensitivity.linkage.validation_disclosure_evidence_sha256,
-    validation_access_ledger_sha256: input.sensitivity.linkage.validation_access_ledger_sha256
+    validation_access_ledger_sha256: input.sensitivity.linkage.validation_access_ledger_sha256,
+    ...(input.sensitivity.linkage.upstream_train_support ? {
+      upstream_train_support: input.sensitivity.linkage.upstream_train_support
+    } : {})
   };
 }
 

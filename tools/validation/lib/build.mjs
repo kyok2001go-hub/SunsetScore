@@ -4,8 +4,9 @@ import { pairMetrics, dateRobustness, sliceAnalysis, noSkillMae } from '../../op
 import { prepareCandidateRun, evaluateCandidateDetailed } from '../../tuning/lib/candidate.mjs';
 import { verifyReplayParity } from '../../tuning/lib/replay-cohort.mjs';
 import { runReplay as defaultRunReplay } from '../../replay/replay-runner.mjs';
-import { CSV_TABLES, RESULT_FILES, validationSchema } from '../validation-schema.mjs';
-import { validationPolicy, validationSupport } from '../validation-policy.mjs';
+import { CSV_TABLES, validationSchema, validationResultFiles } from '../validation-schema.mjs';
+import { validationPolicy, validationSupport, auditSupportPlan } from '../validation-policy.mjs';
+import { SUPPORT_FILE, supportDocument, supportCohort } from '../../gt-level-support.mjs';
 import { dateBlockBootstrap } from './stability.mjs';
 import { classifyCandidate, rankEligible, selectOutcome } from './selection.mjs';
 import { planIdentity } from '../plan-validation.mjs';
@@ -46,6 +47,8 @@ function bootstrapRow(candidateId, result, seed) {
 export async function buildValidationResult({ plan, input, audited, runReplay = defaultRunReplay,
   progress, testFixtureFormal = false }) {
   const core = plan.plan_core;
+  auditSupportPlan(core);
+  const policyVersion = core.validation_policy_version ?? 1;
   const planIdentityResult = planIdentity(core);
   if (canonicalJson(planIdentityResult.payload) !== canonicalJson({
     plan_core: plan.plan_core, plan_core_sha256: plan.plan_core_sha256,
@@ -57,10 +60,15 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
       core.status !== 'READY_DEVELOPMENT' || testFixtureFormal)) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'PLAN_NOT_RUNNABLE' });
   }
-  const policy = validationPolicy();
+  const policy = validationPolicy(policyVersion);
   const replay = scoreGuard(runReplay);
   const cohort = input.cohort;
-  if (fixtureFormal && validationSupport(cohort).status !== 'READY') {
+  if (policyVersion === 2 && (canonicalJson(supportCohort(cohort)) !== canonicalJson(core.gt_level_support_cohort) ||
+      canonicalJson(validationSupport(cohort, policyVersion)) !== canonicalJson(core.support) ||
+      (audited && canonicalJson(audited.manifest.upstream_train_support) !== canonicalJson(core.upstream_train_support)))) {
+    fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'FROZEN_SUPPORT_CHANGED' });
+  }
+  if (fixtureFormal && validationSupport(cohort, policyVersion).status !== 'READY') {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'VALIDATION_SUPPORT_INSUFFICIENT' });
   }
   const parity = await verifyReplayParity({ cohort, runReplay: replay, progress, split: 'VALIDATION' });
@@ -209,19 +217,33 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
   const outcome = selectOutcome(records, core.mode);
   const resultUsage = fixtureFormal ? 'TEST_FIXTURE_ONLY' : 'DEVELOPMENT_ONLY';
   const includeSelected = fixtureFormal && outcome.outcome === 'SELECTED';
-  const selection = { validation_schema_version: 1, validation_policy_version: 1,
+  const supportDoc = policyVersion === 2 ? supportDocument(cohort, 'VALIDATION', input.candidates.map(item => ({
+    id: item.candidate_id, rows: tables['candidate_sample_predictions.csv'].filter(row => row.candidate_id === item.candidate_id)
+      .map(row => ({ ...row, experiment_ordinal: row.candidate_ordinal })),
+    failures: tables['replay_failures.csv'].filter(row => row.candidate_id === null || row.candidate_id === item.candidate_id)
+  }))) : null;
+  const supportFields = supportDoc ? { gt_level_support: supportDoc.gt_level_support,
+    gt_level_support_sha256: supportDoc.gt_level_support_sha256,
+    upstream_train_support: core.upstream_train_support } : {};
+  for (const code of supportDoc?.gt_level_support.warnings || []) {
+    tables['reports/warnings.csv'].push({ warning_code: code, candidate_id: null });
+  }
+  const selection = { validation_schema_version: 1, validation_policy_version: policyVersion,
+    ...supportFields,
     mode: core.mode, outcome: outcome.outcome, selected_candidate_id: outcome.selected_candidate_id,
     result_usage: resultUsage, formal_promotion_allowed: false,
     test_fixture_only: fixtureFormal,
     reference_parity: parity.summary, control_failure_count: prepared.controlFailures.length,
     candidates: records };
   const summary = { mode: core.mode, status: resultUsage,
+    ...supportFields,
+    ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     plan_id: planIdentityResult.planId, cohort_sample_count: cohort.length,
     candidate_count: records.length, reference_parity_fail_count: parity.summary.fail_count,
     selection_outcome: outcome.outcome, selected_candidate_id: outcome.selected_candidate_id,
     evaluated_splits: ['VALIDATION'], test_evaluated: false };
   const files = {
-    'schema.json': canonicalJson(validationSchema({ includeSelected })),
+    'schema.json': canonicalJson(validationSchema({ includeSelected, policyVersion })),
     'policy.json': canonicalJson(policy),
     'validation_plan.json': canonicalJson(planIdentityResult.payload),
     'verified_source_identities.json': canonicalJson(core.source),
@@ -234,6 +256,7 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
     'selection_result.json': canonicalJson(selection),
     'reports/summary.json': canonicalJson(summary)
   };
+  if (supportDoc) files[SUPPORT_FILE] = canonicalJson(supportDoc);
   for (const [name, fields] of Object.entries(CSV_TABLES)) {
     try { files[name] = writeCsv(fields, tables[name]); }
     catch (error) { error.table = name; throw error; }
@@ -242,7 +265,7 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
     const selectedIndex = input.candidates.findIndex(item => item.candidate_id === outcome.selected_candidate_id);
     const candidate = input.candidates[selectedIndex];
     const config = detailed[selectedIndex].config;
-    const evaluationResultsSha256 = hash(canonicalJson(RESULT_FILES
+    const evaluationResultsSha256 = hash(canonicalJson(validationResultFiles(policyVersion)
       .filter(name => name !== 'reports/summary.json')
       .map(name => [name, hash(files[name])])));
     files['selected_candidate.json'] = canonicalJson({
@@ -256,6 +279,7 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
       source_validation_selection_rule_sha256: core.source_validation_selection_rule_sha256 ?? null,
       effective_selection_policy_sha256: core.effective_selection_policy_sha256 ?? null,
       selection_evidence_sha256: evaluationResultsSha256,
+      ...supportFields,
       eligible_for_phase8: false, test_fixture_only: true
     });
     files['selected_effective_config.json'] = canonicalJson(config);

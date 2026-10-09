@@ -58,13 +58,13 @@ export const PHASES = Object.freeze([
   Object.freeze({
     phase: 5, key: 'sensitivity', label: 'Phase 5 Parameter Sensitivity', relativeRoot: 'tuning/exports',
     idField: 'sensitivity_id', schemaField: 'tuning_schema_version', policyField: 'tuning_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [2, 2]])
+    supportedVersions: Object.freeze([[1, 1], [2, 2], [2, 3]])
   }),
   Object.freeze({
     phase: 6, key: 'optimization', label: 'Phase 6 Parameter Optimization', relativeRoot: 'optimization/exports',
     idField: 'optimization_id', schemaField: 'optimization_schema_version',
     policyField: 'optimization_policy_version',
-    supportedVersions: Object.freeze([[1, 1]])
+    supportedVersions: Object.freeze([[1, 1], [1, 2]])
   }),
   Object.freeze({
     phase: 7, key: 'validation_evidence', label: 'Phase 7 Disclosure Evidence',
@@ -82,7 +82,7 @@ export const PHASES = Object.freeze([
     phase: 9, key: 'validation', label: 'Phase 7 Validation Result',
     relativeRoot: 'validation/exports', idField: 'validation_id',
     schemaField: 'validation_schema_version', policyField: 'validation_policy_version',
-    supportedVersions: Object.freeze([[1, 1]])
+    supportedVersions: Object.freeze([[1, 1], [1, 2]])
   })
 ]);
 

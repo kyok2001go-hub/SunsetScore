@@ -80,7 +80,17 @@ export const SELECTED_FILES = Object.freeze([
   'selected_candidate.json', 'selected_effective_config.json'
 ]);
 
-export function validationSchema({ includeSelected = false } = {}) {
+export function validationResultFiles(version = 1) {
+  return version === 2 ? [...RESULT_FILES, 'gt_level_support.json'] : RESULT_FILES;
+}
+
+export function validationSchema({ includeSelected = false, policyVersion = 1 } = {}) {
+  if (policyVersion === 2) return { validation_schema_version: 1, validation_policy_version: 2,
+    tables: CSV_TABLES, json_files: [...CORE_JSON_FILES, 'gt_level_support.json', ...(includeSelected ? SELECTED_FILES : [])],
+    result_files: [...validationResultFiles(2), ...(includeSelected ? SELECTED_FILES : [])],
+    required_diagnostics: { plan: ['gt_level_support', 'gt_level_support_sha256', 'gt_level_support_cohort', 'upstream_train_support'],
+      summary: ['gt_level_support', 'gt_level_support_sha256', 'upstream_train_support', 'rare_level_audit'],
+      support: ['cohort', 'cohort_sha256', 'gt_level_support', 'gt_level_support_sha256', 'rare_level_audit'] } };
   return { validation_schema_version: 1, tables: CSV_TABLES,
     json_files: includeSelected ? [...CORE_JSON_FILES, ...SELECTED_FILES] : CORE_JSON_FILES,
     result_files: includeSelected ? [...RESULT_FILES, ...SELECTED_FILES] : RESULT_FILES };

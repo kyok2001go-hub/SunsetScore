@@ -7,13 +7,13 @@ import { captureWhitelistFingerprints, verifyUpstreamSources, loadEvaluationLink
 import { inspectSensitivity } from './validate-sensitivity.mjs';
 import { buildSensitivityPackageV2 } from './v2/build.mjs';
 import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
-import { FILES_V2 } from './v2/contract.mjs';
+import { tuningContract } from './v2/contract.mjs';
 import { withBuildLease } from '../maintenance/lib/lease.mjs';
 import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 import { APP_ROOT } from './lib/engine-runtime.mjs';
 
 async function runSensitivityBuild(options) {
-  const v2 = options.tuningVersion === 2;
+  const v2 = [2, 3].includes(options.tuningVersion);
   const built = v2 ? await buildSensitivityPackageV2(options) : await buildSensitivityPackage(options);
   const before = await captureWhitelistFingerprints(options.model);
   const published = await publishPackage({
@@ -21,7 +21,7 @@ async function runSensitivityBuild(options) {
     roots: [options.model, options.raw, options.gt, options.baseline, options.validationEvidence].filter(Boolean),
     files: built.files,
     manifest: built.manifest,
-    exportFiles: v2 ? FILES_V2 : undefined,
+    exportFiles: v2 ? tuningContract(options.tuningVersion).files : undefined,
     progress: options.progress,
     validateStaging: async staging => { await inspectSensitivity(staging, { staging: true }); },
     sourceCheck: async () => {

@@ -4,7 +4,8 @@ import { canonicalJson, safePath, fail, runId, removeOwned, errorCode } from '..
 import { silentProgress } from '../../progress.mjs';
 import { APP_ROOT } from '../../tuning/lib/engine-runtime.mjs';
 import { outside } from '../../tuning/lib/input.mjs';
-import { FILES, FREEZE_FILE, MANIFEST_FILE } from '../optimization-schema.mjs';
+import { FREEZE_FILE, MANIFEST_FILE } from '../optimization-schema.mjs';
+import { optimizationPolicy } from '../optimization-policy.mjs';
 
 /**
  * Same governance as the Sensitivity publisher: staging, internal validation, an exclusive
@@ -44,7 +45,8 @@ export async function publishOptimizationPackage({ output, roots, files, manifes
   const outputRoot = await outside(output || defaultOutputRoot(), roots);
   const staging = await outside(path.join(outputRoot, 'staging', runId()), roots);
   await mkdir(path.join(staging, 'reports'), { recursive: true });
-  const exported = [...FILES, ...(manifest.candidate_freeze_allowed ? [FREEZE_FILE] : [])];
+  const exported = [...optimizationPolicy(manifest.optimization_policy_version).package.export_files,
+    ...(manifest.candidate_freeze_allowed ? [FREEZE_FILE] : [])];
 
   try {
     progress.stage('写入 staging Optimization 文件');

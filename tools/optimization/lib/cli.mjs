@@ -5,8 +5,8 @@ import { createProgress } from '../../progress.mjs';
 import { outside } from '../../tuning/lib/input.mjs';
 
 const FLAGS = {
-  plan: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir'],
-  run: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir'],
+  plan: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version'],
+  run: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version'],
   validate: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'report-dir'],
   stats: ['report-dir']
 };
@@ -42,11 +42,17 @@ export function parseArgs(args, mode) {
     index++;
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
+    else if (key === 'optimization-policy-version') {
+      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      result.optimizationPolicyVersion = Number(value);
+    }
     else if (PATH_FLAGS.has(key)) result[key] = path.resolve(value);
     else fail('INVALID_ARGUMENTS');
   }
   const required = REQUIRED[mode];
   if (required && required.some(key => !result[key])) fail('INVALID_ARGUMENTS');
+  const sources = ['model', 'raw', 'gt', 'baseline', 'sensitivity'];
+  if (mode === 'validate' && sources.some(key => result[key]) && !sources.every(key => result[key])) fail('INVALID_ARGUMENTS');
   return result;
 }
 

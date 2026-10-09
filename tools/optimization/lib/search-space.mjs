@@ -54,8 +54,8 @@ function refinementStepFor(unit, coarseValues) {
  * comes from the frozen Registry plus the Sensitivity readiness report, never from a live
  * repository constant. Any change here changes `optimization_input_id`.
  */
-export function buildSearchSpace({ mode, registry, readiness, baseConfig, linkage }) {
-  const policy = optimizationPolicy();
+export function buildSearchSpace({ mode, registry, readiness, baseConfig, linkage, policyVersion = 1 }) {
+  const policy = optimizationPolicy(policyVersion);
   const declared = policy.search_space.declared_units;
   if (hash(canonicalJson(registry)) !== linkage.parameter_registry_sha256) {
     reject('PARAMETER_REGISTRY_SHA_MISMATCH');

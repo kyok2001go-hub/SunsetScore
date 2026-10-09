@@ -28,8 +28,8 @@ export function csvFor(file, rows) {
   return writeCsv(CSV_TABLES[file], rows);
 }
 
-export function descriptorOf({ source, metadata, searchSpace, searchSpaceSha256, mode, counts }) {
-  const policy = optimizationPolicy();
+export function descriptorOf({ source, metadata, searchSpace, searchSpaceSha256, mode, counts, policyVersion = 1 }) {
+  const policy = optimizationPolicy(policyVersion);
   return {
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
@@ -38,7 +38,7 @@ export function descriptorOf({ source, metadata, searchSpace, searchSpaceSha256,
     search_space_sha256: searchSpaceSha256,
     candidate_normalization_version: searchSpace.candidate_normalization_version,
     numeric: { ...policy.numeric },
-    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument())),
+    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument(policyVersion))),
     algorithm: { ...policy.algorithm },
     selection: {
       mode,

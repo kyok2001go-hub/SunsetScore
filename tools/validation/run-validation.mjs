@@ -32,7 +32,8 @@ async function run(options) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'FORMAL_UPSTREAM_NOT_READY' });
   }
   const audited = await auditSources(options, options);
-  const input = await readValidationInput(options, audited, { mode: core.mode, progress: options.progress, loadReplay: true });
+  const input = await readValidationInput(options, audited, { mode: core.mode, progress: options.progress,
+    loadReplay: true, validationPolicyVersion: core.validation_policy_version });
   if (canonicalJson(sourceIdentity(audited)) !== canonicalJson(core.source) ||
       hash(canonicalJson(audited.sourceFingerprints)) !== core.source_fingerprints_sha256 ||
       input.validationCsvSha256 !== core.validation_csv_sha256 ||
@@ -82,6 +83,7 @@ async function run(options) {
 }
 
 export async function runValidation(options) {
+  if (options.validationPolicyVersion !== undefined) fail('INVALID_ARGUMENTS');
   return withValidationLeases('validation', options,
     options.output || path.resolve('dataset/validation'), () => run(options));
 }

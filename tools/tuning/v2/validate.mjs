@@ -8,7 +8,10 @@ import { sliceAggregate } from '../lib/metrics.mjs';
 import { leaveOneDateOut } from '../lib/stability.mjs';
 import { SLICE_DIMENSIONS, FIXED_SLICE_ENUMS, SLICE_DELTA_FIELDS } from '../tuning-schema.mjs';
 import { pairedDiagnostics, buildSensitivityPackageV2, alignmentSummary } from './build.mjs';
-import { POLICY_V2, SCHEMA_V2, CSV_TABLES_V2, FILES_V2 } from './contract.mjs';
+import { CSV_TABLES_V2, tuningContract } from './contract.mjs';
+import { SUPPORT_FILE, inspectSupportDocument, supportDocument } from '../../gt-level-support.mjs';
+import { cohortProfiles } from '../lib/metrics.mjs';
+import { computeGlobalReadiness } from '../lib/readiness.mjs';
 import { inspectBaselineLinkage } from './baseline-linkage.mjs';
 
 const check = (ok, reason_code) => { if (!ok) fail('TUNING_VALIDATION_FAILED', { reason_code }); };
@@ -23,7 +26,9 @@ const json = bytes => {
 
 export async function inspectSensitivityV2(directory, options = {}) {
   const manifest = json(await readSafe(path.join(directory, 'manifest.json')));
-  check(manifest.tuning_schema_version === 2 && manifest.tuning_policy_version === 2, 'VERSION_MISMATCH');
+  check(manifest.tuning_schema_version === 2 && [2, 3].includes(manifest.tuning_policy_version), 'VERSION_MISMATCH');
+  const version = manifest.tuning_policy_version;
+  const { policy: POLICY_V2, schema: SCHEMA_V2, files: FILES_V2 } = tuningContract(version);
   if (!options.staging) check(path.basename(path.resolve(directory)) === manifest.sensitivity_id, 'DIRECTORY_ID_MISMATCH');
   equal((await inventory(directory)).sort(compare), [...FILES_V2, 'manifest.json'].sort(compare), 'INVENTORY_MISMATCH');
   equal(Object.keys(manifest.files).sort(compare), FILES_V2, 'MANIFEST_FILES_MISMATCH');
@@ -69,7 +74,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
   check(manifest.engineering_readiness.status === 'READY' &&
     manifest.metric_readiness.status === 'PROVISIONAL_PROXY', 'READINESS_CONTRACT');
   const descriptor = manifest.descriptor;
-  check(descriptor?.tuning_schema_version === 2 && descriptor?.tuning_policy_version === 2, 'DESCRIPTOR_VERSION');
+  check(descriptor?.tuning_schema_version === 2 && descriptor?.tuning_policy_version === version, 'DESCRIPTOR_VERSION');
   const source = descriptor.source;
   for (const key of ['model_dataset_id', 'model_dataset_manifest_sha256', 'model_dataset_descriptor_sha256',
     'evaluation_id', 'evaluation_manifest_sha256', 'evaluation_schema_version',
@@ -88,6 +93,32 @@ export async function inspectSensitivityV2(directory, options = {}) {
     summary.sensitivity_id === manifest.sensitivity_id, 'DESCRIPTOR_ID_MISMATCH');
 
   const alignment = csv['control_alignment.csv'];
+  let supportDoc;
+  if (version === 3) {
+    supportDoc = json(loaded[SUPPORT_FILE]);
+    const support = inspectSupportDocument(supportDoc, 'TRAIN', 'TUNING_VALIDATION_FAILED');
+    for (const value of [manifest, descriptor, readiness, summary]) {
+      equal(value.gt_level_support, support, 'GT_LEVEL_SUPPORT_MISMATCH');
+      equal(value.gt_level_support_sha256, supportDoc.gt_level_support_sha256, 'GT_LEVEL_SUPPORT_SHA_MISMATCH');
+    }
+    equal(summary.rare_level_audit, supportDoc.rare_level_audit, 'RARE_AUDIT_MISMATCH');
+    equal(supportDoc.cohort.map(row => [row.snapshot_id, row.event_id]),
+      alignment.map(row => [row.snapshot_id, row.event_id]).sort((a, b) => compare(a[0], b[0])), 'SUPPORT_COHORT_MISMATCH');
+    const parity = csv['replay_parity.csv'];
+    const replayRate = parity.length ? parity.filter(row => row.pass).length / parity.length : 0;
+    const recomputed = computeGlobalReadiness({ rows: supportDoc.cohort,
+      profiles: cohortProfiles(supportDoc.cohort), supportPolicyVersion: 3,
+      replaySummary: { replay_usable_rate: replayRate,
+        pass_count: parity.filter(row => row.pass).length, fail_count: parity.filter(row => !row.pass).length },
+      integrity: { checks: [] } });
+    equal(readiness.metrics, recomputed.metrics, 'READINESS_METRICS_MISMATCH');
+    check(parity.every(row => row.pass), 'REPLAY_PARITY_FAILED');
+    equal(supportDoc.cohort.map(row => [row.snapshot_id, row.event_id]),
+      parity.map(row => [row.snapshot_id, row.event_id]).sort((a, b) => compare(a[0], b[0])), 'SUPPORT_PARITY_COHORT_MISMATCH');
+    equal(readiness.data_readiness, { status: recomputed.reasons.length ? 'INSUFFICIENT' : 'READY',
+      reasons: recomputed.reasons }, 'DATA_READINESS_MISMATCH');
+    for (const warning of support.warnings) check(readiness.warnings.includes(warning), 'RARE_WARNING_MISSING');
+  }
   check(alignment.length === manifest.sample_count, 'CONTROL_ALIGNMENT_COUNT');
   equal(summary.control_alignment, alignmentSummary(alignment), 'CONTROL_ALIGNMENT_SUMMARY');
   const alignmentIds = new Set();
@@ -104,6 +135,18 @@ export async function inspectSensitivityV2(directory, options = {}) {
   }
   const plan = csv['experiment_plan.csv'];
   const metrics = csv['experiment_metrics.csv'];
+  if (supportDoc) {
+    equal(supportDoc, supportDocument(supportDoc.cohort, 'TRAIN', metrics.map(metric => ({
+      id: metric.experiment_id, rows: csv['sample_deltas.csv'].filter(row => row.experiment_id === metric.experiment_id),
+      failures: csv['experiment_failures.csv'].filter(row => row.stage === 'CONTROL' || row.experiment_id === metric.experiment_id)
+    }))), 'RARE_AUDIT_MISMATCH');
+    const members = new Map(supportDoc.cohort.map(row => [row.snapshot_id, row]));
+    for (const row of csv['sample_deltas.csv']) {
+      const member = members.get(row.snapshot_id);
+      check(member && ['event_id', 'location_key', 'event_date_local', 'gt_ordinal', 'gt_confidence']
+        .every(key => member[key] === row[key]), 'SUPPORT_SAMPLE_GT_MISMATCH');
+    }
+  }
   check(plan.length === manifest.experiment_count && metrics.length === plan.length, 'EXPERIMENT_COUNT');
   equal(plan.map(row => row.experiment_id).sort(compare), metrics.map(row => row.experiment_id).sort(compare), 'EXPERIMENT_IDS');
   const metricById = new Map(metrics.map(row => [row.experiment_id, row]));
@@ -195,6 +238,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
 
   if (options.model) {
     const input = await loadTuningInput(options.model);
+    if (supportDoc) inspectSupportDocument(supportDoc, 'TRAIN', 'TUNING_VALIDATION_FAILED', input.rows);
     check(input.linkage.model_dataset_id === manifest.model_dataset_id &&
       input.manifestSha256 === manifest.model_dataset_manifest_sha256 &&
       input.linkage.model_dataset_descriptor_sha256 === manifest.model_dataset_descriptor_sha256,
@@ -213,7 +257,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
     await verifyUpstreamSources(options.model, options.raw, options.gt);
     const linkage = await inspectBaselineLinkage(options);
     for (const key of Object.keys(linkage)) equal(manifest[key], linkage[key], 'EVALUATION_LINKAGE_MISMATCH');
-    const rebuilt = await buildSensitivityPackageV2(options);
+    const rebuilt = await buildSensitivityPackageV2({ ...options, tuningVersion: version });
     for (const file of FILES_V2) check(loaded[file].equals(Buffer.from(rebuilt.files[file])), 'RECOMPUTED_FILE_MISMATCH');
     equal(manifest, rebuilt.manifest, 'RECOMPUTED_MANIFEST_MISMATCH');
   }

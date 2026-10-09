@@ -17,11 +17,11 @@
 | Phase 2 Ground Truth | `dataset/ground_truth/exports/` | `ground_truth_id` | schema 1/2 + policy 1，schema 3 + policy 2 |
 | Phase 3 Model Dataset | `dataset/model/exports/` | `model_dataset_id` | schema 1 + policy 1，schema 2 + policy 2/3 |
 | Phase 4 Baseline Evaluation | `dataset/evaluation/exports/` | `evaluation_id` | schema 1 + policy 1，schema 2 + policy 2 |
-| Phase 5 Parameter Sensitivity | `dataset/tuning/exports/` | `sensitivity_id` | schema 1 + policy 1，schema 2 + policy 2 |
-| Phase 6 Parameter Optimization | `dataset/optimization/exports/` | `optimization_id` | schema 1 + policy 1 |
+| Phase 5 Parameter Sensitivity | `dataset/tuning/exports/` | `sensitivity_id` | schema 1 + policy 1，schema 2 + policy 2/3 |
+| Phase 6 Parameter Optimization | `dataset/optimization/exports/` | `optimization_id` | schema 1 + policy 1/2 |
 | Phase 7 Disclosure Evidence | `dataset/validation/evidence/exports/` | `evidence_id` | schema 1 |
 | Phase 7 Validation Plan | `dataset/validation/plans/` | `validation_plan_id` | schema 1 |
-| Phase 7 Validation Result | `dataset/validation/exports/` | `validation_id` | schema 1 + policy 1 |
+| Phase 7 Validation Result | `dataset/validation/exports/` | `validation_id` | schema 1 + policy 1/2 |
 
 `dataset/staging/`、各阶段 `staging/`、`ground_truth/rechecks/`、`cache/`、`phase0-production/` 不是正式发布包，永远不会进入检测节点或清理列表；它们只能通过诊断码出现。Raw 包自身的 `replay/` 目录属于该 Raw 包。
 

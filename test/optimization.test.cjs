@@ -276,8 +276,14 @@ test('FORMAL readiness requires a newer Tuning policy, never a rewritten V2 mani
   });
   assert.equal(rewrittenV2.optimization_mode, 'EXPLORATORY_SEARCH');
   assert.ok(rewrittenV2.reasons.includes('SENSITIVITY_POLICY_NOT_FORMAL_CAPABLE'));
-  const futurePolicy = m.computeOptimizationReadiness({
+  const rewrittenV3 = m.computeOptimizationReadiness({
     profile, replayUsableRate: 1, sensitivityLinkage: { ...linkage, tuning_policy_version: 3 }
+  });
+  assert.equal(rewrittenV3.optimization_mode, 'EXPLORATORY_SEARCH');
+  assert.ok(rewrittenV3.reasons.includes('SENSITIVITY_POLICY_NOT_FORMAL_CAPABLE'));
+  // Hypothetical separately versioned formal semantics; no CLI/package reader is unlocked here.
+  const futurePolicy = m.computeOptimizationReadiness({
+    profile, replayUsableRate: 1, sensitivityLinkage: { ...linkage, tuning_policy_version: 4 }
   });
   assert.equal(futurePolicy.optimization_mode, 'FORMAL_OPTIMIZATION');
 });
@@ -469,7 +475,7 @@ test('FORMAL fixture builds a descriptor-bound Freeze and passes package validat
     };
   });
   const linkage = {
-    sensitivity_id: 'sensitivity_v3_formal_fixture', tuning_schema_version: 2, tuning_policy_version: 3,
+    sensitivity_id: 'sensitivity_v4_formal_fixture', tuning_schema_version: 2, tuning_policy_version: 4,
     sensitivity_manifest_sha256: h('1'), sensitivity_descriptor_sha256: h('2'),
     parameter_registry_version: 1, parameter_registry_sha256: digest(registry),
     tuning_base_config_sha256: digest(config), engine_runtime_sha256: h('3'),

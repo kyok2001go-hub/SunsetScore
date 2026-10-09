@@ -9,7 +9,8 @@ import { leaveOneDateOut } from '../lib/stability.mjs';
 import { parameterSummaryRows, buildWarnings } from '../lib/report.mjs';
 import { CSV_TABLES, SLICE_DIMENSIONS, FIXED_SLICE_ENUMS, WARNING_FIELDS } from '../tuning-schema.mjs';
 import { inspectBaselineLinkage } from './baseline-linkage.mjs';
-import { POLICY_V2, SCHEMA_V2, CSV_TABLES_V2, FILES_V2 } from './contract.mjs';
+import { CSV_TABLES_V2, tuningContract } from './contract.mjs';
+import { SUPPORT_FILE, supportDocument } from '../../gt-level-support.mjs';
 
 const check = (condition, reason_code) => { if (!condition) fail('TUNING_VALIDATION_FAILED', { reason_code }); };
 const parse = content => JSON.parse(content);
@@ -166,6 +167,8 @@ function addPairedMetrics(files, ctx, referenceOrdinal) {
 }
 
 export async function buildSensitivityPackageV2(options) {
+  const version = options.tuningVersion === 3 ? 3 : 2;
+  const contract = tuningContract(version);
   const linkage = await inspectBaselineLinkage(options);
   const built = await buildSensitivityPackage(options);
   check(linkage.evaluation_id === built.ctx.source.evaluation_id &&
@@ -194,7 +197,21 @@ export async function buildSensitivityPackageV2(options) {
     };
   });
   files['control_alignment.csv'] = writeCsv(CSV_TABLES_V2['control_alignment.csv'], alignment);
-  const dataReasons = ctx.readiness.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
+  const dataReasons = version === 3 ? ctx.readiness.reasons :
+    ctx.readiness.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
+  const auditRowsByExperiment = new Map();
+  if (version === 3) for (const row of readCsv(CSV_TABLES_V2['sample_deltas.csv'], files['sample_deltas.csv'])) {
+    if (!auditRowsByExperiment.has(row.experiment_id)) auditRowsByExperiment.set(row.experiment_id, []);
+    auditRowsByExperiment.get(row.experiment_id).push(row);
+  }
+  const auditFailures = version === 3 ? readCsv(CSV_TABLES_V2['experiment_failures.csv'], files['experiment_failures.csv']) : [];
+  const supportDoc = version === 3 ? supportDocument(ctx.input.rows, 'TRAIN', paired.metrics.map(metric => ({
+    id: metric.experiment_id, rows: auditRowsByExperiment.get(metric.experiment_id) || [],
+    failures: auditFailures.filter(row => row.stage === 'CONTROL' || row.experiment_id === metric.experiment_id)
+  }))) : null;
+  const supportFields = supportDoc ? { gt_level_support: supportDoc.gt_level_support,
+    gt_level_support_sha256: supportDoc.gt_level_support_sha256 } : {};
+  if (supportDoc) files[SUPPORT_FILE] = canonicalJson(supportDoc);
   const engineering = { status: 'READY', reasons: [] };
   const data = { status: dataReasons.length ? 'INSUFFICIENT' : 'READY', reasons: dataReasons };
   const metric = { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] };
@@ -204,7 +221,7 @@ export async function buildSensitivityPackageV2(options) {
   if (belowNoSkill) globalReasons.push('MODEL_BELOW_NO_SKILL_REFERENCE');
   const warningRows = buildWarnings({ ctx, parameterSummary: paired.parameterSummary,
     ablationMetrics: paired.ablations });
-  for (const code of globalReasons) warningRows.push({
+  for (const code of [...globalReasons, ...(supportDoc?.gt_level_support.warnings || [])]) warningRows.push({
     warning_code: code, scope: 'readiness', parameter_id: null, experiment_id: null,
     slice_dimension: null, slice_value: null, slice_value_is_null: null
   });
@@ -214,6 +231,7 @@ export async function buildSensitivityPackageV2(options) {
   for (const row of warningRows) warningCounts[row.warning_code] = (warningCounts[row.warning_code] || 0) + 1;
   const readiness = {
     ...parse(files['readiness.json']),
+    ...supportFields,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
     global_readiness: 'EXPLORATORY', reasons: [...new Set(globalReasons)].sort(compare),
     evaluation_linkage: linkage, metric_usage: 'PROXY_EXPLORATORY',
@@ -229,6 +247,8 @@ export async function buildSensitivityPackageV2(options) {
   files['readiness.json'] = canonicalJson(readiness);
   const summary = {
     ...parse(files['reports/summary.json']),
+    ...supportFields,
+    ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     sensitivity_id: null,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
     global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
@@ -251,11 +271,11 @@ export async function buildSensitivityPackageV2(options) {
     }))
   };
   files['reports/summary.json'] = canonicalJson(summary);
-  files['schema.json'] = canonicalJson(SCHEMA_V2);
-  files['policy.json'] = canonicalJson(POLICY_V2);
+  files['schema.json'] = canonicalJson(contract.schema);
+  files['policy.json'] = canonicalJson(contract.policy);
   const metadataOf = value => {
     const result = {};
-    for (const file of FILES_V2) {
+    for (const file of contract.files) {
       const bytes = Buffer.from(value[file]);
       result[file] = { sha256: hash(bytes), bytes: bytes.length };
       if (CSV_TABLES_V2[file]) result[file].rows = value[file].split('\r\n').length - 2;
@@ -264,10 +284,11 @@ export async function buildSensitivityPackageV2(options) {
   };
   const preIdMetadata = metadataOf(files);
   const descriptor = {
-    tuning_schema_version: 2, tuning_policy_version: 2,
+    tuning_schema_version: 2, tuning_policy_version: version,
+    ...supportFields,
     source: { ...ctx.source, ...linkage },
     selection: built.manifest.descriptor.selection,
-    file_sha256: Object.fromEntries(FILES_V2.filter(file => file !== 'reports/summary.json')
+    file_sha256: Object.fromEntries(contract.files.filter(file => file !== 'reports/summary.json')
       .map(file => [file, preIdMetadata[file].sha256])),
     summary_template_sha256: preIdMetadata['reports/summary.json'].sha256
   };
@@ -278,7 +299,8 @@ export async function buildSensitivityPackageV2(options) {
   const metadata = metadataOf(files);
   const manifest = {
     ...built.manifest, ...linkage,
-    tuning_schema_version: 2, tuning_policy_version: 2,
+    tuning_schema_version: 2, tuning_policy_version: version,
+    ...supportFields,
     sensitivity_id: sensitivityId, descriptor_sha256: descriptorSha256, descriptor,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
     result_usage: 'EXPLORATORY_ONLY', files: metadata,

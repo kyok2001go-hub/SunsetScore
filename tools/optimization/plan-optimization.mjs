@@ -15,22 +15,24 @@ import { optimizationPolicy } from './optimization-policy.mjs';
  */
 export async function planOptimization(options) {
   const progress = options.progress || silentProgress;
-  const policy = optimizationPolicy();
+  const policyVersion = options.optimizationPolicyVersion ?? 1;
+  const policy = optimizationPolicy(policyVersion);
   const input = await loadOptimizationInput({
     model: options.model, raw: options.raw, gt: options.gt,
     baseline: options.baseline, sensitivity: options.sensitivity,
-    root: options.root, progress
+    root: options.root, progress, optimizationPolicyVersion: policyVersion
   });
   const source = sourceIdentity(input);
   const profile = cohortProfile(input.model.rows);
   const replayUsableRate = input.sensitivity.readiness?.metrics?.replay_usable_rate ?? 1;
   const readiness = computeOptimizationReadiness({
-    profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage
+    profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage,
+    rows: input.model.rows, policyVersion
   });
   const searchSpace = buildSearchSpace({
     mode: readiness.optimization_mode, registry: input.sensitivity.registry,
     readiness: input.sensitivity.readiness, baseConfig: input.sensitivity.baseConfig,
-    linkage: input.sensitivity.linkage
+    linkage: input.sensitivity.linkage, policyVersion
   });
   const publicSpace = publicSearchSpace(searchSpace);
   const searchSpaceSha256 = hash(canonicalJson(publicSpace));
@@ -40,6 +42,9 @@ export async function planOptimization(options) {
   const seeds = 1 + coarseProposals(searchSpace).length;
   return {
     status: 'PLANNED',
+    ...(policyVersion === 2 ? { optimization_policy_version: 2, gt_level_support: readiness.gt_level_support,
+      gt_level_support_sha256: readiness.gt_level_support_sha256,
+      upstream_train_support: readiness.upstream_train_support, warnings: readiness.warnings } : {}),
     optimization_input_id: optimizationInputId,
     optimization_mode: readiness.optimization_mode,
     optimization_readiness: readiness.optimization_readiness,

@@ -60,6 +60,8 @@ export async function auditSources(paths, options = {}) {
 
 /** Only four Model files can be opened in Phase B. TEST and aggregate sample tables stay unreachable. */
 export async function readValidationInput(paths, audited, options = {}) {
+  const version = options.validationPolicyVersion ?? 1;
+  assert(audited.manifest.optimization_policy_version === version, 'OPTIMIZATION_VALIDATION_POLICY_COMBINATION_UNSUPPORTED');
   const header = await loadModelHeader(paths.model, { allowFiles: MODEL_ALLOW_FILES, progress: options.progress });
   const rows = await readSplitRows(paths.model, { manifest: header.manifest,
     schemaVersion: header.schemaVersion, split: 'VALIDATION',
@@ -85,7 +87,7 @@ export async function readValidationInput(paths, audited, options = {}) {
   const searchSpaceBase = buildSearchSpace({
     mode: audited.manifest.optimization_mode, registry: sensitivity.registry,
     readiness: sensitivity.readiness, baseConfig: sensitivity.baseConfig,
-    linkage: sensitivity.linkage
+    linkage: sensitivity.linkage, policyVersion: audited.manifest.optimization_policy_version
   });
   assert(canonicalJson(publicSearchSpace(searchSpaceBase)) === canonicalJson(audited.searchSpace),
     'SEARCH_SPACE_MISMATCH');
@@ -107,7 +109,7 @@ export async function readValidationInput(paths, audited, options = {}) {
     candidateIds.add(item.candidate_id);
     return { ...item, resolved };
   });
-  const support = validationSupport(rows);
+  const support = validationSupport(rows, version);
   let cohort = null;
   if (options.loadReplay) {
     for (const row of rows) {

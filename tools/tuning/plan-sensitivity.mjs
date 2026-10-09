@@ -10,14 +10,17 @@ import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
  * executions before any experiment actually runs.
  */
 export async function planSensitivity(options) {
-  if (options.tuningVersion === 2) {
+  if ([2, 3].includes(options.tuningVersion)) {
     const linkage = await inspectBaselineLinkage(options);
-    const legacy = await planSensitivity({ ...options, tuningVersion: 1, validationEvidence: undefined });
+    const legacy = await planSensitivity({ ...options, tuningVersion: 1, validationEvidence: undefined,
+      supportPolicyVersion: options.tuningVersion === 3 ? 3 : undefined });
     return {
-      ...legacy, tuning_schema_version: 2, tuning_policy_version: 2,
+      ...legacy, tuning_schema_version: 2, tuning_policy_version: options.tuningVersion,
       global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
       engineering_readiness: { status: 'READY', reasons: [] },
-      data_readiness: { status: legacy.global_readiness === 'TUNING_READY' ? 'READY' : 'INSUFFICIENT',
+      data_readiness: { status: options.tuningVersion === 3 ?
+        (legacy.warnings.length ? 'INSUFFICIENT' : 'READY') :
+        legacy.global_readiness === 'TUNING_READY' ? 'READY' : 'INSUFFICIENT',
         reasons: legacy.warnings.map(item => item.replace(/^READINESS_GAP:/, '')) },
       metric_readiness: { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] },
       mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
@@ -36,6 +39,7 @@ export async function planSensitivity(options) {
   return {
     status: 'PLANNED',
     global_readiness: ctx.readiness.global_readiness,
+    ...(ctx.readiness.gt_level_support ? { gt_level_support: ctx.readiness.gt_level_support } : {}),
     result_usage: ctx.readiness.global_readiness === 'TUNING_READY' ? 'FORMAL' : 'EXPLORATORY_ONLY',
     cohort: {
       samples: ctx.input.rows.length,
