@@ -7,8 +7,8 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 
-function head() {
-  const result = spawnSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true });
+function head(engineRoot = ROOT) {
+  const result = spawnSync('git', ['-C', engineRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true });
   assert.equal(result.status, 0);
   return result.stdout.trim();
 }
@@ -35,19 +35,34 @@ test('scenario classification requires Replay source state, not tile flags alone
 
 test('batch verifier enforces the exact Engine Root SHA and writes sanitized reports', async () => {
   const schema = await import('../server/replay-schema.js');
-  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const { runReplay, REPLAY_RUNTIME_FILES } = await import('../tools/replay/replay-runner.mjs');
   const { createSizedReplay, snapshotRowForReplay } = await import('../tools/replay/replay-fixture.mjs');
   const { SCENARIO_NAMES, verifyDataset } = await import('../tools/replay/verify-production-replay.mjs');
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sunsetscore-phase0-'));
   try {
+    // A production verifier correctly rejects dirty source. Unit tests must
+    // use their own committed runtime, never require the user's worktree clean.
+    const engineRoot = path.join(directory, 'engine');
+    await mkdir(engineRoot);
+    for (const file of REPLAY_RUNTIME_FILES) {
+      await mkdir(path.dirname(path.join(engineRoot, file)), { recursive: true });
+      await writeFile(path.join(engineRoot, file), await readFile(path.join(ROOT, file)));
+    }
+    const git = args => {
+      const result = spawnSync('git', ['-C', engineRoot, ...args], { encoding: 'utf8', windowsHide: true });
+      assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+    };
+    git(['init']); git(['config', 'core.autocrlf', 'false']);
+    git(['config', 'core.hooksPath', path.join(directory, 'fixture-hooks')]); git(['add', '.']);
+    git(['-c', 'commit.gpgsign=false', '-c', 'user.name=Replay Fixture', '-c', 'user.email=replay-fixture@example.invalid', 'commit', '-m', 'Fixture runtime']);
     await mkdir(path.join(directory, 'replay'), { recursive: true });
-    const replay = await createSizedReplay(100 * 1024, { engineBuildSha: head() });
-    const actual = (await runReplay(replay, { engineRoot: ROOT })).actual;
+    const replay = await createSizedReplay(100 * 1024, { engineBuildSha: head(engineRoot) });
+    const actual = (await runReplay(replay, { engineRoot })).actual;
     const row = snapshotRowForReplay(replay, actual);
     await writeFile(path.join(directory, 'snapshots.json'), JSON.stringify([row]), 'utf8');
     await writeFile(path.join(directory, 'errors.json'), '[]', 'utf8');
     await writeFile(path.join(directory, 'replay', row.id + '.json'), schema.canonicalJson(replay), 'utf8');
-    const verified = await verifyDataset(directory, { engineRoot: ROOT, fixtureCoverage: SCENARIO_NAMES });
+    const verified = await verifyDataset(directory, { engineRoot, fixtureCoverage: SCENARIO_NAMES });
     assert.equal(verified.report.download_status, 'PASS');
     assert.equal(verified.report.build_matched, 1);
     assert.equal(verified.report.passed, 1);
@@ -61,10 +76,12 @@ test('batch verifier enforces the exact Engine Root SHA and writes sanitized rep
     const mismatch = structuredClone(replay);
     mismatch.identity.engine_build_sha = 'b'.repeat(40);
     await writeFile(path.join(directory, 'replay', row.id + '.json'), schema.canonicalJson(mismatch), 'utf8');
-    const rejected = await verifyDataset(directory, { engineRoot: ROOT, fixtureCoverage: SCENARIO_NAMES });
+    const rejected = await verifyDataset(directory, { engineRoot, fixtureCoverage: SCENARIO_NAMES });
     assert.equal(rejected.report.build_mismatch, 1);
     assert.equal(rejected.report.passed, 0);
     assert.equal(rejected.failures[0].error_code, 'ENGINE_VERSION_MISMATCH');
+    await writeFile(path.join(engineRoot, 'js/config.js'), '// dirty fixture\n', { flag: 'a' });
+    await assert.rejects(verifyDataset(directory, { engineRoot }), /ENGINE_ROOT_DIRTY/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

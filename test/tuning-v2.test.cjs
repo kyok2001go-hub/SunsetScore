@@ -25,6 +25,19 @@ test('V2 contract is isolated from historical V1', async () => {
   }
 });
 
+test('source-linked V2 validation rejects changed runtime before reading sources or replaying experiments', async t => {
+  const { inspectSensitivityV2 } = await import('../tools/tuning/v2/validate.mjs');
+  const { canonicalJson } = await import('../tools/dataset/lib/common.mjs');
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'sunset-runtime-drift-'));
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  await fs.writeFile(path.join(temporary, 'manifest.json'), canonicalJson({
+    tuning_schema_version: 2, tuning_policy_version: 3, engine_runtime_sha256: '0'.repeat(64)
+  }));
+  await assert.rejects(inspectSensitivityV2(temporary, {
+    staging: true, model: 'must-not-open', raw: 'must-not-open', gt: 'must-not-open', baseline: 'must-not-open'
+  }), error => error.code === 'TUNING_VALIDATION_FAILED' && error.reason_code === 'ENGINE_RUNTIME_MISMATCH');
+});
+
 test('paired no-skill comparator keeps the frozen ordinal and renormalizes each surviving Event', async () => {
   const { pairedDiagnostics } = await import('../tools/tuning/v2/build.mjs');
   const rows = [

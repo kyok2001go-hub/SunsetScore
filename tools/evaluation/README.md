@@ -4,6 +4,8 @@
 
 本工具为纯本地 Node.js 工具，不联网、不调用外部 API、不修改生产数据库或应用代码。
 
+历史香港记录的 `country=null` 在错误案例 CSV 与摘要中补为“中国”，并通过 `HONG_KONG_COUNTRY_NORMALIZED` 警告审计。此修正仅作用于报告，不改写 Raw / GT / Model 包，不改变分数、标签、权重或指标；其他城市不推断国家。V1 / V2 均支持该修正，Schema / Policy 不变，原有效包仍按原契约重算。
+
 ## Evaluation V2：TRAIN-only 代理等级基线
 
 ```bash

@@ -28,6 +28,12 @@ function compareWarnings(a, b) {
   return 0;
 }
 
+// Report-only correction for legacy Hong Kong metadata. Keep source rows and
+// metric cohorts unchanged; never infer a country for any other city.
+function reportCountry(row) {
+  return row.country === null && row.city === '香港' ? '中国' : row.country;
+}
+
 export function evaluate(modelManifest, modelManifestSha256, trainRows, validationRows, inputWarnings = [], progress = silentProgress) {
   const schema = evaluationSchema(1);
   const policy = evaluationPolicy(1);
@@ -132,6 +138,13 @@ export function evaluate(modelManifest, modelManifestSha256, trainRows, validati
   progress.stage('生成 error_cases.csv');
   // error_cases.csv contains all rows in ALL_PRIMARY where absolute_error > 0
   const errorRows = allRows.filter(r => r.absolute_error > 0);
+  for (const row of errorRows) {
+    if (reportCountry(row) !== row.country) {
+      warnings.push({ warning_code: 'HONG_KONG_COUNTRY_NORMALIZED',
+        benchmark_mode: 'ALL_PRIMARY', split: row.split,
+        slice_dimension: 'city', slice_value: '香港', slice_value_is_null: false });
+    }
+  }
   errorRows.sort((a, b) => {
     if (b.absolute_error !== a.absolute_error) return b.absolute_error - a.absolute_error;
     if (b.gt_confidence !== a.gt_confidence) return b.gt_confidence - a.gt_confidence;
@@ -142,7 +155,7 @@ export function evaluate(modelManifest, modelManifestSha256, trainRows, validati
 
   const errorCasesFields = schema.tables.error_cases.map(f => f.name);
   const errorCasesRows = errorRows.map(r => Object.fromEntries(errorCasesFields.map(k => {
-    let val = r[k];
+    let val = k === 'country' ? reportCountry(r) : r[k];
     if (val === undefined) {
       if (['tile_radar_available', 'tile_sat_available'].includes(k)) val = false;
       else val = null;
@@ -277,7 +290,7 @@ export function evaluate(modelManifest, modelManifestSha256, trainRows, validati
             event_date_local: r.event_date_local,
             location_key: r.location_key,
             city: r.city,
-            country: r.country,
+            country: reportCountry(r),
             admin1: r.admin1,
             lead_time_minutes: r.lead_time_minutes,
             predicted_score: r.predicted_score,

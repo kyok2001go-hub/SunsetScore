@@ -6,6 +6,48 @@ const xiamen = { id: 1790645, name: '厦门市', feature_code: 'PPLA2', admin1: 
   country_code: 'CN', latitude: 24.47979, longitude: 118.08187, timezone: 'Asia/Shanghai', population: 4617251 };
 const domestic = { ...xiamen, id: 'qweather:101230201', source: 'qweather', feature_code: 'QW_CITY', coordinate_system: 'WGS84', rank: 20 };
 const foreign = { ...xiamen, id: 99, name: 'London', country: '英国', country_code: 'GB' };
+const hongKong = { id: 1819729, name: '香港', feature_code: 'PPLC', country_code: 'HK',
+  latitude: 22.27832, longitude: 114.17469, timezone: 'Asia/Hong_Kong', population: 7482500 };
+
+test('Hong Kong metadata is completed for search and selection without changing provider identity', async () => {
+  const SS = load(createRuntime(), FILES);
+  const before = JSON.stringify(hongKong);
+  SS.data.searchDomesticLocations = async () => [];
+  SS.data.searchLocations = async query => [{ ...hongKong, name: /[\u3400-\u9fff]/.test(query) ? '香港' : 'Hong Kong' }];
+  for (const query of ['香港', 'Hong Kong']) {
+    const location = await SS.citySearch.resolve(query);
+    assert.equal(location.country, '中国');
+    assert.equal(location.admin1, '香港特别行政区');
+    assert.equal(location.country_code, 'HK');
+    assert.equal(location.id, hongKong.id);
+    assert.equal(location.source, 'openmeteo');
+    assert.equal(location.timezone, hongKong.timezone);
+    assert.equal(location.latitude, hongKong.latitude);
+    assert.equal(location.longitude, hongKong.longitude);
+    assert.equal(SS.citySearch.toLocation(location).admin1, location.admin1);
+  }
+  assert.equal(JSON.stringify(hongKong), before, 'provider response remains unchanged');
+  const supplied = SS.citySearch.toLocation({ ...hongKong, country: '香港', admin1: '香港特别行政区' });
+  assert.equal(supplied.country, '中国');
+  assert.equal(supplied.admin1, '香港特别行政区');
+  assert.equal(SS.citySearch.toLocation({ ...hongKong, country_code: '', admin1: ' ' }).admin1, '香港特别行政区');
+});
+
+test('Hong Kong completion never guesses from city name, timezone or coordinates alone', () => {
+  const SS = load(createRuntime(), FILES);
+  for (const row of [
+    { ...hongKong, id: 99, country_code: '' },
+    { ...hongKong, country_code: 'GB' },
+    { ...hongKong, latitude: 40, longitude: -74 },
+    { ...foreign, name: '香港', timezone: 'Asia/Hong_Kong', country: undefined, admin1: undefined },
+    { ...taipei, country: undefined, admin1: undefined }
+  ]) {
+    const location = SS.citySearch.toLocation(row);
+    assert.equal(location.country, row.country || '');
+    assert.equal(location.admin1, row.admin1 || '');
+  }
+  assert.equal(SS.citySearch.toLocation({ ...hongKong, admin1: 'Central and Western' }).admin1, 'Central and Western');
+});
 
 test('QWeather mainland candidates win, exclude mainland Open-Meteo and direct geocode reuses the candidate', async () => {
   const queries = [];

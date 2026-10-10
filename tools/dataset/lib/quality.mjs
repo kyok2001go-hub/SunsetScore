@@ -25,6 +25,8 @@ export function isGoldenWindow(replay) {
 }
 export async function validateTables(tables, selection, cutoff, replaySummary) {
   const errors = [], snapshots = tables.prediction_snapshots, observations = tables.sunset_observations;
+  const excluded = new Set((selection.replay_exclusion?.records || []).map(row => row.snapshot_id));
+  for (const row of snapshots) if (excluded.has(row.id)) errors.push(issue('EXCLUDED_REPLAY_PRESENT', row, 'snapshot'));
   const events = new Map(tables.events.map(row => [row.event_id, row]));
   const snapshotMap = new Map(snapshots.map(row => [row.id, row]));
   for (const [name, rows] of Object.entries(tables)) {

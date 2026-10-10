@@ -53,7 +53,9 @@
     var point = sample && sample.point || {};
     var forecast = sample && sample.forecast;
     if (!forecast || !forecast.hourly || !Array.isArray(forecast.hourly.time)) return null;
-    forecast = SS.data.trimForecastWindow(forecast, nowUtcMs, sunsetUtcMs);
+    // Production interpolates the original node arrays before trimming the
+    // virtual corridor. Per-node UTC trimming loses their relative indices
+    // when neighbouring forecasts have different UTC offsets.
     var offset = forecast.utc_offset_seconds || 0;
     var times = forecast.hourly.time.map(function (value) {
       var epoch = SS.time.fromOpenMeteoLocal(value, offset);
@@ -102,18 +104,23 @@
   function normalizePrecip(precipResult) {
     var analysis = precipResult && precipResult.analysis;
     var series = analysis && analysis.series;
-    if (!series || !Array.isArray(series.times) || !Array.isArray(series.precipitation)) {
+    if (!series || !Array.isArray(series.times) || !Array.isArray(series.precip)) {
       return { available: false, source: precipResult && precipResult.source || null };
     }
-    if (series.times.length !== series.precipitation.length) throw new Error('FAILED_REPLAY_CAPTURE_PRECIP_LENGTH');
+    if (series.times.length !== series.precip.length) throw new Error('FAILED_REPLAY_CAPTURE_PRECIP_LENGTH');
+    var times = series.times.map(function (time) { return Date.parse(time); });
+    if (!times.length || times.some(function (time) { return !Number.isFinite(time); })) throw new Error('FAILED_REPLAY_CAPTURE_PRECIP_TIME');
+    var step = series.stepMs;
+    var anchor = series.intervalAnchor === 'end' ? 'end' : 'start';
+    var start = times[0] - (anchor === 'end' ? step : 0);
     return {
       available: true, source: String(series.source || precipResult.source || 'unknown'), time_axis: 'utc_epoch_ms',
-      coverage_start: series.times.length ? Number(series.times[0]) : null,
-      coverage_end: series.times.length ? Number(series.times[series.times.length - 1]) + Number(series.stepMs || 0) : null,
-      step_ms: finiteOrNull(series.stepMs), interval_anchor: series.intervalAnchor || 'interval_start',
+      coverage_start: start,
+      coverage_end: times[times.length - 1] + (anchor === 'end' ? 0 : step),
+      step_ms: finiteOrNull(step), interval_anchor: 'interval_' + anchor,
       minute_series: {
-        time_utc_ms: series.times.map(function (time) { return Number(time); }),
-        precipitation_mm: series.precipitation.map(finiteOrNull)
+        time_utc_ms: times,
+        precipitation_mm: series.precip.map(finiteOrNull)
       }
     };
   }

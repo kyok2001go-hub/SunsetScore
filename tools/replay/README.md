@@ -63,6 +63,10 @@ npm run replay:benchmark -- --baseline dataset/replay-benchmark.json --output da
 
 ## 边界与后续数据包
 
+2026-10-10 采集／恢复修复：分钟降水采集从实际 `times`（UTC ISO）/ `precip` / `start|end` 契约保存 epoch-ms，并按区间锚点保留覆盖范围；恢复时转回预报模块实际接收的格式，保留合法 0。NWP 保留采集时节点原始完整时序，恢复先插值走廊、再截取评分窗口，避免跨时区节点在采集时提前截断后丢失相对索引。未改动线上评分公式或参数。部署后新采集才使用这些修复；历史包中已经丢失的输入不能通过补猜、套用新气象数据或放宽 Reference 容忍恢复。
+
+经人工确认需要排除不可恢复记录时，使用 [Raw 工具的离线排除流程](../dataset/README.md#离线排除无法恢复的-replay)，保留原包与失败证据，并重建完整后续链路。
+
 Replay Schema V1 保留捕获本次评分实际消费的输入，可重建离线评分，但不代表雷达或卫星原始像素级 L3 回放。Phase 0 目录是历史下载/验证布局；正式 Raw 包自带 `replay/`、manifest 和独立校验契约，其下游 GT / Model 处理见各模块 README。正式包依赖检测与级联清理使用 [数据维护工具](../maintenance/README.md)，不会把 `phase0-production/` 当作正式包。
 
 设计与门禁背景见 [V2.4.7 Phase 0 技术方案](../../../ref_docs/PRD/V2.4.7迭代--Phase0--Replay%20链路收口技术方案.md)。

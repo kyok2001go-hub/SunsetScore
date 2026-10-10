@@ -74,9 +74,10 @@ function restoreVisual(source) {
 
 function restorePrecip(source, SS, nowMs) {
   if (!source || !source.available) return null;
-  const raw = { source: source.source, times: source.minute_series.time_utc_ms.slice(),
-    precipitation: source.minute_series.precipitation_mm.slice(), stepMs: source.step_ms,
-    intervalAnchor: source.interval_anchor };
+  const raw = { source: source.source,
+    times: source.minute_series.time_utc_ms.map(time => new Date(time).toISOString()),
+    precip: source.minute_series.precipitation_mm.slice(), stepMs: source.step_ms,
+    intervalAnchor: ['end', 'interval_end'].includes(source.interval_anchor) ? 'end' : 'start' };
   return SS.nowcast.analyzePrecip(raw, nowMs);
 }
 
@@ -114,7 +115,7 @@ function referenceMap(expected) {
   };
 }
 
-function compareReference(actual, expected) {
+export function compareReference(actual, expected) {
   const reference = referenceMap(expected);
   const issues = [];
   const deltas = { components: {} };
@@ -207,17 +208,19 @@ export async function runReplay(replay, options = {}) {
     const localForecast = nodes.find((sample) => sample.point.distanceKm === 0)?.forecast || nodes[0].forecast;
     const precip = restorePrecip(replay.minute_precip, SS, nowMs);
     const air = restoreAir(replay.air_quality, ctx.utc_offset_seconds);
+    const engineSamples = corridor.map(sample => ({ ...sample,
+      forecast: SS.data.trimForecastWindow(sample.forecast, nowMs, sunsetMs) }));
     const result = SS.engine.compute({
       location: { name: ctx.city, admin1: ctx.admin1, country: ctx.country, latitude: ctx.latitude, longitude: ctx.longitude },
       utcOffsetSeconds: ctx.utc_offset_seconds, localNowUtc: new Date(nowMs), solar,
-      sunsetLocal: localSunset, samples: corridor, air, cloudField: sunsetField,
+      sunsetLocal: localSunset, samples: engineSamples, air, cloudField: sunsetField,
       expectedSampleCount: engineInputs.expected_sample_count,
       totalSkyNodeCount: engineInputs.total_sky_node_count,
       spatialCompleteness: engineInputs.spatial_completeness,
       samplingMode: engineInputs.sampling_mode, cacheStatus: engineInputs.cache_status,
       dataAgeMinutes: engineInputs.data_age_minutes, minutePrecip: precip
     });
-    const baseline = SS.baseline.compute({ solar, sunsetLocal: localSunset }, corridor);
+    const baseline = SS.baseline.compute({ solar, sunsetLocal: localSunset }, engineSamples);
     result.base_score = result.score;
     result.baseline_score = baseline.score;
     result.baseline_level = baseline.level;

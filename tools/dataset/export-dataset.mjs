@@ -54,6 +54,8 @@ async function runExport(options, dependencies = {}) {
   let hits = 0, misses = 0;
   try {
     const selection = assertSelection(options.selection);
+    // Offline derivations must not masquerade as a new D1/R2 export.
+    if (selection.replay_exclusion) fail('OFFLINE_DERIVATION_REQUIRED');
     if (!same(selection, options.selection)) fail('SELECTION_INVALID');
     progress.stage('获取导出截止时间');
     const serverTime = await source.query("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000 AS cutoff_epoch");

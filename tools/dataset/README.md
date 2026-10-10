@@ -40,6 +40,21 @@ npm run dataset:validate -- dataset/exports/<dataset_id> --report-dir dataset/re
 - `dataset:export` 默认向 stderr 输出中文阶段、累计耗时与交互式进度；追加 `--quiet` 可关闭。最终 JSON 在 stdout，npm 自身仍可能输出命令横幅。`dataset:validate` 与 `dataset:stats` 不接受 `--quiet`。
 - Wrangler 应事先完成认证。受限环境可为 npm 缓存和 Wrangler 日志设置私有可写目录；不要把凭据放进命令参数、源码或 manifest。
 
+## 离线排除无法恢复的 Replay
+
+只有在专项排查确认不能可靠恢复、人工决定排除后使用。此操作不删改原包，不修改 GT 标签、误差容忍或后续门槛；不能用来挑选高分结果。只接受有完整数值 Reference、连续两次稳定失败的指定 Snapshot，已通过的记录、缺失 Reference、重复 ID 或未知 ID 会拒绝。
+
+```powershell
+npm run dataset:exclude-replay-failures -- --raw <原Raw包> --snapshot-ids <失败Snapshot_ID列表，逗号分隔> --acknowledge-exclusions
+npm run dataset:validate -- <新Raw包> --source-raw <原Raw包>
+```
+
+路径示例：`<原Raw包> = dataset/exports/raw_v1_20260909_20261007_de7ce1475df8`；`<新Raw包>` 使用第一条命令输出的 `directory`。新包仍写入 `dataset/exports/`，但明确标记 `OFFLINE_REPLAY_EXCLUSION`，不冒充新一次 D1/R2 下载。`manifest.selection.replay_exclusion` 冻结原包 ID / manifest Hash、排除 ID、原 Replay Hash、完整数值失败报告和运行时代码 Hash，并参与新包身份计算。
+
+原包须保留 `<数据根目录>/exports/<dataset_id>` 布局。`--output <新数据根目录>` 可指定另一输出位置；构建全过程同时保护原包和输出根目录，拒绝与维护清理并发，源包被搬动或正在清理时应先停止并核对。
+
+仅保留还有 Snapshot 的 Event；若某 Event 的 Snapshot 全部被排除，该 Event 及其关联 Observation 不进入新包，数量会在最终 JSON 中明确报告。仍有 Snapshot 的 Event 保留全部 Observation，指向已排除 Snapshot 的反馈继续产生范围警告，不改写其引用。后续必须重新构建 GT → Model → Evaluation → Phase 5–7，不能混用旧包。`dataset:lineage` / `dataset:prune` 保留新 Raw 指向原 Raw 的 SOURCE 依赖边。普通校验是包内一致性；带 `--source-raw` 才复核与原包的精确子集关系。
+
 ## 与其他工具的关系
 
 本模块产出 Phase 1 正式包。Phase 2 GT 只读取一个指定 Raw 包的 manifest、schema、Event 和 Observation CSV；Phase 3 Model 则会对完整 Raw 包做来源与 Replay 完整性校验。正式包依赖检测与授权清理使用 [数据维护工具](../maintenance/README.md) 的 `dataset:lineage` / `dataset:prune`；不要直接按目录名手工删除。

@@ -8,6 +8,7 @@ import { assertSelection } from './lib/selection.mjs';
 import { ERROR_FIELDS, isGoldenWindow, issue, qualityReport, validateTables } from './lib/quality.mjs';
 import { datasetStatistics } from './lib/statistics.mjs';
 import { validateDatasetReplay } from './lib/replay-cache.mjs';
+import { filteredTables } from './lib/replay-exclusion.mjs';
 
 const equal = (a, b, code) => { if (canonicalJson(a) !== canonicalJson(b)) fail(code); };
 async function jsonFile(file) {
@@ -66,6 +67,20 @@ export async function inspectDataset(directory, options = {}) {
   if (manifest.dataset_id !== identity.dataset_id || manifest.descriptor_sha256 !== identity.descriptor_sha256 ||
       manifest.replay_set_sha256 !== descriptor.replay_set_sha256) fail('DATASET_ID_MISMATCH');
   if (!options.staging && path.basename(path.resolve(directory)) !== manifest.dataset_id) fail('DATASET_DIRECTORY_MISMATCH');
+  if (selection.replay_exclusion) {
+    const audit = selection.replay_exclusion;
+    equal(manifest.provenance, { source_type: 'OFFLINE_REPLAY_EXCLUSION', parent_dataset_id: audit.parent_dataset_id,
+      parent_manifest_sha256: audit.parent_manifest_sha256 }, 'DERIVATION_PROVENANCE_INVALID');
+    if (options.sourceRawDir) {
+      if (path.resolve(options.sourceRawDir) === path.resolve(directory)) fail('REPLAY_EXCLUSION_SOURCE_MISMATCH');
+      if (hash(await readSafe(path.join(options.sourceRawDir, 'manifest.json'))) !== audit.parent_manifest_sha256) fail('REPLAY_EXCLUSION_SOURCE_MISMATCH');
+      const parent = await inspectDataset(options.sourceRawDir);
+      if (parent.report.status !== 'PASS') fail('REPLAY_EXCLUSION_SOURCE_INVALID');
+      equal(tables, filteredTables(parent, audit), 'REPLAY_EXCLUSION_SOURCE_MISMATCH');
+      const original = { ...selection }; delete original.replay_exclusion;
+      equal(original, parent.manifest.selection, 'REPLAY_EXCLUSION_SOURCE_MISMATCH');
+    }
+  } else if (options.sourceRawDir) fail('NOT_A_DERIVED_DATASET');
   equal(datasetVersions(tables), manifest.versions, 'VERSIONS_MISMATCH');
   const statistics = datasetStatistics(tables, selection);
   equal(statistics.counts, manifest.counts, 'COUNTS_MISMATCH');
@@ -83,8 +98,15 @@ export async function validateDataset(directory, options = {}) {
 }
 if (isMain(import.meta.url)) {
   try {
-    const options = parseReadArgs(process.argv.slice(2));
-    const result = await validateDataset(options.dataset);
+    const args = process.argv.slice(2), index = args.indexOf('--source-raw');
+    let sourceRawDir;
+    if (index >= 0) {
+      sourceRawDir = args[index + 1];
+      if (!sourceRawDir || sourceRawDir.startsWith('--')) fail('INVALID_ARGUMENTS');
+      args.splice(index, 2);
+    }
+    const options = parseReadArgs(args);
+    const result = await validateDataset(options.dataset, { sourceRawDir });
     if (options.reportDir) await reportOutside(options.dataset, options.reportDir, 'data-quality.json', result.report);
     console.log(canonicalJson(result.report));
     if (result.report.status !== 'PASS') process.exitCode = 1;

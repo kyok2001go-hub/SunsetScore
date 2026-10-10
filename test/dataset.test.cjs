@@ -366,3 +366,54 @@ test('Git ignores root data assets while keeping dataset tooling trackable', () 
   const source = spawnSync('git', ['check-ignore', 'tools/dataset/export-dataset.mjs'], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
   assert.equal(ignored.status, 0); assert.equal(source.status, 1);
 });
+
+test('audited Replay exclusion creates an immutable source-linked subset and rejects passed or incomplete references', async t => {
+  const f = await setup(t), m = f.m;
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const { excludeReplayFailures } = await import('../tools/dataset/exclude-replay-failures.mjs');
+  const { referenceFor } = await import('../tools/dataset/lib/replay-exclusion.mjs');
+  const { dependenciesOf, PHASES } = await import('../tools/maintenance/maintenance-policy.mjs');
+  for (const row of f.rows) {
+    const replay = JSON.parse(require('node:zlib').gunzipSync(f.objects.get(row.id)));
+    const actual = (await runReplay(replay)).actual;
+    Object.assign(row, { predicted_score: actual.score, predicted_level: actual.level,
+      baseline_score: actual.baseline_score, baseline_level: actual.baseline_level,
+      regime_label: actual.regime_label, regime_strength: actual.regime_strength,
+      sky_evolution_state: actual.sky_evolution_state, sky_evolution_factor: actual.sky_evolution_factor,
+      gw_factor: actual.gw_factor, comp_sky_canvas: actual.components.sky_canvas,
+      comp_horizon: actual.components.horizon, comp_illumination: actual.components.illumination,
+      comp_atmosphere: actual.components.atmosphere, comp_weather: actual.components.weather });
+    if (row.id === f.rows[0].id) row.comp_sky_canvas += row.comp_sky_canvas > 90 ? -5 : 5;
+    const reference = referenceFor(row), fields = Object.keys(reference);
+    f.sqlite.prepare(`UPDATE prediction_snapshots SET ${fields.map(field => `${field}=?`).join(',')} WHERE id=?`)
+      .run(...fields.map(field => row[field]), row.id);
+  }
+  const original = await m.exportDataset(f.options, { source: f.source });
+  assert.equal(original.status, 'EXPORTED', JSON.stringify(original));
+  const manifestBefore = await fs.readFile(path.join(original.directory, 'manifest.json'));
+  const output = path.join(f.dir, 'derived');
+  const { withMaintenanceWindow } = await import('../tools/maintenance/lib/lease.mjs');
+  await withMaintenanceWindow(async () => {
+    await assert.rejects(excludeReplayFailures(original.directory, [f.rows[0].id], { output, acknowledge: true }), /MAINTENANCE_ACTIVE/);
+  }, { datasetRoot: path.dirname(path.dirname(original.directory)) });
+  await assert.rejects(excludeReplayFailures(original.directory, [f.rows[0].id], { output }), /ACK_REQUIRED/);
+  await assert.rejects(excludeReplayFailures(original.directory, [f.rows[1].id], { output, acknowledge: true }), /PARITY_PASSED/);
+  await assert.rejects(excludeReplayFailures(original.directory, ['unknown'], { output, acknowledge: true }), /UNKNOWN_SNAPSHOT/);
+  await assert.rejects(excludeReplayFailures(original.directory, [f.rows[0].id, f.rows[0].id], { output, acknowledge: true }), /EXCLUSION_INVALID/);
+  await assert.rejects(excludeReplayFailures(original.directory, [f.rows[0].id], { output: original.directory, acknowledge: true }), /INSIDE_DATASET/);
+  const result = await excludeReplayFailures(original.directory, [f.rows[0].id], { output, acknowledge: true });
+  assert.equal(result.status, 'EXPORTED'); assert.equal(result.counts.snapshots, 2);
+  assert.equal(result.counts.observations, 1); assert.equal(result.removed_events, 0);
+  const linked = await m.inspectDataset(result.directory, { sourceRawDir: original.directory });
+  assert.equal(linked.report.status, 'PASS');
+  assert.equal(linked.manifest.provenance.source_type, 'OFFLINE_REPLAY_EXCLUSION');
+  assert.equal(linked.manifest.selection.replay_exclusion.records[0].comparison.pass, false);
+  assert.deepEqual(await fs.readFile(path.join(original.directory, 'manifest.json')), manifestBefore);
+  assert.equal(dependenciesOf(PHASES[0], linked.manifest)[0].id, original.dataset_id);
+  const again = await excludeReplayFailures(original.directory, [f.rows[0].id], { output, acknowledge: true });
+  assert.equal(again.status, 'DEDUPLICATED'); assert.equal(again.dataset_id, result.dataset_id);
+  const audit = structuredClone(linked.manifest.selection.replay_exclusion);
+  audit.records[0].reference.baseline_level = null;
+  assert.throws(() => m.assertSelection({ ...linked.manifest.selection, replay_exclusion: audit }), /EXCLUSION_INVALID/);
+  assert.equal((await m.exportDataset({ ...f.options, selection: linked.manifest.selection }, { source: f.source })).error_code, 'OFFLINE_DERIVATION_REQUIRED');
+});

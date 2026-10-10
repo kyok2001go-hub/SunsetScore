@@ -129,6 +129,12 @@ export function dependenciesOf(phase, manifest) {
     dependencies.push({ idField, id, expectedManifestSha256: declaredHash ?? null, kind });
   };
   switch (phase.key) {
+    case 'raw': {
+      const audit = manifest.selection?.replay_exclusion;
+      if (audit) dependencies.push({ idField: 'selection.replay_exclusion.parent_dataset_id', id: audit.parent_dataset_id,
+        expectedManifestSha256: audit.parent_manifest_sha256, kind: 'SOURCE' });
+      break;
+    }
     case 'ground_truth':
       add('source_dataset_id', 'source_dataset_manifest_sha256', 'SOURCE');
       break;

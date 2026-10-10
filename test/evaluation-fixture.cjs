@@ -68,6 +68,9 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
         replay_saved_at_utc: `${dt}T04:15:00.000Z`,
         replay_updated_at_utc: `${dt}T04:15:00.000Z`
       });
+      if (options.snapshotMetadataOverride) {
+        Object.assign(row, options.snapshotMetadataOverride(i, d));
+      }
       insert('prediction_snapshots', row);
 
       const { RATING_LABELS } = await import('../server/event-dataset.js');

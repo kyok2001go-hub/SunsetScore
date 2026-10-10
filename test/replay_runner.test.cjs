@@ -18,17 +18,26 @@ async function capture(spec) {
   const fc = forecast(values);
   fc.timezone = 'Asia/Shanghai';
   fc.utc_offset_seconds = 28800;
+  if (spec.mixedOffsets) {
+    const times = Array.from({ length: 48 }, (_, index) => new Date(Date.parse('2026-08-26T00:00:00Z') + index * 3600000).toISOString().slice(0, 16));
+    for (const [name, values] of Object.entries(fc.hourly)) {
+      fc.hourly[name] = name === 'time' ? times : times.map((_, index) =>
+        name.startsWith('cloud_cover') ? (index * 17 + values[0]) % 100 : values[0]);
+    }
+  }
   SS.data.fetchForecastWithRetry = async () => fc;
   SS.data.fetchAirQuality = async () => null;
-  SS.data.gather = async (nodes) => ({ samples: nodes.map((point) => ({ point, forecast: fc })), successCount: nodes.length });
+  SS.data.gather = async (nodes) => ({ samples: nodes.map((point) => ({ point,
+    forecast: spec.mixedOffsets && point.direction === 'W' ? { ...fc, utc_offset_seconds: 25200, timezone: 'Asia/Bangkok' } : fc
+  })), successCount: nodes.length });
   if (spec.radarEnabled === false) SS.modelConfig.nowcast.radar.enabled = false;
   if (spec.satelliteEnabled === false) SS.modelConfig.nowcast.satellite.enabled = false;
   const nowUtcMs = spec.nowUtcMs || Date.parse('2026-08-26T02:00:00Z');
   if (spec.rainToClear) {
     SS.nowcast.fetchMinutePrecip = async () => ({
-      times: Array.from({ length: 24 }, (_, index) => nowUtcMs + index * 300000),
-      precipitation: Array.from({ length: 24 }, (_, index) => index < 4 ? 0.18 : 0),
-      stepMs: 300000, intervalAnchor: 'interval_start', source: 'qweather'
+      times: Array.from({ length: 24 }, (_, index) => new Date(nowUtcMs + (index + (spec.precipAnchor === 'end' ? 1 : 0)) * 300000).toISOString()),
+      precip: Array.from({ length: 24 }, (_, index) => index < 4 ? 0.18 : 0),
+      stepMs: 300000, intervalAnchor: spec.precipAnchor || 'start', source: spec.precipAnchor === 'end' ? 'openmeteo' : 'qweather'
     });
   }
   const result = await SS.prediction.predict('31.23,121.47', {
@@ -72,6 +81,13 @@ test('offline Replay Runner reproduces the seven required golden scenario classe
       assert.equal(fixture.replay.radar.available, false);
       assert.equal(fixture.replay.radar.source_status, 'DISABLED');
     }
+    if (spec.name === 'RAIN_TO_CLEAR') {
+      assert.equal(fixture.replay.minute_precip.available, true);
+      assert.equal(fixture.replay.minute_precip.interval_anchor, 'interval_start');
+      assert.equal(fixture.replay.minute_precip.minute_series.precipitation_mm[0], 0.18);
+      assert.equal(fixture.replay.minute_precip.minute_series.precipitation_mm[4], 0);
+      assert.equal(fixture.replay.minute_precip.coverage_end - fixture.replay.minute_precip.coverage_start, 7200000);
+    }
     if (spec.name === 'SATELLITE_DEGRADED') {
       assert.equal(fixture.replay.satellite.available, false);
       assert.equal(fixture.replay.satellite.source_status, 'DISABLED');
@@ -89,6 +105,29 @@ test('strict Reference comparison rejects missing fields and normalizes off-wind
   const failed = await runReplay(fixture.replay, { reference: incomplete });
   assert.equal(failed.pass, false);
   assert.ok(failed.comparison_errors.includes('INVALID_REFERENCE_FIELD:baseline_level'));
+});
+
+test('capture preserves original cross-offset NWP indices until corridor interpolation', async () => {
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const fixture = await capture({ mixedOffsets: true, nowUtcMs: Date.parse('2026-08-26T10:00:00Z') });
+  assert.deepEqual([...new Set(fixture.replay.nwp.nodes.map(node => node.utc_offset_seconds))].sort(), [25200, 28800]);
+  assert.ok(fixture.replay.nwp.nodes.every(node => node.time_utc.length === 48));
+  const report = await runReplay(fixture.replay, { reference: fixture.reference });
+  assert.equal(report.pass, true, JSON.stringify(report));
+  assert.ok(Object.values(report.deltas.components).every(delta => delta === 0));
+});
+
+test('minute precipitation end anchors retain interval coverage and reproduce prediction', async () => {
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const nowUtcMs = Date.parse('2026-08-26T10:00:00Z');
+  const fixture = await capture({ rainToClear: true, precipAnchor: 'end', nowUtcMs });
+  const minute = fixture.replay.minute_precip;
+  assert.equal(minute.available, true);
+  assert.equal(minute.interval_anchor, 'interval_end');
+  assert.equal(minute.coverage_start, nowUtcMs);
+  assert.equal(minute.coverage_end, nowUtcMs + 7200000);
+  assert.equal(minute.minute_series.time_utc_ms[0], nowUtcMs + 300000);
+  assert.equal((await runReplay(fixture.replay, { reference: fixture.reference })).pass, true);
 });
 
 test('fixed Radar and Satellite coverage fixture exercises the normal visual-source branch', async () => {

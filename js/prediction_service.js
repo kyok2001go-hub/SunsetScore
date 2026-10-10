@@ -127,6 +127,10 @@
     if (cached.app_version !== SS.version.app || cached.model_version !== SS.version.model ||
         cached.runtime_config_key !== SS.modelConfigKey() || !cachedLocationMatches(cached, location) ||
         typeof cached.timezone !== 'string' || !cached.timezone || cached.timezone === 'auto') return null;
+    // Do not reuse legacy results with missing/stale administrative metadata.
+    // Weather caches and stable location/Event identities remain unchanged.
+    if ((cached.country || '') !== (location.country || '') ||
+        (cached.admin1 || '') !== (location.admin1 || '')) return null;
     var localDate;
     try { localDate = SS.time.formatDate(nowUtcMs, cached.timezone); } catch (error) { return null; }
     if (cached.date !== localDate) return null;

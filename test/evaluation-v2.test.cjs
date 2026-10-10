@@ -11,6 +11,48 @@ async function temporary(t) {
   return root;
 }
 
+test('Hong Kong missing country is corrected only in error reports, with source-linked audit', async t => {
+  const root = await temporary(t);
+  const pipe = await createSyntheticPipeline(root, {
+    counts: [20, 5, 5],
+    snapshotMetadataOverride: i => i === 7 || i === 23 ? { city: '香港', country: null } : {}
+  });
+  t.after(pipe.close);
+  const { evaluateBaseline, capturePackageFingerprint } = await import('../tools/evaluation/evaluate-baseline.mjs');
+  const { inspectEvaluation } = await import('../tools/evaluation/validate-evaluation.mjs');
+  const { loadModelEvaluationInput } = await import('../tools/evaluation/lib/input.mjs');
+  const { evaluateV2 } = await import('../tools/evaluation/v2/core.mjs');
+  const { evaluationSchemaV2 } = await import('../tools/evaluation/v2/schema.mjs');
+  const { readCsv } = await import('../tools/dataset/lib/csv.mjs');
+  const before = await Promise.all([pipe.rawDir, pipe.gtDir, pipe.modelDir].map(capturePackageFingerprint));
+  const input = await loadModelEvaluationInput(pipe.modelDir, { trainOnly: true });
+  const source = structuredClone(input.trainRows);
+  const corrected = evaluateV2(input.modelManifest, input.modelManifestSha256, input.trainRows, input.warnings);
+  const explicit = evaluateV2(input.modelManifest, input.modelManifestSha256,
+    input.trainRows.map(r => r.city === '香港' && r.country === null ? { ...r, country: '中国' } : r), input.warnings);
+  for (const name of ['overall_metrics.json', 'confusion_matrix.csv', 'score_distribution.csv',
+    'baseline_comparison.csv', 'no_skill_comparison.csv']) {
+    assert.equal(corrected.files[name], explicit.files[name], name);
+  }
+  assert.deepEqual(input.trainRows, source);
+  const cases = readCsv(evaluationSchemaV2().tables.error_cases, corrected.files['error_cases.csv']);
+  assert.equal(cases.find(r => r.snapshot_id === 'snap_fixture_7').country, '中国');
+  assert.ok(cases.every(r => r.split === 'TRAIN'));
+  const warnings = readCsv(evaluationSchemaV2().tables.warnings, corrected.files['reports/warnings.csv']);
+  assert.equal(warnings.filter(r => r.warning_code === 'HONG_KONG_COUNTRY_NORMALIZED').length, 1);
+  assert.throws(() => evaluateV2(input.modelManifest, input.modelManifestSha256,
+    input.trainRows.map(r => r.snapshot_id === 'snap_fixture_7' ? { ...r, city: '深圳' } : r), input.warnings),
+    error => error.code === 'FIELD_INVALID' && error.field === 'country');
+  const out = path.join(root, 'evaluation');
+  for (const evaluationVersion of [1, 2]) {
+    const published = await evaluateBaseline(pipe.modelDir, pipe.rawDir, pipe.gtDir, { output: out, evaluationVersion });
+    assert.equal((await inspectEvaluation(published.directory, { model: pipe.modelDir })).status, 'PASS');
+    const repeated = await evaluateBaseline(pipe.modelDir, pipe.rawDir, pipe.gtDir, { output: out, evaluationVersion });
+    assert.equal(repeated.directory, published.directory);
+  }
+  assert.deepEqual(await Promise.all([pipe.rawDir, pipe.gtDir, pipe.modelDir].map(capturePackageFingerprint)), before);
+});
+
 test('V2 no-skill reference uses distinct TRAIN Events, confidence weights, and lower tie', async () => {
   const { selectNoSkillReference } = await import('../tools/evaluation/v2/no-skill.mjs');
   const rows = [

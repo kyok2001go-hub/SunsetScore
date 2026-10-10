@@ -142,7 +142,7 @@ export const UNITS = Object.freeze([
     probe_offsets: WIDE_OFFSETS,
     wiring_evidence: {
       read_at: [
-        { file: 'js/prediction_service.js', line: 331, token: 'goldenWindow.floor' },
+        { file: 'js/prediction_service.js', line: 335, token: 'goldenWindow.floor' },
         { file: 'js/evolution.js', line: 298, token: 'goldenWindow', binding: 'goldenWindow' }
       ]
     }
@@ -252,8 +252,8 @@ export const UNITS = Object.freeze([
     wiring_evidence: {
       read_at: [{ file: 'js/sky_state.js', line: 149, token: 'factorRange' }],
       truncation_sites: [
-        { file: 'js/prediction_service.js', line: 278, token: '0.65, 1.15' },
-        { file: 'tools/replay/replay-runner.mjs', line: 241, token: '0.65, 1.15' }
+        { file: 'js/prediction_service.js', line: 282, token: '0.65, 1.15' },
+        { file: 'tools/replay/replay-runner.mjs', line: 244, token: '0.65, 1.15' }
       ]
     }
   }),

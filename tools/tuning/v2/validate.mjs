@@ -13,6 +13,7 @@ import { SUPPORT_FILE, inspectSupportDocument, supportDocument } from '../../gt-
 import { cohortProfiles } from '../lib/metrics.mjs';
 import { computeGlobalReadiness } from '../lib/readiness.mjs';
 import { inspectBaselineLinkage } from './baseline-linkage.mjs';
+import { computeRuntimeSha256 } from '../lib/engine-runtime.mjs';
 
 const check = (ok, reason_code) => { if (!ok) fail('TUNING_VALIDATION_FAILED', { reason_code }); };
 const equal = (a, b, reason_code) => check(canonicalJson(a) === canonicalJson(b), reason_code);
@@ -28,6 +29,11 @@ export async function inspectSensitivityV2(directory, options = {}) {
   const manifest = json(await readSafe(path.join(directory, 'manifest.json')));
   check(manifest.tuning_schema_version === 2 && [2, 3].includes(manifest.tuning_policy_version), 'VERSION_MISMATCH');
   const version = manifest.tuning_policy_version;
+  if (options.model && options.raw && options.gt && options.baseline) {
+    // Fail before a long experimental recomputation when the code bytes no
+    // longer match this package's frozen runtime (including line endings).
+    equal(manifest.engine_runtime_sha256, await computeRuntimeSha256(options.root), 'ENGINE_RUNTIME_MISMATCH');
+  }
   const { policy: POLICY_V2, schema: SCHEMA_V2, files: FILES_V2 } = tuningContract(version);
   if (!options.staging) check(path.basename(path.resolve(directory)) === manifest.sensitivity_id, 'DIRECTORY_ID_MISMATCH');
   equal((await inventory(directory)).sort(compare), [...FILES_V2, 'manifest.json'].sort(compare), 'INVENTORY_MISMATCH');

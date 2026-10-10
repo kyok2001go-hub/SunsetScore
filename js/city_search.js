@@ -74,12 +74,17 @@
     }
     var population = Number.isFinite(row.population) && row.population >= 0 ? row.population : 0;
     if (!administrativeSeats[row.feature_code] && !(row.feature_code === 'PPL' && population >= SS.config.citySearch.minTownPopulation)) return null;
+    // GeoNames may omit Hong Kong's administrative labels. Use provider identity,
+    // not the query/name or timezone alone; preserve the provider ID and coordinates.
+    var countryCode = typeof row.country_code === 'string' ? row.country_code : '';
+    var hongKong = row.latitude >= 22.1 && row.latitude <= 22.6 && row.longitude >= 113.8 && row.longitude <= 114.5 &&
+      (countryCode.toUpperCase() === 'HK' || (!countryCode.trim() && row.id === 1819729 && row.timezone === 'Asia/Hong_Kong'));
     return {
       id: Number.isInteger(row.id) && row.id > 0 ? row.id : null,
       source: 'openmeteo', coordinate_system: 'WGS84',
-      name: row.name.trim(), country: typeof row.country === 'string' ? row.country : '',
-      country_code: typeof row.country_code === 'string' ? row.country_code : '',
-      admin1: typeof row.admin1 === 'string' ? row.admin1 : '',
+      name: row.name.trim(), country: hongKong ? '中国' : (typeof row.country === 'string' ? row.country : ''),
+      country_code: countryCode,
+      admin1: typeof row.admin1 === 'string' && row.admin1.trim() ? row.admin1 : (hongKong ? '香港特别行政区' : ''),
       admin2: typeof row.admin2 === 'string' ? row.admin2 : '',
       latitude: row.latitude, longitude: row.longitude,
       timezone: typeof row.timezone === 'string' ? row.timezone : 'auto',

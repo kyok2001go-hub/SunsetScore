@@ -14,6 +14,7 @@
     "replay:benchmark": "node tools/replay/benchmark-replay.mjs",
     "replay:phase0": "node tools/replay/phase0-check.mjs",
     "dataset:export": "node tools/dataset/export-dataset.mjs",
+    "dataset:exclude-replay-failures": "node tools/dataset/exclude-replay-failures.mjs",
     "dataset:validate": "node tools/dataset/validate-dataset.mjs",
     "dataset:stats": "node tools/dataset/dataset-stats.mjs",
     "gt:build": "node tools/ground-truth/build-ground-truth.mjs",

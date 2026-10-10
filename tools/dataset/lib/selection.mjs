@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { datasetSchema, SNAPSHOT_OFFLINE_FIELDS, canonicalUtc, validDate } from '../dataset-schema.mjs';
 import { compare, fail, rowOrder, safeId, unique } from './common.mjs';
+import { assertReplayExclusion } from './replay-exclusion.mjs';
 
 export const REPLAY_METADATA = ['replay_status', 'replay_schema_version', 'replay_object_key',
   'replay_size_bytes', 'replay_sha256', 'replay_object_etag', 'replay_compression',
@@ -59,7 +60,9 @@ export function assertSelection(selection) {
   }
   if (typeof selection?.include_comments !== 'boolean') fail('SELECTION_INVALID');
   if (selection.include_comments) args.push('--include-comments');
-  return parseExportArgs(args).selection;
+  const result = parseExportArgs(args).selection;
+  if (selection.replay_exclusion !== undefined) result.replay_exclusion = assertReplayExclusion(selection.replay_exclusion);
+  return result;
 }
 export const literal = value => `'${String(value).replaceAll("'", "''")}'`;
 const listCondition = (column, values) => values ? `${column} COLLATE BINARY IN (${values.map(literal).join(',')})` : '1=1';

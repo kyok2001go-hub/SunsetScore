@@ -265,7 +265,10 @@ export async function scanDataset(options = {}) {
         }));
         continue;
       }
-      if (parent.phase >= node.phase) {
+      const rawDerivation = parent.phase_key === 'raw' && node.phase_key === 'raw' && parent.id !== node.id &&
+        dependency.idField === 'selection.replay_exclusion.parent_dataset_id' &&
+        dependency.expectedManifestSha256 !== null && !(parent._dependencies || []).length;
+      if (parent.phase >= node.phase && !rawDerivation) {
         diagnostics.push(diagnostic('PHASE_ORDER_INVALID', {
           nodeId: node.id, relatedId: parent.id,
           detail: { field: dependency.idField, parent_phase: parent.phase, child_phase: node.phase }

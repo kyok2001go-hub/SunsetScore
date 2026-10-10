@@ -31,6 +31,18 @@ function compareNodesDescending(a, b) {
   return b.phase - a.phase || compare(a.id, b.id);
 }
 
+/** Children always precede parents, including audited Raw -> Raw derivations. */
+export function orderForDeletion(nodes, edges) {
+  const remaining = nodes.slice().sort(compareNodesDescending), ordered = [];
+  while (remaining.length) {
+    const ids = new Set(remaining.map(node => node.id));
+    const index = remaining.findIndex(node => !edges.some(edge => edge.parent_id === node.id && ids.has(edge.child_id)));
+    if (index < 0) fail('MAINTENANCE_PLAN_INVALID', { reason_code: 'DEPENDENCY_CYCLE' });
+    ordered.push(remaining.splice(index, 1)[0]);
+  }
+  return ordered;
+}
+
 /** Breadth-first walk over dependent packages, keeping the edge that first reached each node. */
 function reachabilityReasons(graph, targetId) {
   const reasons = new Map([[targetId, [{ kind: 'TARGET' }]]]);
@@ -105,7 +117,7 @@ export function buildPrunePlan({ graph, targetId, datasetRoot, createdAt }) {
       reasons: (reasons.get(node.id) || []).map(reason => reason.kind === 'TARGET'
         ? { kind: 'TARGET' } : { kind: reason.kind, via: reason.via, id_field: reason.id_field })
     })).sort(compareNodesAscending),
-    execution_order: nodes.slice().sort(compareNodesDescending).map(node => ({ phase: node.phase, id: node.id })),
+    execution_order: orderForDeletion(nodes, edges).map(node => ({ phase: node.phase, id: node.id })),
     edges,
     blockers,
     advisories
@@ -245,7 +257,7 @@ export async function applyPrunePlan(options) {
     await mkdir(quarantine, { recursive: true });
     const log = await readLog(logPath);
     progress.stage('按 Phase 6 → Phase 1 顺序清理');
-    for (const target of plan.targets.slice().sort(compareNodesDescending)) {
+    for (const target of orderForDeletion(plan.targets, plan.edges)) {
       const { source } = targetPaths(datasetRoot, target);
       const destination = path.join(quarantine, `phase${target.phase}`, target.id);
       const recorded = log.get(target.id) || null;

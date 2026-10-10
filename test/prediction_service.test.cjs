@@ -10,6 +10,71 @@ const SERVICE_FILES = [
   'js/nowcast.js', 'js/evolution.js', 'js/replay_service.js', 'js/prediction_service.js', 'js/feedback_service.js'
 ];
 
+test('Hong Kong metadata reaches scheduled/feedback snapshots and Replay with stable Event identity', async () => {
+  const SS = load(createRuntime(), [...SERVICE_FILES,
+    'js/event_service.js', 'js/snapshot_service.js', 'js/observation_service.js']);
+  const fc = forecast(); fc.timezone = 'Asia/Hong_Kong'; fc.utc_offset_seconds = 28800;
+  const location = { id: 1819729, name: '香港', feature_code: 'PPLC', country_code: 'HK',
+    latitude: 22.27832, longitude: 114.17469, timezone: 'Asia/Hong_Kong', population: 7482500 };
+  let geocodes = 0;
+  SS.data.searchDomesticLocations = async () => [];
+  SS.data.searchLocations = async () => { geocodes++; return [location]; };
+  SS.data.fetchForecastWithRetry = async () => fc;
+  SS.data.fetchAirQuality = async () => null;
+  SS.data.gather = async nodes => ({ samples: nodes.map(point => ({ point, forecast: fc })), successCount: nodes.length });
+  const nowUtcMs = Date.parse('2026-08-26T02:00:00Z');
+  const result = await SS.prediction.predict('香港', { nowUtcMs });
+  assert.equal(result.country, '中国');
+  assert.equal(result.admin1, '香港特别行政区');
+  assert.equal(result.location_source, 'openmeteo');
+  assert.equal(result.location_id, '1819729');
+  assert.equal(result.timezone, location.timezone);
+  const originalEvent = await SS.eventService.context({ ...result, country: '', admin1: '' });
+  for (const source of ['github_schedule', 'github_manual', 'user_feedback']) {
+    const payload = await SS.snapshotService.buildPayload(result, {
+      source, scheduledSlot: '1213', submissionId: 'hk-metadata-test', nowUtcMs
+    });
+    assert.equal(payload.event_context.country, '中国');
+    assert.equal(payload.event_context.admin1, '香港特别行政区');
+    assert.equal(payload.event_context.event_id, originalEvent.event_id);
+    assert.equal(payload.event_context.location_key, 'openmeteo:1819729');
+    const server = await import('../server/event-dataset.js');
+    const row = await server.buildSnapshotRow(payload, { submissionId: 'hk-metadata-test' });
+    assert.equal(row.country, '中国');
+    assert.equal(row.admin1, '香港特别行政区');
+    assert.equal(row.event_id, originalEvent.event_id);
+  }
+  const feedback = await SS.observationService.buildPayload(result, {
+    rating: 'good', submissionId: 'hk-observation-test', nowUtcMs
+  });
+  assert.equal(feedback.observation.event_context.country, '中国');
+  assert.equal(feedback.snapshot.event_context.admin1, '香港特别行政区');
+  assert.equal(feedback.observation.event_context.event_id, originalEvent.event_id);
+
+  const index = SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location)));
+  const cached = SS.cache.get(index.resultKey);
+  SS.cache.set(index.resultKey, { ...cached, country: '', admin1: '' }, 60);
+  const refreshed = await SS.prediction.predict('香港', { nowUtcMs, location });
+  assert.equal(refreshed.result_cache_status, 'MISS', 'legacy metadata cache must not be submitted');
+  assert.equal(refreshed.country, '中国');
+  assert.equal(refreshed.admin1, '香港特别行政区');
+  assert.equal(refreshed.score, result.score);
+  assert.deepEqual(refreshed.components, result.components);
+  const hit = await SS.prediction.predict('香港', { nowUtcMs, location });
+  assert.equal(hit.result_cache_status, 'HIT', 'corrected results remain cacheable');
+  assert.equal(hit.country, '中国');
+  const replay = await SS.prediction.predict('香港', { nowUtcMs, captureReplay: true });
+  assert.equal(replay.replay_payload.context.country, '中国');
+  assert.equal(replay.replay_payload.context.admin1, '香港特别行政区');
+  assert.equal(replay.replay_payload.context.timezone, location.timezone);
+  const schema = await import('../server/replay-schema.js');
+  const server = await import('../server/event-dataset.js');
+  const snapshot = await SS.snapshotService.buildPayload(replay, { source: 'github_schedule', scheduledSlot: '1213', nowUtcMs });
+  await assert.doesNotReject(schema.validateReplayPayload(replay.replay_payload, await server.buildSnapshotRow(snapshot)));
+  assert.equal((await SS.eventService.context(replay)).event_id, originalEvent.event_id);
+  assert.equal(geocodes, 2, 'only the initial name query uses provider variants; selections reuse identity');
+});
+
 test('prediction service runs without DOM and returns a valid V2.4 result', async () => {
   const runtime = createRuntime();
   const SS = load(runtime, SERVICE_FILES);

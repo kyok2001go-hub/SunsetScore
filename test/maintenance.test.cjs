@@ -41,6 +41,23 @@ async function tempDataset(t) {
   return dir;
 }
 
+test('audited Raw derivation retains its source edge and is pruned before the original regardless of ID order', async t => {
+  const m = await api(), root = await tempDataset(t);
+  const parent = await writePackage(m, root, 'exports', ID.rawA, { offline_dataset_schema_version: 1, dataset_id: ID.rawA });
+  await writePackage(m, root, 'exports', ID.rawB, { offline_dataset_schema_version: 1, dataset_id: ID.rawB,
+    selection: { replay_exclusion: { parent_dataset_id: ID.rawA, parent_manifest_sha256: parent.manifestSha256 } } });
+  const graph = await m.scanDataset({ datasetRoot: root });
+  assert.equal(graph.diagnostics.filter(row => row.severity === 'ERROR').length, 0, JSON.stringify(graph.diagnostics));
+  assert.equal(graph.edges[0].parent_id, ID.rawA); assert.equal(graph.edges[0].child_id, ID.rawB);
+  const plan = m.buildPrunePlan({ graph, targetId: ID.rawA, datasetRoot: root });
+  assert.equal(plan.status, 'READY');
+  assert.deepEqual(plan.execution_order.map(row => row.id), [ID.rawB, ID.rawA]);
+  const childOnly = m.buildPrunePlan({ graph, targetId: ID.rawB, datasetRoot: root });
+  assert.deepEqual(childOnly.execution_order.map(row => row.id), [ID.rawB]);
+  assert.throws(() => m.orderForDeletion([{ id: 'a', phase: 1 }, { id: 'b', phase: 1 }],
+    [{ parent_id: 'a', child_id: 'b' }, { parent_id: 'b', child_id: 'a' }]), /PLAN_INVALID/);
+});
+
 /** Writes one fixture package whose descriptor hash is genuinely derived, as the scanner requires. */
 async function writePackage(m, datasetRoot, relativeRoot, id, manifest) {
   const directory = path.join(datasetRoot, relativeRoot, id);

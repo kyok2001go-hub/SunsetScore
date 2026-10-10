@@ -40,7 +40,10 @@ export async function buildManifest(directory, tables, options) {
     created_at_utc: options.createdAt || new Date().toISOString(),
     export_cutoff_epoch: options.cutoff, export_cutoff_utc: new Date(options.cutoff).toISOString(),
     selection: options.selection, consistency_policy: CONSISTENCY_POLICY,
-    provenance: { database: options.database, bucket: options.bucket, exporter_version: '2.4.8', exporter_commit: options.commit || null },
+    provenance: options.selection.replay_exclusion
+      ? { source_type: 'OFFLINE_REPLAY_EXCLUSION', parent_dataset_id: options.selection.replay_exclusion.parent_dataset_id,
+        parent_manifest_sha256: options.selection.replay_exclusion.parent_manifest_sha256 }
+      : { database: options.database, bucket: options.bucket, exporter_version: '2.4.8', exporter_commit: options.commit || null },
     counts: { snapshots: tables.prediction_snapshots.length, observations: tables.sunset_observations.length,
       events: tables.events.length, replays: tables.replay_index.length },
     versions: datasetVersions(tables), files, replay_set_sha256: descriptor.replay_set_sha256, descriptor };
