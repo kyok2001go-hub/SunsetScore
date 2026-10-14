@@ -9,6 +9,7 @@ import { inspectEvaluation } from '../../evaluation/validate-evaluation.mjs';
 import { inspectSensitivity } from '../../tuning/validate-sensitivity.mjs';
 import { tuningContract } from '../../tuning/v2/contract.mjs';
 import { supportDigest, gtLevelSupport } from '../../gt-level-support.mjs';
+import { formalContextIdentity, inspectFormalContext } from '../../formal/context.mjs';
 
 /**
  * Phase 6 access boundary.
@@ -80,39 +81,18 @@ export async function fingerprintSourcePackage(directory) {
   return fingerprints;
 }
 
-async function inspectForwardCompatiblePackage(directory, manifest, label) {
-  const expected = [...Object.keys(manifest.files || {}), 'manifest.json'].sort(compare);
-  const actual = (await inventory(directory)).sort(compare);
-  if (canonicalJson(actual) !== canonicalJson(expected)) {
-    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: `${label}_INVENTORY_MISMATCH` });
-  }
-  for (const file of Object.keys(manifest.files).sort(compare)) {
-    const bytes = await readSafe(path.join(directory, file));
-    const entry = manifest.files[file];
-    if (hash(bytes) !== entry.sha256 || bytes.length !== entry.bytes) {
-      fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: `${label}_FILE_HASH`, detail: file });
-    }
-  }
-  if (hash(canonicalJson(manifest.descriptor)) !== manifest.descriptor_sha256) {
-    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: `${label}_DESCRIPTOR_SHA_MISMATCH` });
-  }
-  return manifest;
-}
-
 async function inspectForwardCompatibleSensitivity(directory, manifest) {
-  if (!Number.isInteger(manifest.tuning_schema_version) || manifest.tuning_schema_version < 2 ||
-      !Number.isInteger(manifest.tuning_policy_version) || manifest.tuning_policy_version < 4) {
+  if (manifest.tuning_schema_version !== 3 || manifest.tuning_policy_version !== 4) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_VERSION_UNSUPPORTED' });
   }
-  return inspectForwardCompatiblePackage(directory, manifest, 'SENSITIVITY');
+  return (await inspectSensitivity(directory)).manifest;
 }
 
 async function inspectForwardCompatibleEvaluation(directory, manifest) {
-  if (!Number.isInteger(manifest.evaluation_schema_version) || manifest.evaluation_schema_version < 2 ||
-      !Number.isInteger(manifest.evaluation_policy_version) || manifest.evaluation_policy_version < 3) {
+  if (manifest.evaluation_schema_version !== 3 || manifest.evaluation_policy_version !== 3) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'EVALUATION_VERSION_UNSUPPORTED' });
   }
-  await inspectForwardCompatiblePackage(directory, manifest, 'EVALUATION');
+  await inspectEvaluation(directory);
   const schema = parseCanonical(await readSafe(path.join(directory, 'schema.json')), 'schema.json');
   const sourcePolicy = parseCanonical(await readSafe(path.join(directory, 'policy.json')), 'policy.json');
   if (schema.evaluation_schema_version !== manifest.evaluation_schema_version ||
@@ -133,8 +113,8 @@ export async function loadSensitivityPackage(directory, options = {}) {
   const before = await fingerprintSensitivity(directory);
   const manifestBytes = await readSensitivityFile(directory, 'manifest.json');
   const manifest = parseCanonical(manifestBytes, 'manifest.json');
-  if (!Number.isInteger(manifest.tuning_schema_version) || manifest.tuning_schema_version < 2 ||
-      !Number.isInteger(manifest.tuning_policy_version) || manifest.tuning_policy_version < 2) {
+  if (!((manifest.tuning_schema_version === 2 && [2, 3].includes(manifest.tuning_policy_version)) ||
+      (manifest.tuning_schema_version === 3 && manifest.tuning_policy_version === 4))) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_VERSION_UNSUPPORTED' });
   }
   if (!options.staging && path.basename(path.resolve(directory)) !== manifest.sensitivity_id) {
@@ -158,6 +138,17 @@ export async function loadSensitivityPackage(directory, options = {}) {
   const readiness = parseCanonical(await readSensitivityFile(directory, 'readiness.json'), 'readiness.json');
   const schema = parseCanonical(await readSensitivityFile(directory, 'schema.json'), 'schema.json');
   const sourcePolicy = parseCanonical(await readSensitivityFile(directory, 'policy.json'), 'policy.json');
+  let formalContext = null;
+  if (manifest.tuning_policy_version === 4) {
+    const bytes = await readSafe(path.join(directory, 'formal_context.json'));
+    if (hash(bytes) !== manifest.files['formal_context.json']?.sha256 || bytes.length !== manifest.files['formal_context.json']?.bytes) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FORMAL_CONTEXT_HASH_MISMATCH' });
+    before['formal_context.json'] = hash(bytes);
+    formalContext = inspectFormalContext(parseCanonical(bytes, 'formal_context.json'));
+    const contract = tuningContract(4);
+    if (canonicalJson(schema) !== canonicalJson(contract.schema) || canonicalJson(sourcePolicy) !== canonicalJson(contract.policy) ||
+        manifest.metric_readiness?.status !== 'READY' || readiness.global_readiness !== 'READY' || manifest.mapping_status !== 'READY') fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FORMAL_SENSITIVITY_CONTRACT' });
+    for (const [key, value] of Object.entries(formalContextIdentity(formalContext))) if (manifest[key] !== value) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FORMAL_SENSITIVITY_CONTEXT_MISMATCH' });
+  }
   if (manifest.tuning_policy_version === 3) {
     const contract = tuningContract(3);
     if (canonicalJson(schema) !== canonicalJson(contract.schema) ||
@@ -191,11 +182,12 @@ export async function loadSensitivityPackage(directory, options = {}) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_HOLDOUT_CONTRACT' });
   }
   const after = await fingerprintSensitivity(directory);
+  if (formalContext) after['formal_context.json'] = hash(await readSafe(path.join(directory, 'formal_context.json')));
   if (canonicalJson(before) !== canonicalJson(after)) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SENSITIVITY_CHANGED_DURING_READ' });
   }
   return {
-    manifest,
+    manifest, formalContext,
     manifestSha256: after['manifest.json'],
     registry,
     baseConfig,
@@ -225,17 +217,17 @@ export async function loadSensitivityPackage(directory, options = {}) {
       mapping_status: manifest.mapping_status,
       interpretation_scope: manifest.interpretation_scope,
       no_skill_reference_ordinal: manifest.no_skill_reference_ordinal,
-      validation_disclosure_status: manifest.validation_disclosure_status === 'NOT_ATTESTED'
+      validation_disclosure_status: !formalContext && manifest.validation_disclosure_status === 'NOT_ATTESTED'
         ? 'DEVELOPMENT_EXPOSED' : manifest.validation_disclosure_status,
       validation_disclosure_evidence_id: manifest.validation_disclosure_evidence_id ?? null,
       validation_disclosure_evidence_sha256: manifest.validation_disclosure_evidence_sha256 ?? null,
       validation_access_ledger_sha256: manifest.validation_access_ledger_sha256 ?? null,
-      ...(manifest.tuning_policy_version === 3 ? { upstream_train_support: {
+      ...(manifest.tuning_policy_version >= 3 ? { upstream_train_support: {
         sensitivity_id: manifest.sensitivity_id, gt_level_support: manifest.gt_level_support,
         gt_level_support_sha256: manifest.gt_level_support_sha256,
         limitation_codes: manifest.gt_level_support.limitation_codes,
         conclusion_limitations: manifest.gt_level_support.conclusion_limitations
-      } } : {})
+      } } : {}), ...(formalContext ? formalContextIdentity(formalContext) : {})
     },
     fingerprints: after
   };
@@ -283,23 +275,24 @@ export function cohortSummary(rows) {
  * engine that would actually replay the candidates.
  */
 export async function loadOptimizationInput({ model, raw, gt, baseline, sensitivity, progress = silentProgress, root,
-  optimizationPolicyVersion = 1 }) {
+  optimizationPolicyVersion = 1, ...formalOptions }) {
   progress.stage('Phase A：上游来源关联验收');
   const upstream = await verifyUpstreamSources(model, raw, gt, progress);
   const evaluationManifest = parseCanonical(await readSafe(path.join(baseline, 'manifest.json')), 'manifest.json');
-  if ([1, 2].includes(evaluationManifest.evaluation_schema_version) &&
-      [1, 2].includes(evaluationManifest.evaluation_policy_version)) {
+  if ([1, 2, 3].includes(evaluationManifest.evaluation_schema_version) &&
+      [1, 2, 3].includes(evaluationManifest.evaluation_policy_version)) {
     await inspectEvaluation(baseline, { model, progress });
   } else {
     await inspectForwardCompatibleEvaluation(baseline, evaluationManifest);
   }
   const sensitivityManifest = parseCanonical(await readSafe(path.join(sensitivity, 'manifest.json')), 'manifest.json');
-  if (optimizationPolicyVersion === 2 ? sensitivityManifest.tuning_policy_version !== 3 :
-      sensitivityManifest.tuning_policy_version === 3) {
+  if (sensitivityManifest.tuning_policy_version !== ({ 1: 2, 2: 3, 3: 4 })[optimizationPolicyVersion] ||
+      evaluationManifest.evaluation_policy_version !== (optimizationPolicyVersion === 3 ? 3 : 2)) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
   }
-  if (sensitivityManifest.tuning_schema_version === 2 && [2, 3].includes(sensitivityManifest.tuning_policy_version)) {
-    await inspectSensitivity(sensitivity, { model, raw, gt, baseline, progress, root });
+  if ((sensitivityManifest.tuning_schema_version === 2 && [2, 3].includes(sensitivityManifest.tuning_policy_version)) ||
+      (sensitivityManifest.tuning_schema_version === 3 && sensitivityManifest.tuning_policy_version === 4)) {
+    await inspectSensitivity(sensitivity, { ...formalOptions, model, raw, gt, baseline, progress, root });
   } else {
     await inspectForwardCompatibleSensitivity(sensitivity, sensitivityManifest);
   }
@@ -329,7 +322,7 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
   const modelDatasetId = header.manifest.model_dataset_id;
   const evaluationId = evaluation.evaluation_id;
   const linkage = sensitivityInput.linkage;
-  if (optimizationPolicyVersion === 2 && canonicalJson(gtLevelSupport(rows, 'TRAIN')) !==
+  if (optimizationPolicyVersion >= 2 && canonicalJson(gtLevelSupport(rows, 'TRAIN')) !==
       canonicalJson(linkage.upstream_train_support.gt_level_support)) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UPSTREAM_TRAIN_SUPPORT_MISMATCH' });
   }
@@ -359,7 +352,7 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
   const cohort = await loadReplayCohort({ rows, rawDir: raw, progress });
 
   return {
-    upstream,
+    upstream, optimizationPolicyVersion,
     sourceFingerprints,
     model: {
       manifest: header.manifest,
@@ -408,6 +401,7 @@ export function sourceIdentity(input) {
     validation_disclosure_evidence_id: input.sensitivity.linkage.validation_disclosure_evidence_id,
     validation_disclosure_evidence_sha256: input.sensitivity.linkage.validation_disclosure_evidence_sha256,
     validation_access_ledger_sha256: input.sensitivity.linkage.validation_access_ledger_sha256,
+    ...(input.sensitivity.formalContext ? formalContextIdentity(input.sensitivity.formalContext) : {}),
     ...(input.sensitivity.linkage.upstream_train_support ? {
       upstream_train_support: input.sensitivity.linkage.upstream_train_support
     } : {})
@@ -416,13 +410,13 @@ export function sourceIdentity(input) {
 
 export function verifiedSourceIdentities(input) {
   return {
-    optimization_schema_version: 1,
+    optimization_schema_version: input.optimizationPolicyVersion === 3 ? 2 : 1,
     verification_phase: 'PHASE_A_SOURCE_LINKED',
     upstream_status: input.upstream.status,
     upstream_validation_scope: input.upstream.validation_scope,
     computation_access_policy: 'TRAIN_ONLY',
     model_allow_files: [...MODEL_ALLOW_FILES],
-    sensitivity_allow_files: [...SENSITIVITY_ALLOW_FILES],
+    sensitivity_allow_files: [...SENSITIVITY_ALLOW_FILES, ...(input.sensitivity.formalContext ? ['formal_context.json'] : [])],
     identities: sourceIdentity(input),
     model_file_sha256: Object.fromEntries(Object.keys(input.model.fingerprints).sort(compare)
       .map(file => [file, input.model.fingerprints[file]])),

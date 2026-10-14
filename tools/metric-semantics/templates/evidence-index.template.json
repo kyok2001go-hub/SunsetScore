@@ -1,0 +1,6 @@
+{
+  "evidence_index_schema_version": 1,
+  "selection_rule": "填写事前选样规则，不能依候选误差选择",
+  "scope": {"locations":["<实际location_key>"],"date_from":"<YYYY-MM-DD>","date_to":"<YYYY-MM-DD>","source_kinds":["<实际来源>"],"limitations":["填写真实证据限制"]},
+  "samples": [{"event_id":"<实际Event ID>","location_key":"<实际location_key>","event_date_local":"<YYYY-MM-DD>","timezone":"<实际IANA时区>","sunset_at_utc":"<实际UTC日落时间>","observed_at_utc":"<实际UTC观测时间>","source_kind":"<实际来源>","evidence_sha256":"<实际文件SHA256>","evidence_permission_attested":false,"asset_path":"assets/<相对文件名>","content_type":"image/jpeg"}]
+}

@@ -26,23 +26,40 @@
     "model-dataset:stats": "node tools/model-dataset/model-dataset-stats.mjs",
     "evaluation:baseline": "node tools/evaluation/evaluate-baseline.mjs",
     "evaluation:validate": "node tools/evaluation/validate-evaluation.mjs",
-    "evaluation:stats": "node tools/evaluation/evaluation-stats.mjs"
-    ,"tuning:readiness": "node tools/tuning/readiness.mjs"
-    ,"tuning:plan": "node tools/tuning/plan-sensitivity.mjs"
-    ,"tuning:sensitivity": "node tools/tuning/run-sensitivity.mjs"
-    ,"tuning:candidate": "node tools/tuning/evaluate-candidate.mjs"
-    ,"tuning:validate": "node tools/tuning/validate-sensitivity.mjs"
-    ,"tuning:stats": "node tools/tuning/sensitivity-stats.mjs"
-    ,"optimization:plan": "node tools/optimization/plan-optimization.mjs"
-    ,"optimization:run": "node tools/optimization/run-optimization.mjs"
-    ,"optimization:validate": "node tools/optimization/validate-optimization.mjs"
-    ,"optimization:stats": "node tools/optimization/optimization-stats.mjs"
-    ,"dataset:lineage": "node tools/maintenance/lineage.mjs"
-    ,"dataset:prune": "node tools/maintenance/prune.mjs"
-    ,"validation:plan": "node tools/validation/plan-validation.mjs"
-    ,"validation:run": "node tools/validation/run-validation.mjs"
-    ,"validation:validate": "node tools/validation/validate-validation.mjs"
-    ,"validation:stats": "node tools/validation/validation-stats.mjs"
+    "evaluation:stats": "node tools/evaluation/evaluation-stats.mjs",
+    "tuning:readiness": "node tools/tuning/readiness.mjs",
+    "tuning:plan": "node tools/tuning/plan-sensitivity.mjs",
+    "tuning:sensitivity": "node tools/tuning/run-sensitivity.mjs",
+    "tuning:candidate": "node tools/tuning/evaluate-candidate.mjs",
+    "tuning:validate": "node tools/tuning/validate-sensitivity.mjs",
+    "tuning:stats": "node tools/tuning/sensitivity-stats.mjs",
+    "optimization:plan": "node tools/optimization/plan-optimization.mjs",
+    "optimization:run": "node tools/optimization/run-optimization.mjs",
+    "optimization:validate": "node tools/optimization/validate-optimization.mjs",
+    "optimization:stats": "node tools/optimization/optimization-stats.mjs",
+    "dataset:lineage": "node tools/maintenance/lineage.mjs",
+    "dataset:prune": "node tools/maintenance/prune.mjs",
+    "validation:plan": "node tools/validation/plan-validation.mjs",
+    "validation:run": "node tools/validation/run-validation.mjs",
+    "validation:validate": "node tools/validation/validate-validation.mjs",
+    "validation:stats": "node tools/validation/validation-stats.mjs",
+    "validation:recover": "node tools/validation/recover-publication.mjs",
+    "experiment-runtime:freeze": "node tools/experiment-runtime/runtime.mjs freeze",
+    "experiment-runtime:verify": "node tools/experiment-runtime/runtime.mjs verify",
+    "replay-quality:plan": "node tools/replay-quality/quality.mjs plan",
+    "replay-quality:run": "node tools/replay-quality/quality.mjs run",
+    "replay-quality:verify": "node tools/replay-quality/quality.mjs verify",
+    "metric:confirm": "node tools/metric-semantics/metric.mjs confirm",
+    "metric:rubric": "node tools/metric-semantics/metric.mjs rubric",
+    "metric:template": "node tools/metric-semantics/metric.mjs template",
+    "metric:pilot": "node tools/metric-semantics/metric.mjs pilot",
+    "metric:review-plan": "node tools/metric-semantics/metric.mjs review-plan",
+    "metric:review": "node tools/metric-semantics/metric.mjs review",
+    "metric:validate": "node tools/metric-semantics/metric.mjs validate",
+    "campaign:plan": "node tools/campaign/cli.mjs plan",
+    "campaign:freeze": "node tools/campaign/cli.mjs freeze",
+    "campaign:validate": "node tools/campaign/cli.mjs validate",
+    "campaign:disclosure": "node tools/campaign/cli.mjs disclosure"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

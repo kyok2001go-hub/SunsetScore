@@ -1,0 +1,16 @@
+{
+  "rubric_specification_version": 1,
+  "task": "SUNSET_AESTHETIC_FIVE_LEVEL",
+  "levels": [
+    {"label":"poor","ordinal":0,"definition":"有足够证据，但基本没有可辨识的晚霞观赏表现。","boundary":"与证据不足区分；不能把没有照片判成 poor。","example_refs":[]},
+    {"label":"fair","ordinal":1,"definition":"有轻微色彩或局部表现，整体较弱。","boundary":"相较 poor 有实际可辨识的色彩，尚未形成明确整体表现。","example_refs":[]},
+    {"label":"good","ordinal":2,"definition":"明确可辨识的色彩或云层表现，有通常观赏价值。","boundary":"相较 fair 表现明确；相较 very_good 不要求突出整体层次或范围。","example_refs":[]},
+    {"label":"very_good","ordinal":3,"definition":"色彩、层次、覆盖范围等有突出表现，整体质量较高。","boundary":"需整体证据，不能仅凭高饱和局部裁剪升级。","example_refs":[]},
+    {"label":"excellent","ordinal":4,"definition":"异常突出的整体晚霞表现，符合经审核的典型案例和边界。","boundary":"稀有等级；不足五 Event 不证明单级效果。","example_refs":[]}
+  ],
+  "observation_window": {"reference":"LOCAL_SUNSET","before_minutes":30,"after_minutes":30},
+  "evidence_selection_rule": "草案：收集声明窗口内全部合法证据，记录时间覆盖，不能按预测误差选片；试标后在独立复核前冻结。",
+  "event_aggregation_rule": "草案：按整体证据的代表性表现判定，不以最高饱和单图等同整个窗口；歧义在试标阶段记录并修订。",
+  "unassessable_conditions": ["证据缺失","地点或时间无法关联","严重遮挡","严重编辑导致无法判断"],
+  "evidence_quality_rule": "记录滤镜、编辑、角度和时间覆盖；不足以判断时 UNASSESSABLE，不推断 poor。"
+}

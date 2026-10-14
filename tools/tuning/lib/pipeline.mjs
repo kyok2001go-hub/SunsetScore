@@ -19,7 +19,7 @@ import { canonicalJson, hash } from '../../dataset/lib/common.mjs';
  * experiment runs.
  */
 export async function prepareContext({ model, raw, gt, baseline, progress = silentProgress, root = APP_ROOT,
-  tuningVersion, supportPolicyVersion }) {
+  tuningVersion, supportPolicyVersion, canonicalLocations = false }) {
   validateRegistryShape();
   const upstream = await verifyUpstreamSources(model, raw, gt, progress);
   const input = await loadTuningInput(model, { progress });
@@ -34,11 +34,12 @@ export async function prepareContext({ model, raw, gt, baseline, progress = sile
   const constraintChecks = validateBaseConfig(UNITS, loaded.config);
   const composition = await verifyCompositionParity(root);
   const cohort = await loadReplayCohort({ rows: input.rows, rawDir: raw, progress });
-  const parity = await verifyReplayParity({ cohort, runReplay: (await import('../../replay/replay-runner.mjs')).runReplay, progress });
+  const runner = (await import('../../replay/replay-runner.mjs')).runReplay;
+  const parity = await verifyReplayParity({ cohort, runReplay: (replay, options) => runner(replay, { ...options, engineRoot: root }), progress });
 
   const registry = registryDocument();
   const registrySha256 = hash(canonicalJson(registry));
-  const profiles = cohortProfiles(input.rows);
+  const profiles = cohortProfiles(input.rows, { canonicalLocations: tuningVersion === 4 || canonicalLocations });
   const integrityChecks = [
     { id: 'UPSTREAM_SOURCE_LINKED_FAILED', ok: upstream.validation_scope === 'SOURCE_LINKED' },
     { id: 'REPLAY_PARITY_FAILED', ok: parity.summary.fail_count === 0 },
@@ -50,7 +51,7 @@ export async function prepareContext({ model, raw, gt, baseline, progress = sile
   ];
   const readiness = computeGlobalReadiness({ profiles, replaySummary: parity.summary,
     integrity: { checks: integrityChecks }, rows: input.rows,
-    supportPolicyVersion: tuningVersion === 3 ? 3 : supportPolicyVersion });
+    supportPolicyVersion: [3, 4].includes(tuningVersion) ? 3 : supportPolicyVersion });
   if (readiness.global_readiness === 'NOT_READY') {
     fail('TUNING_VALIDATION_FAILED', { reason_code: 'TUNING_NOT_READY', detail: readiness.reasons });
   }
@@ -58,7 +59,7 @@ export async function prepareContext({ model, raw, gt, baseline, progress = sile
   const observedConfigs = unique(input.rows.map(row => row.config_hash));
 
   return {
-    upstream, input, linkage, engineRuntime, loaded, modelConfig, audit, constraintChecks,
+    upstream, input, linkage, engineRuntime, loaded, modelConfig, audit, constraintChecks, root,
     composition, cohort, parity, registry, registrySha256, profiles, readiness,
     observedBuilds, observedConfigs,
     units: UNITS, ablations: ABLATIONS,

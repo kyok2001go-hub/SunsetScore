@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from 'node:path';
 import { isMain } from '../dataset/lib/common.mjs';
 import { runCli } from './lib/cli.mjs';
 import { prepareContext } from './lib/pipeline.mjs';
@@ -6,8 +7,23 @@ import { parameterReadiness } from './lib/readiness.mjs';
 import { supportMetrics } from './lib/replay-cohort.mjs';
 import { tuningPolicy } from './tuning-policy.mjs';
 import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
+import { formalMissingReasons, loadFormalContext, formalContextIdentity, registerTrainAccess, withFormalLeases } from '../formal/context.mjs';
 
 export async function tuningReadiness(options) {
+  if (options.tuningVersion === 4) {
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    return withFormalLeases('sensitivity_readiness', options, options.output || path.resolve('dataset/tuning'), async () => {
+    const context = await loadFormalContext(options), linkage = await inspectBaselineLinkage({ ...options, formalContext: context });
+    await registerTrainAccess(context, options, 'SENSITIVITY_READINESS');
+    const legacy = await tuningReadiness({ ...options, tuningVersion: 1, supportPolicyVersion: 3, canonicalLocations: true });
+    return { ...legacy, ...formalContextIdentity(context), tuning_schema_version: 3, tuning_policy_version: 4,
+      status: legacy.reasons.length ? 'BLOCKED' : 'READY_FORMAL',
+      global_readiness: legacy.reasons.length ? 'NOT_READY' : 'READY', metric_readiness: { status: 'READY', reasons: [] },
+      engineering_readiness: { status: 'READY', reasons: [] }, data_readiness: { status: legacy.reasons.length ? 'INSUFFICIENT' : 'READY', reasons: legacy.reasons },
+      mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
+      no_skill_reference_ordinal: linkage.no_skill_reference_ordinal, validation_disclosure_status: 'NOT_ATTESTED' };
+    });
+  }
   if ([2, 3].includes(options.tuningVersion)) {
     const linkage = await inspectBaselineLinkage(options);
     const legacy = await tuningReadiness({ ...options, tuningVersion: 1, validationEvidence: undefined,

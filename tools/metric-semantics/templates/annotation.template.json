@@ -1,0 +1,7 @@
+{
+  "annotation_schema_version": 1,
+  "reviewer": {"reviewer_id":"<真实人工ID>","kind":"HUMAN"},
+  "submitted_at_utc": "<实际UTC提交时间>",
+  "blind_declaration": {"prediction_hidden":false,"candidate_hidden":false,"prior_annotation_hidden":false},
+  "annotations": [{"sample_key":"<由证据Event身份生成的sample_key>","rating":"<poor|fair|good|very_good|excellent|UNASSESSABLE>","reason":"填写判断原因"}]
+}

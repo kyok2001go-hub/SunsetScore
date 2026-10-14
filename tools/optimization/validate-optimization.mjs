@@ -12,6 +12,7 @@ import {
 import { buildFreezeDocument, compareRecords, validationSelectionRuleDocument } from './lib/finalist.mjs';
 import { SUPPORT_FILE, inspectSupportDocument, supportDigest } from '../gt-level-support.mjs';
 import { cohortProfile, computeOptimizationReadiness } from './lib/readiness.mjs';
+import { formalContextIdentity, inspectFormalContext } from '../formal/context.mjs';
 
 export const parseJson = bytes => {
   const value = JSON.parse(bytes.toString('utf8'));
@@ -36,7 +37,7 @@ export async function inspectOptimization(directory, options = {}) {
     const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
     const policyVersion = manifest.optimization_policy_version;
     const policy = optimizationPolicy(policyVersion);
-    const schema = optimizationSchema(1, policyVersion);
+    const schema = optimizationSchema(policy.optimization_schema_version, policyVersion);
     requireKeys(manifest, schema.json.manifest.required, 'manifest');
     if (manifest.optimization_schema_version !== policy.optimization_schema_version ||
         manifest.optimization_policy_version !== policy.optimization_policy_version) {
@@ -82,7 +83,14 @@ export async function inspectOptimization(directory, options = {}) {
     const verifiedSources = parseJson(loaded['verified_source_identities.json']);
     requireKeys(readiness, schema.json.readiness.required, 'readiness');
     requireKeys(summary, schema.json.summary.required, 'summary');
-    if (policyVersion === 2) {
+    const formalContext = policyVersion === 3 ? inspectFormalContext(parseJson(loaded['formal_context.json'])) : null;
+    if (formalContext) {
+      for (const [key, value] of Object.entries(formalContextIdentity(formalContext))) for (const document of [manifest,
+        readiness, summary, parseJson(loaded['optimization_plan.json']), finalists, verifiedSources.identities]) {
+        if (document[key] !== value) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FORMAL_CONTEXT_MISMATCH' });
+      }
+    }
+    if (policyVersion >= 2) {
       const doc = parseJson(loaded[SUPPORT_FILE]);
       const support = inspectSupportDocument(doc, 'TRAIN', 'OPTIMIZATION_VALIDATION_FAILED');
       const upstream = verifiedSources.identities.upstream_train_support;
@@ -99,9 +107,9 @@ export async function inspectOptimization(directory, options = {}) {
       equal(upstream.limitation_codes, support.limitation_codes, 'UPSTREAM_LIMITATION_MISMATCH');
       equal(upstream.conclusion_limitations, support.conclusion_limitations, 'UPSTREAM_LIMITATION_MISMATCH');
       check(upstream.sensitivity_id === verifiedSources.identities.sensitivity_id, 'UPSTREAM_SUPPORT_ID_MISMATCH');
-      check(verifiedSources.identities.tuning_policy_version === 3 &&
-        manifest.descriptor.source.result_usage === 'EXPLORATORY_ONLY', 'TUNING_POLICY_COMBINATION_UNSUPPORTED');
-      const recomputed = computeOptimizationReadiness({ rows: doc.cohort, profile: cohortProfile(doc.cohort),
+      check(verifiedSources.identities.tuning_policy_version === (formalContext ? 4 : 3) &&
+        manifest.descriptor.source.result_usage === (formalContext ? formalContext.result_usage : 'EXPLORATORY_ONLY'), 'TUNING_POLICY_COMBINATION_UNSUPPORTED');
+      const recomputed = computeOptimizationReadiness({ rows: doc.cohort, profile: cohortProfile(doc.cohort, { canonicalLocations: policyVersion === 3 }),
         replayUsableRate: readiness.metrics.replay_usable_rate, sensitivityLinkage: manifest.descriptor.source,
         policyVersion });
       for (const key of ['engineering_readiness', 'data_readiness', 'metric_readiness', 'label_concentration',
@@ -115,10 +123,11 @@ export async function inspectOptimization(directory, options = {}) {
         manifest.cohort_event_count === new Set(doc.cohort.map(row => row.event_id)).size &&
         manifest.cohort_date_count === new Set(doc.cohort.map(row => row.event_date_local)).size,
       'SUPPORT_COHORT_COUNT_MISMATCH');
-      check(manifest.descriptor.optimization_schema_version === 1 &&
-        manifest.descriptor.optimization_policy_version === 2, 'DESCRIPTOR_POLICY_MISMATCH');
+      check(manifest.descriptor.optimization_schema_version === (formalContext ? 2 : 1) &&
+        manifest.descriptor.optimization_policy_version === policyVersion, 'DESCRIPTOR_POLICY_MISMATCH');
       equal(manifest.validation_selection_rule, validationSelectionRuleDocument(policy), 'SELECTION_RULE_MISMATCH');
-      check(manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.result_usage === 'EXPLORATORY_ONLY' &&
+      check(formalContext ? manifest.optimization_mode === 'FORMAL_OPTIMIZATION' && manifest.result_usage === formalContext.result_usage &&
+        recomputed.optimization_readiness === 'READY' : manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.result_usage === 'EXPLORATORY_ONLY' &&
         manifest.candidate_freeze_allowed === false && manifest.validation_promotion_allowed === false,
       'PROXY_FORMAL_PROMOTION_FORBIDDEN');
       equal(summary.rare_level_audit, doc.rare_level_audit, 'RARE_AUDIT_MISMATCH');
@@ -317,7 +326,7 @@ export async function inspectOptimization(directory, options = {}) {
         })),
         source: verifiedSources.identities,
         searchSpace,
-        searchSpaceSha256: manifest.search_space_sha256
+        searchSpaceSha256: manifest.search_space_sha256, policyVersion
       });
       if (canonicalJson(freeze) !== canonicalJson(expectedFreeze)) {
         fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FREEZE_CONTRACT_MISMATCH' });
@@ -356,15 +365,16 @@ export async function inspectOptimization(directory, options = {}) {
     if (readiness.optimization_mode !== manifest.optimization_mode) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'READINESS_MODE_MISMATCH' });
     }
-    if (manifest.candidate_freeze_allowed && manifest.result_usage !== 'FORMAL') {
+    if (manifest.candidate_freeze_allowed && manifest.result_usage !== (formalContext ? formalContext.result_usage : 'FORMAL')) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'RESULT_USAGE_MISMATCH' });
     }
 
     if (options.model && options.raw && options.gt && options.baseline && options.sensitivity) {
       const rebuilt = await buildOptimizationPackage({
+        ...options, formalContext, recordAccess: false,
         model: options.model, raw: options.raw, gt: options.gt,
         baseline: options.baseline, sensitivity: options.sensitivity,
-        progress: options.progress, optimizationPolicyVersion: policyVersion
+        progress: options.progress, root: options.root, optimizationPolicyVersion: policyVersion
       });
       for (const file of expected.filter(name => name !== MANIFEST_FILE)) {
         if (!loaded[file].equals(Buffer.from(rebuilt.files[file]))) {

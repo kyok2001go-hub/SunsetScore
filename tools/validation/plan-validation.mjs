@@ -10,6 +10,10 @@ import { appendLedger, makeDevelopmentEvidence, publishEvidence, readLedger, wit
 import { effectiveSelectionPolicy, validationPolicy } from './validation-policy.mjs';
 import { runCli } from './lib/cli.mjs';
 import { supportCohort } from '../gt-level-support.mjs';
+import { formalContextIdentity, formalMissingReasons, loadFormalContext, withFormalLeases } from '../formal/context.mjs';
+import { assertExecutableUsage } from '../formal/contracts.mjs';
+import { formalEvidenceIdentity, inspectFormalEvidence } from './lib/formal-evidence.mjs';
+import { historySnapshots, historyOverlap, withHistoryLocks } from '../campaign/campaign.mjs';
 
 export const defaultValidationRoot = () => path.resolve('dataset/validation');
 
@@ -18,12 +22,13 @@ export function planIdentity(core) {
   const payload = { plan_core: core, plan_core_sha256: coreSha256,
     bootstrap_seed: bootstrapSeed(coreSha256) };
   const planSha256 = hash(canonicalJson(payload));
-  return { payload, planSha256, planId: `validation_plan_v1_${planSha256.slice(0, 16)}` };
+  return { payload, planSha256, planId: `validation_plan_v${core.validation_schema_version || 1}_${planSha256.slice(0, 16)}` };
 }
 
 export function planManifest(plan, evidenceManifestSha256 = null) {
   const core = plan.payload.plan_core;
-  const descriptor = { validation_plan_schema_version: 1,
+  const descriptor = { validation_plan_schema_version: core.validation_schema_version || 1,
+    ...(core.validation_policy_version === 3 ? formalContextIdentity(core.formal_context) : {}),
     validation_plan_id: plan.planId, validation_plan_sha256: plan.planSha256,
     source_ids: core.source, evidence_id: core.evidence_id,
     evidence_manifest_sha256: evidenceManifestSha256,
@@ -65,7 +70,14 @@ async function buildPlan(options) {
   const ledgerRoot = await outside(options.accessLedger || path.join(output, 'access-ledger'), roots);
   const audited = await auditSources(options, options);
   const version = options.validationPolicyVersion ?? 1;
-  const input = await readValidationInput(options, audited, { mode, progress: options.progress,
+  const formalContext = version === 3 ? await loadFormalContext(options) : null;
+  const importedEvidence = version === 3 ? await inspectFormalEvidence(options.disclosureEvidence) : null;
+  if (formalContext) {
+    assertExecutableUsage(formalContext.result_usage, options);
+    if (importedEvidence.core.campaign_id !== formalContext.campaign.manifest.campaign_id ||
+        importedEvidence.core.campaign_manifest_sha256 !== formalContextIdentity(formalContext).campaign_manifest_sha256) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'DISCLOSURE_CAMPAIGN_MISMATCH' });
+  }
+  const input = await readValidationInput(options, audited, { mode, root: options.root, progress: options.progress,
     validationPolicyVersion: version });
   const policy = validationPolicy(version);
   const selectionPolicy = effectiveSelectionPolicy(audited.manifest.validation_selection_rule, version);
@@ -80,25 +92,36 @@ async function buildPlan(options) {
     if (input.support.status !== 'READY') blocking.push('VALIDATION_SUPPORT_INSUFFICIENT');
     // A hash-only future package is never a semantic Policy validator. Wire real v3 validators
     // and historical Runtime proofs before the formal branch can become executable.
-    blocking.push('UPSTREAM_FORMAL_NOT_READY');
+    if (version !== 3) blocking.push('UPSTREAM_FORMAL_NOT_READY');
   }
-  const status = blocking.length ? 'BLOCKED' : 'READY_DEVELOPMENT';
-  return withLedgerLock(ledgerRoot, async () => {
+  const status = blocking.length ? 'BLOCKED' : version === 3 ? 'READY_FORMAL' : 'READY_DEVELOPMENT';
+  const histories = version === 3 ? await historySnapshots({ ...options, accessLedger: ledgerRoot }) : null;
+  const locked = operation => histories ? withHistoryLocks(histories.roots, operation) : withLedgerLock(ledgerRoot, operation);
+  return locked(async () => {
     const ledger = await readLedger(ledgerRoot);
     const prefix = { sequence: ledger.sequence, sha256: ledger.sha256 };
+    const currentHistory = histories ? await historySnapshots({ ...options, accessLedger: ledgerRoot }) : null;
+    if (currentHistory) {
+      const expected = importedEvidence.core.history_prefixes.map(x => x.key).sort();
+      if (canonicalJson(currentHistory.history.map(x => x.key).sort()) !== canonicalJson(expected)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'DISCLOSURE_HISTORY_SCOPE_MISMATCH' });
+      for (const prior of importedEvidence.core.history_prefixes) if (!(await import('./lib/disclosure.mjs')).ledgerPrefixMatches(currentHistory.history.find(x => x.key === prior.key), prior)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'DISCLOSURE_HISTORY_PREFIX_MISMATCH' });
+      if (historyOverlap(currentHistory.history, [...importedEvidence.core.members, ...formalContext.campaign.files['summary.json'].split_members.TEST]).length) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'VALIDATION_PREVIOUSLY_EXPOSED' });
+    }
     const evidence = mode === 'DEVELOPMENT_VALIDATION'
       ? makeDevelopmentEvidence({ rows: input.rows,
         modelId: input.header.manifest.model_dataset_id,
-        csvSha256: input.validationCsvSha256, prefix }) : null;
+        csvSha256: input.validationCsvSha256, prefix }) : importedEvidence ? formalEvidenceIdentity(importedEvidence.core) : null;
     const members = input.rows.map(row => ({ snapshot_id: row.snapshot_id, event_id: row.event_id,
       location_key: row.location_key, event_date_local: row.event_date_local }));
     const core = {
-      validation_schema_version: 1, validation_policy_version: version, mode, status,
-      ...(version === 2 ? { gt_level_support: input.support.gt_level_support,
+      validation_schema_version: version === 3 ? 2 : 1, validation_policy_version: version, mode, status,
+      ...(version >= 2 ? { gt_level_support: input.support.gt_level_support,
         gt_level_support_sha256: input.support.gt_level_support_sha256,
         gt_level_support_cohort: supportCohort(input.rows),
         upstream_train_support: audited.manifest.upstream_train_support } : {}),
-      blocking_reasons: [...new Set(blocking)], result_usage: 'DEVELOPMENT_ONLY',
+      blocking_reasons: [...new Set(blocking)], result_usage: formalContext ? formalContext.result_usage : 'DEVELOPMENT_ONLY',
+      ...(formalContext ? { ...formalContextIdentity(formalContext), formal_context: formalContext,
+        history_prefixes: currentHistory.history.map(x => ({ key: x.key, sequence: x.sequence, sha256: x.sha256 })) } : {}),
       source: sourceIdentity(audited), source_fingerprints_sha256: hash(canonicalJson(audited.sourceFingerprints)),
       optimization_input_id: audited.manifest.optimization_input_id,
       candidate_set_id: audited.manifest.candidate_set_id,
@@ -110,7 +133,7 @@ async function buildPlan(options) {
         normalized_parameter_distance: resolved.normalized_parameter_distance
       })),
       engine_runtime_sha256: audited.manifest.engine_runtime_sha256,
-      runtime_compatibility: { status: 'REFERENCE_RUNTIME_UNATTESTED',
+      runtime_compatibility: { status: formalContext ? 'ATTESTED_RUNTIME_BUNDLE_BYTES' : 'REFERENCE_RUNTIME_UNATTESTED',
         historical_engine_build_shas: [...new Set(input.rows.map(row => row.engine_build_sha))].sort() },
       tuning_base_config_sha256: audited.manifest.tuning_base_config_sha256,
       parameter_registry_sha256: audited.manifest.parameter_registry_sha256,
@@ -130,7 +153,7 @@ async function buildPlan(options) {
     };
     const plan = planIdentity(core);
     await assertSourcesUnchanged(options, audited.sourceFingerprints);
-    if (evidence) await publishEvidence(output, evidence, audited.sourceManifestHashes.model);
+    if (evidence) await publishEvidence(output, evidence, audited.sourceManifestHashes.model, importedEvidence?.campaign);
     const evidenceManifestSha256 = evidence ? hash(await readSafe(path.join(output,
       'evidence', 'exports', evidence.evidence_id, 'manifest.json'))) : null;
     const directory = await publishPlan(output, plan, evidenceManifestSha256);
@@ -149,6 +172,11 @@ async function buildPlan(options) {
 
 export async function planValidation(options) {
   validationPolicy(options.validationPolicyVersion ?? 1);
+  if (options.validationPolicyVersion === 3) {
+    if (options.mode !== 'formal' || !options.disclosureEvidence || options.acknowledgeExposedValidation) fail('INVALID_ARGUMENTS');
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', mode: 'FORMAL_VALIDATION', plan_id: null, blocking_reasons: reasons };
+    return withFormalLeases('validation_plan', options, options.output || defaultValidationRoot(), () => buildPlan(options));
+  }
   if (options.mode === 'formal') {
     if (!options.disclosureEvidence || options.acknowledgeExposedValidation) fail('INVALID_ARGUMENTS');
     const bytes = await readSafe(path.join(options.optimization, 'manifest.json'));

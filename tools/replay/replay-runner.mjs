@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-
+import { bindEngineRoot } from './engine-root.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const REPLAY_RUNTIME_FILES = Object.freeze([
   'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
@@ -13,7 +13,7 @@ export const REPLAY_RUNTIME_FILES = Object.freeze([
 
 let runtimeRoot = null;
 async function runtime(engineRoot = ROOT) {
-  const resolvedRoot = path.resolve(engineRoot);
+  const resolvedRoot = bindEngineRoot(path.resolve(engineRoot));
   if (runtimeRoot && runtimeRoot !== resolvedRoot) {
     throw new Error('MULTIPLE_ENGINE_ROOTS_UNSUPPORTED');
   }

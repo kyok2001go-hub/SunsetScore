@@ -1,15 +1,30 @@
 #!/usr/bin/env node
+import path from 'node:path';
 import { isMain } from '../dataset/lib/common.mjs';
 import { runCli } from './lib/cli.mjs';
 import { prepareContext } from './lib/pipeline.mjs';
 import { planExperiments } from './lib/experiment.mjs';
 import { inspectBaselineLinkage } from './v2/baseline-linkage.mjs';
+import { formalMissingReasons, loadFormalContext, formalContextIdentity, registerTrainAccess, withFormalLeases } from '../formal/context.mjs';
 
 /**
  * Dry run: reports experiment count, parameter classes, replay volume and estimated
  * executions before any experiment actually runs.
  */
 export async function planSensitivity(options) {
+  if (options.tuningVersion === 4) {
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    return withFormalLeases('sensitivity_plan', options, options.output || path.resolve('dataset/tuning'), async () => {
+    const context = await loadFormalContext(options), linkage = await inspectBaselineLinkage({ ...options, formalContext: context });
+    await registerTrainAccess(context, options, 'SENSITIVITY_PLAN');
+    const legacy = await planSensitivity({ ...options, tuningVersion: 1, supportPolicyVersion: 3, canonicalLocations: true });
+    return { ...legacy, ...formalContextIdentity(context), tuning_schema_version: 3, tuning_policy_version: 4,
+      status: legacy.warnings.length ? 'BLOCKED' : 'READY_FORMAL', global_readiness: legacy.warnings.length ? 'NOT_READY' : 'READY',
+      mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
+      metric_readiness: { status: 'READY', reasons: [] }, no_skill_reference_ordinal: linkage.no_skill_reference_ordinal,
+      validation_disclosure_status: 'NOT_ATTESTED' };
+    });
+  }
   if ([2, 3].includes(options.tuningVersion)) {
     const linkage = await inspectBaselineLinkage(options);
     const legacy = await planSensitivity({ ...options, tuningVersion: 1, validationEvidence: undefined,

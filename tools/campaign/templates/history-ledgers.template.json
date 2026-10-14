@@ -1,0 +1,6 @@
+{
+  "history_ledgers_schema_version": 1,
+  "ledgers": [
+    {"key": "previous_experiment", "path": "<相对本JSON的已知历史access-ledger目录>"}
+  ]
+}

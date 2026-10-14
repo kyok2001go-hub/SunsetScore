@@ -11,6 +11,27 @@ async function temporary(t) {
   return root;
 }
 
+test('Model Policy 4 reaches TRAIN-only evaluation and restricted downstream readers without widening legacy V1 or TEST access', async t => {
+  const root = await temporary(t);
+  const pipe = await createSyntheticPipeline(root, { counts: Array(20).fill(5), modelPolicyVersion: 4 });
+  t.after(pipe.close);
+  const { evaluateBaseline } = await import('../tools/evaluation/evaluate-baseline.mjs');
+  const { inspectEvaluation } = await import('../tools/evaluation/validate-evaluation.mjs');
+  const { loadModelEvaluationInput } = await import('../tools/evaluation/lib/input.mjs');
+  const { loadModelHeader, readRestrictedFile } = await import('../tools/tuning/lib/input.mjs');
+  const { phaseByKey, isSupportedVersion } = await import('../tools/maintenance/maintenance-policy.mjs');
+  const header = await loadModelHeader(pipe.modelDir);
+  assert.equal(header.policyVersion, 4);
+  assert.ok(isSupportedVersion(phaseByKey('model'), 2, 4));
+  await assert.rejects(loadModelEvaluationInput(pipe.modelDir), error => error.code === 'UNSUPPORTED_MODEL_DATASET_VERSION');
+  const evaluated = await evaluateBaseline(pipe.modelDir, pipe.rawDir, pipe.gtDir, { evaluationVersion: 2, output: path.join(root, 'evaluation') });
+  const checked = await inspectEvaluation(evaluated.directory, { model: pipe.modelDir });
+  assert.equal(checked.status, 'PASS');
+  assert.equal(checked.manifest.model_dataset_policy_version, 4);
+  assert.deepEqual(checked.manifest.evaluated_splits, ['TRAIN']);
+  await assert.rejects(readRestrictedFile(pipe.modelDir, 'splits/test.csv'), error => error.reason_code === 'TEST_ACCESS_FORBIDDEN');
+});
+
 test('Hong Kong missing country is corrected only in error reports, with source-linked audit', async t => {
   const root = await temporary(t);
   const pipe = await createSyntheticPipeline(root, {

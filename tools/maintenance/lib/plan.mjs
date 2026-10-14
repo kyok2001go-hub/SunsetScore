@@ -87,7 +87,7 @@ export function buildPrunePlan({ graph, targetId, datasetRoot, createdAt }) {
   }
   for (const node of nodes) {
     if (node.status !== 'OK') blockers.push({ code: 'NODE_INVALID', node_id: node.id, related_id: null, detail: null });
-    if (node.phase < target.phase) {
+    if (node.phase < target.phase && node.phase < 10 && target.phase < 10) {
       blockers.push({ code: 'BACKWARD_DEPENDENCY', node_id: node.id, related_id: null,
         detail: { target_phase: target.phase, dependent_phase: node.phase } });
     }

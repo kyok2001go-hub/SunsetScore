@@ -4,7 +4,7 @@ import { readSafe, inventory, hash, canonicalJson, compare, fail, errorCode, isM
 import { canonicalUtc } from '../dataset/dataset-schema.mjs';
 import { readCsv } from '../dataset/lib/csv.mjs';
 import { modelSchema, RAW_FIELDS } from './model-dataset-schema.mjs';
-import { modelPolicy } from './model-dataset-policy.mjs';
+import { modelPolicy, isSupportedModelVersion } from './model-dataset-policy.mjs';
 import { equal, derive } from './lib/core.mjs';
 import { loadInputs } from './lib/input.mjs';
 import { FILES, contents, makeManifest } from './lib/package.mjs';
@@ -26,7 +26,7 @@ async function inspect(directory, options) {
   if (!!options.raw !== !!options.gt) fail('INVALID_ARGUMENTS');
   const manifest = parseJson(await readSafe(path.join(directory, 'manifest.json')));
   const version = manifest.model_dataset_schema_version, schema = modelSchema(version), policy = modelPolicy(manifest.model_dataset_policy_version);
-  if (!((version === 1 && manifest.model_dataset_policy_version === 1) || (version === 2 && [2, 3].includes(manifest.model_dataset_policy_version)))) fail('UNSUPPORTED_MODEL_DATASET_POLICY');
+  if (!isSupportedModelVersion(version, manifest.model_dataset_policy_version)) fail('UNSUPPORTED_MODEL_DATASET_POLICY');
   equal(Object.keys(manifest.files).sort(compare), [...FILES].sort(compare), 'FILES');
   equal(await inventory(directory), [...FILES, 'manifest.json'].sort(compare), 'INVENTORY');
   const files = {};

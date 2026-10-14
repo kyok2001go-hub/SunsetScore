@@ -88,8 +88,8 @@ export function validationSelectionRuleDocument(policy = optimizationPolicy()) {
  * `candidate_freeze.json` deliberately excludes the final `optimization_id` and its own hash, so
  * the package identity chain stays acyclic: inputs -> search -> freeze -> descriptor -> id.
  */
-export function buildFreezeDocument({ optimizationInputId, searchResultId, candidateSetId, finalists, source, searchSpace, searchSpaceSha256 }) {
-  const policy = optimizationPolicy();
+export function buildFreezeDocument({ optimizationInputId, searchResultId, candidateSetId, finalists, source, searchSpace, searchSpaceSha256, policyVersion = 1 }) {
+  const policy = optimizationPolicy(policyVersion);
   return {
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
@@ -110,8 +110,8 @@ export function buildFreezeDocument({ optimizationInputId, searchResultId, candi
     })),
     search_space_id: searchSpace.search_space_id,
     search_space_sha256: searchSpaceSha256,
-    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument())),
-    guardrail_policy_sha256: hash(canonicalJson(guardrailPolicyDocument())),
+    objective_policy_sha256: hash(canonicalJson(objectivePolicyDocument(policyVersion))),
+    guardrail_policy_sha256: hash(canonicalJson(guardrailPolicyDocument(policyVersion))),
     model_dataset_id: source.model_dataset_id,
     evaluation_id: source.evaluation_id,
     sensitivity_id: source.sensitivity_id,
@@ -119,6 +119,12 @@ export function buildFreezeDocument({ optimizationInputId, searchResultId, candi
     tuning_base_config_sha256: source.tuning_base_config_sha256,
     parameter_registry_sha256: source.parameter_registry_sha256,
     evaluated_split: policy.computation_split,
-    validation_selection_rule: validationSelectionRuleDocument(policy)
+    validation_selection_rule: validationSelectionRuleDocument(policy),
+    ...(policyVersion === 3 ? { formal_contract_revision: source.formal_contract_revision,
+      campaign_id: source.campaign_id, campaign_manifest_sha256: source.campaign_manifest_sha256,
+      semantic_evidence_id: source.semantic_evidence_id, semantic_evidence_manifest_sha256: source.semantic_evidence_manifest_sha256,
+      mapping_contract_sha256: source.mapping_contract_sha256, runtime_bundle_id: source.runtime_bundle_id,
+      runtime_bundle_manifest_sha256: source.runtime_bundle_manifest_sha256,
+      result_usage: source.result_usage, upstream_train_support: source.upstream_train_support } : {})
   };
 }

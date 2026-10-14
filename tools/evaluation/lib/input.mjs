@@ -2,7 +2,7 @@ import path from 'node:path';
 import { canonicalJson, hash, readSafe, safePath, within, fail, errorCode } from '../../dataset/lib/common.mjs';
 import { readCsv } from '../../dataset/lib/csv.mjs';
 import { modelSchema } from '../../model-dataset/model-dataset-schema.mjs';
-import { modelPolicy } from '../../model-dataset/model-dataset-policy.mjs';
+import { modelPolicy, isSupportedModelVersion } from '../../model-dataset/model-dataset-policy.mjs';
 import { LABEL_TO_ORDINAL, computeLeadTimeBucket } from '../metrics.mjs';
 import { CSV_TABLES } from '../../model-dataset/lib/package.mjs';
 import { silentProgress } from '../../progress.mjs';
@@ -64,7 +64,7 @@ export async function loadModelEvaluationInput(modelDir, options = {}) {
 
     const schemaVersion = manifestJson.model_dataset_schema_version;
     const policyVersion = manifestJson.model_dataset_policy_version;
-    if (!((schemaVersion === 1 && policyVersion === 1) || (schemaVersion === 2 && [2, 3].includes(policyVersion)))) {
+    if (!isSupportedModelVersion(schemaVersion, policyVersion) || (policyVersion === 4 && !options.trainOnly)) {
       fail('UNSUPPORTED_MODEL_DATASET_VERSION', { reason_code: 'UNSUPPORTED_MODEL_DATASET_VERSION' });
     }
 

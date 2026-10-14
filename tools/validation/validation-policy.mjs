@@ -2,6 +2,7 @@ import { canonicalJson, fail, hash, unique } from '../dataset/lib/common.mjs';
 import { validationSelectionRuleDocument } from '../optimization/lib/finalist.mjs';
 import { optimizationPolicy } from '../optimization/optimization-policy.mjs';
 import { gtLevelSupport, SUPPORT_POLICY, supportCohort, supportDigest } from '../gt-level-support.mjs';
+import { formalContextIdentity, inspectFormalContext } from '../formal/context.mjs';
 
 export const VALIDATION_SCHEMA_VERSION = 1;
 export const VALIDATION_POLICY_VERSION = 1;
@@ -33,10 +34,13 @@ export const POLICY_V1 = Object.freeze({
 export const POLICY_V2 = Object.freeze({ ...POLICY_V1, validation_policy_version: 2,
   selection_adapter: 'OPTIMIZATION_V2_TO_VALIDATION_V2', gt_level_support_policy: SUPPORT_POLICY,
   required_optimization_policy_version: 2, formal_capable: false });
+export const POLICY_V3 = Object.freeze({ ...POLICY_V2, validation_schema_version: 2, validation_policy_version: 3,
+  selection_adapter: 'OPTIMIZATION_V3_TO_VALIDATION_V3', required_optimization_policy_version: 3,
+  formal_contract_revision: 1, formal_capable: true });
 
 export function validationPolicy(version = 1) {
-  if (![1, 2].includes(version)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_POLICY' });
-  return version === 2 ? POLICY_V2 : POLICY_V1;
+  if (![1, 2, 3].includes(version)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_POLICY' });
+  return version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
 }
 
 export function effectiveSelectionPolicy(sourceRule, version = 1) {
@@ -59,7 +63,7 @@ export function effectiveSelectionPolicy(sourceRule, version = 1) {
 }
 
 export function validationSupport(rows, version = 1) {
-  const support = version === 2 ? gtLevelSupport(rows, 'VALIDATION') : null;
+  const support = version >= 2 ? gtLevelSupport(rows, 'VALIDATION') : null;
   const events = new Map();
   for (const row of rows) {
     if (!row.event_id || !row.location_key || !row.event_date_local ||
@@ -92,7 +96,7 @@ export function validationSupport(rows, version = 1) {
   return {
     sample_count: rows.length, event_count: n, date_count: Object.keys(byDate).length,
     by_level: byLevel, by_city: byCity, by_date: byDate,
-    status: reasons.length ? 'INSUFFICIENT' : 'READY', reasons: version === 2 ? [...new Set(reasons)].sort() : reasons,
+    status: reasons.length ? 'INSUFFICIENT' : 'READY', reasons: version >= 2 ? [...new Set(reasons)].sort() : reasons,
     ...(support ? { gt_level_support: support, gt_level_support_sha256: supportDigest(support),
       warnings: support.warnings } : {})
   };
@@ -101,7 +105,7 @@ export function validationSupport(rows, version = 1) {
 export function auditSupportPlan(core) {
   const version = core.validation_policy_version ?? 1;
   validationPolicy(version);
-  if (version !== 2) return;
+  if (version < 2) return;
   const check = (ok, reason_code) => { if (!ok) fail('VALIDATION_VALIDATION_FAILED', { reason_code }); };
   const equal = (a, b, reason) => check(canonicalJson(a) === canonicalJson(b), reason);
   equal(core.policy, validationPolicy(version), 'PLAN_POLICY_MISMATCH');
@@ -126,6 +130,12 @@ export function auditSupportPlan(core) {
   equal(hash(canonicalJson(selection)), core.effective_selection_policy_sha256, 'PLAN_SELECTION_SHA_MISMATCH');
   equal(selection.source_validation_selection_rule_sha256, core.source_validation_selection_rule_sha256,
     'PLAN_SOURCE_RULE_SHA_MISMATCH');
-  check(core.mode === 'DEVELOPMENT_VALIDATION' && core.result_usage === 'DEVELOPMENT_ONLY',
-    'POLICY_2_FORMAL_FORBIDDEN');
+  if (version === 3) {
+    const context = inspectFormalContext(core.formal_context);
+    for (const [key, value] of Object.entries(formalContextIdentity(context))) equal(core[key], value, 'FORMAL_PLAN_CONTEXT_MISMATCH');
+    check(core.mode === 'FORMAL_VALIDATION' && core.validation_schema_version === 2 &&
+      ['FORMAL', 'TEST_FIXTURE_ONLY'].includes(core.result_usage), 'POLICY_3_FORMAL_REQUIRED');
+    if (core.status === 'READY_FORMAL') check(core.support.status === 'READY' && core.candidates.length > 0 &&
+      core.candidates.length <= 5 && core.runtime_compatibility?.status === 'ATTESTED_RUNTIME_BUNDLE_BYTES', 'FORMAL_PLAN_NOT_READY');
+  } else check(core.mode === 'DEVELOPMENT_VALIDATION' && core.result_usage === 'DEVELOPMENT_ONLY', 'POLICY_2_FORMAL_FORBIDDEN');
 }

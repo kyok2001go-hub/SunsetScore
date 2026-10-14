@@ -15,7 +15,7 @@
 | --- | --- | --- | --- |
 | Phase 1 Raw Dataset | `dataset/exports/` | `dataset_id` | schema 1 |
 | Phase 2 Ground Truth | `dataset/ground_truth/exports/` | `ground_truth_id` | schema 1/2 + policy 1，schema 3 + policy 2 |
-| Phase 3 Model Dataset | `dataset/model/exports/` | `model_dataset_id` | schema 1 + policy 1，schema 2 + policy 2/3 |
+| Phase 3 Model Dataset | `dataset/model/exports/` | `model_dataset_id` | schema 1 + policy 1，schema 2 + policy 2/3/4 |
 | Phase 4 Baseline Evaluation | `dataset/evaluation/exports/` | `evaluation_id` | schema 1 + policy 1，schema 2 + policy 2 |
 | Phase 5 Parameter Sensitivity | `dataset/tuning/exports/` | `sensitivity_id` | schema 1 + policy 1，schema 2 + policy 2/3 |
 | Phase 6 Parameter Optimization | `dataset/optimization/exports/` | `optimization_id` | schema 1 + policy 1/2 |
@@ -81,7 +81,7 @@ npm run dataset:prune -- optimization_v1_fbce6cdefa41_81e312bdcd71 --dry-run
 
 不接受前缀、通配符、日期区间或“整阶段删除”，也不接受一次多个 ID。计划文件自动写到 `dataset/maintenance/plans/<完整主ID>.json`，作为这次删除的持久记录；重复执行同一 ID 会覆盖这份记录。可选加 `--phase <1-6>` 作为断言，阶段不符时报 `PHASE_MISMATCH`。
 
-从目标沿全部反向依赖求可达闭包，按 Phase 6→1、同阶段主 ID 字符码排序执行。输出包含每个目标的 manifest SHA-256、路径、文件数、字节数、入选原因与依赖边，并醒目列出证据边。
+从目标沿全部反向依赖求可达闭包，按依赖拓扑下游先行执行；无直接依赖的节点使用阶段与主 ID 字符码稳定排序。输出包含每个目标的 manifest SHA-256、路径、文件数、字节数、入选原因与依赖边，并醒目列出证据边。
 
 计划冻结扫描根目录、完整节点/边指纹 `graph_sha256`、目标集合与每个目标的 manifest Hash，以及 `plan_sha256`。计划文件禁止写入发布根目录。
 
@@ -102,7 +102,7 @@ npm run dataset:prune -- --resume dataset/maintenance/plans/eval-v1.json
 
 无论走哪条路径，执行前都会先取维护独占窗口，再重新扫描并与 `graph_sha256`、目标 manifest Hash 逐项比对；有任何新增、删除或改写即 `MAINTENANCE_PLAN_STALE` 并要求重新做计划。`--resume` 用于中断后的续跑，只复核每个目标自身状态，不要求整图指纹仍等于计划值。
 
-逐包处理顺序为 Validation→Plan→Evidence→Phase 6→1、同阶段按主 ID 字符码。每个包先原子重命名到 `dataset/maintenance/quarantine/<plan_sha256>/phase<N>/<主ID>`，写 `operations.log.jsonl` 的 `MOVED`，再删除隔离目录并写 `DELETED`。发布根目录只会看到包“完整存在”或“不存在”。中断恢复不承诺跨包整体原子性，但始终下游先行。
+逐包处理按完整依赖图拓扑执行，确保收据先于其结果与 Runtime、质量报告先于其计划与 Raw、Validation 先于 Plan / Evidence / 上游包。每个包先原子重命名到 `dataset/maintenance/quarantine/<plan_sha256>/phase<N>/<主ID>`，写 `operations.log.jsonl` 的 `MOVED`，再删除隔离目录并写 `DELETED`。发布根目录只会看到包“完整存在”或“不存在”。中断恢复不承诺跨包整体原子性，但始终下游先行。
 
 ## 5. 维护门禁
 
@@ -113,7 +113,7 @@ npm run dataset:prune -- --resume dataset/maintenance/plans/eval-v1.json
 清理：先取独占窗口，再确认没有活跃租约；否则 DATASET_BUILD_ACTIVE
 ```
 
-两侧都用原子 `mkdir`，因此先建租约或先开窗口都能被对方观察到。租约位置由该次构建的输出根目录推导：Phase 1 用输出目录本身，其余阶段用输出目录的父目录，所以临时或自定义输出不会与默认 `dataset/` 门禁互相阻塞。
+两侧都用原子 `mkdir`，因此先建租约或先开窗口都能被对方观察到。既有构建器按各自输出根推导租约；Runtime 归档执行、完整 Validation Verify 和 Replay Quality 会规范化并排序取得来源、结果、Runtime 与收据输出所涉及根的共享租约，保持到执行收据完成。因此治理路径的跨根来源仍受维护保护。
 
 进程被强杀留下的租约或 `gate.lock` 不会被自动清理，必须确认进程已结束后人工处理。`dataset:lineage` 会列出活跃租约的 id、阶段、pid 与开始时间。
 
@@ -141,3 +141,20 @@ Phase 7 Evidence 的持久账本缺失、损坏，或缺少对应 PLAN_REGISTERE
 2026-09-22 本地 Phase 1–6 共 12 个正式包（`2/2/2/2/2/2`），依赖图 26 条声明边、0 条诊断，绘图压缩为 10 条。Phase 6 的两个 Optimization 包都正确关联到相应的 Model、Evaluation、Sensitivity、Raw 与 GT；删除任一上游包时，它们会进入下游清理闭包。
 
 本工具不预授权清理任何现有数据；真实删除需要用户明确给出阶段、完整主 ID 并复核计划。
+
+## 8. Phase 7 可复现性治理节点
+
+新增 Experiment Runtime（内部阶段 10）、Replay Quality Plan（11）、Replay Quality Report（12）和 Runtime Execution Receipt（13），登记完整 ID / Manifest Hash 来源边并调用各自包内校验器。新增节点可用完整 ID 检测和生成清理计划；旧 `--phase` 参数仍限定 1–6，不用于选择治理节点。
+
+```powershell
+npm run dataset:lineage -- --focus <完整-runtime或结果ID> --verify --format json
+npm run dataset:prune -- --dry-run <完整-runtime或结果ID>
+```
+
+跨根发布在来源根的 `maintenance/external-governance-references/` 留下持久保护记录。单根闭包无法证明外部产物安全时拒绝 prune，不按超时移除保护，也不删除记录绕过门禁。Disclosure Ledger 与实际访问历史不随包清理。
+
+`lineage` 的顶层 status 反映图诊断；使用 `--verify` 时还须逐项读取 verify 数组，图 PASS 不代表所有包内校验通过。2026-10-12 实际记录与既有包失败详情见[开发说明](../../../ref_docs/Dev_version_record/2026-10-12_Phase7收尾与Replay可复现性治理开发说明.md)。
+
+## V2.5.4-B 新节点
+
+新增 Rubric、试标、独立复核计划、语义证据及 Campaign 五种节点（14–18），并识别 Evaluation 3/3、Sensitivity 3/4、Optimization 2/3、Validation 2/3、正式 Disclosure/Plan Schema 2、Runtime Protocol 2。来源边包括 Campaign、语义证据、执行 Runtime 和历史 build Runtime。数字节点顺序不代表执行先后；删除顺序按真实依赖拓扑处理。跨根保护规则仍然保守拒绝无法证明的闭包。

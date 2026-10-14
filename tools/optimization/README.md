@@ -5,6 +5,8 @@ V2.5.3 在 V2.5.2 Parameter Sensitivity 之上，对冻结的 Search Space 做�
 
 本模块不修改生产 `js/config.js`，不写 `model_version`，不读取 VALIDATION / TEST 的效果数据。
 
+Phase 7 治理新增 `--runtime-bundle <快照目录>`：plan / run / validate 由归档工具在独立 Node 进程执行，并返回包外执行收据；stats 不接收此参数。快照身份、环境要求与旧环境恢复边界见 [Experiment Runtime](../experiment-runtime/README.md)。
+
 ## 命令
 
 ### V2.5.4.1：显式 Policy 2
@@ -122,3 +124,10 @@ dataset/optimization/exports/<optimization_id>/
 Phase 6 已在 `tools/maintenance` 中登记，`dataset:lineage` 与 `dataset:prune` 会把它纳入
 依赖图，并传播可用的 Validation disclosure evidence 边。删除 Model、Evaluation 或 Sensitivity 包时，Optimization 包进入下游闭包，
 构建期间持有共享维护租约。
+
+## V2.5.4-B 正式链
+
+新增 Optimization Schema 2 / Policy 3（--optimization-policy-version 3），须绑定通过独立人工复核的语义证据、冻结 Campaign 和 Protocol 2 Runtime。原有版本沿用原 Policy，不因样本增多而自动升为正式。详见 [Campaign 冻结与准入](../campaign/README.md) 和 [语义准备与独立复核](../metric-semantics/README.md)。
+# Model Policy 4 来源兼容（2026-10-14）
+
+支持 Model Schema 2 / Policy 4 的 55/30/15 切分，沿用既有开发/正式 Optimization 策略和预算。Phase 5 的来源关联验收与 TRAIN-only 读取器均须来自新 Model 的同一链；正式链使用匹配的 Campaign Policy 2。新切分不改变参数搜索、Candidate Freeze、Replay 或正式独立性门槛；旧包仍按冻结 Policy 校验，旧 Runtime 不自动升级。

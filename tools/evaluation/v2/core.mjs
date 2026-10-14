@@ -3,8 +3,10 @@ import { readCsv, writeCsv } from '../../dataset/lib/csv.mjs';
 import { evaluate } from '../lib/core.mjs';
 import { evaluationSchema } from '../evaluation-schema.mjs';
 import { scoreToOrdinal } from '../metrics.mjs';
-import { evaluationSchemaV2, V2_EXPORT_FILES } from './schema.mjs';
-import { evaluationPolicyV2, MAPPING } from './policy.mjs';
+import { evaluationSchemaV2, evaluationSchemaV3, V2_EXPORT_FILES, V3_EXPORT_FILES } from './schema.mjs';
+import { evaluationPolicyV2, evaluationPolicyV3, MAPPING } from './policy.mjs';
+import { MAPPING as FORMAL_MAPPING } from '../../formal/contracts.mjs';
+import { inspectFormalContext, formalContextIdentity, assertFormalModelRows } from '../../formal/context.mjs';
 import { noSkillComparison, selectNoSkillReference } from './no-skill.mjs';
 import { silentProgress } from '../../progress.mjs';
 
@@ -25,13 +27,17 @@ function closestRows(rows) {
   return [...chosen.values()].map(r => ({ ...r, weight: r.gt_confidence }));
 }
 
-export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputWarnings = [], progress = silentProgress) {
+export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputWarnings = [], progress = silentProgress, formalContext = null) {
   // V1's metric engine is reused with an empty validation cohort. Its empty validation groups
   // are discarded before any V2 package bytes are produced.
   const old = evaluate(modelManifest, modelManifestSha256, trainRows, [], inputWarnings, progress);
   const oldSchema = evaluationSchema(1);
-  const schema = evaluationSchemaV2();
-  const policy = evaluationPolicyV2();
+  const version = formalContext ? 3 : 2, schema = formalContext ? evaluationSchemaV3() : evaluationSchemaV2();
+  const policy = formalContext ? evaluationPolicyV3() : evaluationPolicyV2();
+  const mapping = formalContext ? FORMAL_MAPPING : MAPPING;
+  const exportFiles = formalContext ? V3_EXPORT_FILES : V2_EXPORT_FILES;
+  const formalFields = formalContext ? formalContextIdentity(inspectFormalContext(formalContext)) : {};
+  if (formalContext) assertFormalModelRows(formalContext, trainRows);
   const reference = selectNoSkillReference(trainRows);
   const rows = trainRows.map(r => ({ ...r, predicted_ordinal: scoreToOrdinal(r.predicted_score),
     weight: r.event_normalized_weight }));
@@ -57,16 +63,16 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
 
   const oldOverall = JSON.parse(old.files['overall_metrics.json']);
   const overall = {
-    evaluation_schema_version: 2, evaluation_policy_version: 2,
+    evaluation_schema_version: version, evaluation_policy_version: version,
     benchmark_modes: policy.benchmark_modes, splits: ['TRAIN'], benchmarks: {}
   };
   const oldSummary = JSON.parse(old.files['reports/summary.json']);
   const summary = {
     model_dataset_id: modelManifest.model_dataset_id,
-    evaluation_schema_version: 2, evaluation_policy_version: 2,
+    evaluation_schema_version: version, evaluation_policy_version: version,
     evaluated_splits: ['TRAIN'], validation_evaluated: false, test_evaluated: false,
     benchmark_modes: policy.benchmark_modes, evaluated_versions: old.evaluatedVersions,
-    ...MAPPING, no_skill_reference: reference, groups: {}, warnings_summary: warningCounts
+    ...mapping, ...formalFields, no_skill_reference: reference, groups: {}, warnings_summary: warningCounts
   };
   const benchmarkCounts = {};
   for (const mode of policy.benchmark_modes) {
@@ -80,6 +86,7 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
   }
 
   const files = {
+    ...(formalContext ? { 'formal_context.json': canonicalJson(formalContext) } : {}),
     'schema.json': canonicalJson(schema),
     'policy.json': canonicalJson(policy),
     'overall_metrics.json': canonicalJson(overall),
@@ -91,7 +98,7 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
     files[name] = writeCsv(schema.tables[table], csvRows[name]);
   }
   const metadata = {};
-  for (const name of V2_EXPORT_FILES) {
+  for (const name of exportFiles) {
     const bytes = Buffer.from(files[name], 'utf8');
     const table = name.replace('reports/', '').replace('.csv', '');
     metadata[name] = { sha256: hash(bytes), bytes: bytes.length,
@@ -99,7 +106,7 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
   }
   const descriptor = {
     benchmark_modes: policy.benchmark_modes,
-    evaluated_splits: ['TRAIN'], evaluation_schema_version: 2, evaluation_policy_version: 2,
+    evaluated_splits: ['TRAIN'], evaluation_schema_version: version, evaluation_policy_version: version,
     model_dataset_id: modelManifest.model_dataset_id,
     model_dataset_manifest_sha256: modelManifestSha256,
     model_dataset_descriptor_sha256: modelManifest.descriptor_sha256,
@@ -108,15 +115,15 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
     computation_access_policy: 'TRAIN_ONLY',
     validation_access_policy: 'UPSTREAM_VALIDATION_ONLY',
     test_access_policy: 'UPSTREAM_VALIDATION_ONLY',
-    ...MAPPING,
+    ...mapping, ...formalFields,
     no_skill_reference: reference,
-    files_sha256: Object.fromEntries(V2_EXPORT_FILES.map(name => [name, metadata[name].sha256]))
+    files_sha256: Object.fromEntries(exportFiles.map(name => [name, metadata[name].sha256]))
   };
   const descriptorSha = hash(canonicalJson(descriptor));
-  const evaluationId = `baseline_v2_${modelManifest.descriptor_sha256.slice(0, 12)}_${descriptorSha.slice(0, 12)}`;
+  const evaluationId = `baseline_v${version}_${modelManifest.descriptor_sha256.slice(0, 12)}_${descriptorSha.slice(0, 12)}`;
   const counts = old.benchmarkCounts.ALL_PRIMARY.TRAIN;
   const manifest = {
-    evaluation_schema_version: 2, evaluation_policy_version: 2,
+    evaluation_schema_version: version, evaluation_policy_version: version,
     evaluation_id: evaluationId, descriptor_sha256: descriptorSha, descriptor,
     model_dataset_id: modelManifest.model_dataset_id,
     model_dataset_manifest_sha256: modelManifestSha256,
@@ -129,7 +136,7 @@ export function evaluateV2(modelManifest, modelManifestSha256, trainRows, inputW
     computation_access_policy: 'TRAIN_ONLY',
     validation_access_policy: 'UPSTREAM_VALIDATION_ONLY',
     test_access_policy: 'UPSTREAM_VALIDATION_ONLY',
-    ...MAPPING, no_skill_reference: reference,
+    ...mapping, ...formalFields, no_skill_reference: reference,
     benchmark_modes: policy.benchmark_modes,
     sample_count: counts.sample_count, event_count: counts.event_count,
     date_count: counts.date_count, benchmark_counts: benchmarkCounts,

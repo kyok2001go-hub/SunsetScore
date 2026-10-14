@@ -193,12 +193,18 @@ policy2.required_tuning_policy_version = 3;
 policy2.package.export_files.push('gt_level_support.json');
 policy2.package.export_files.sort();
 export const POLICY_V2 = deepFreeze(policy2);
+const policy3 = structuredClone(POLICY_V2);
+policy3.optimization_schema_version = 2; policy3.optimization_policy_version = 3;
+policy3.required_tuning_policy_version = 4; policy3.required_evaluation_policy_version = 3;
+policy3.formal_contract_revision = 1; policy3.formal_capable = true;
+policy3.package.export_files.push('formal_context.json'); policy3.package.export_files.sort();
+export const POLICY_V3 = deepFreeze(policy3);
 
 export function optimizationPolicy(version = OPTIMIZATION_POLICY_VERSION) {
-  if (![1, 2].includes(version)) {
+  if (![1, 2, 3].includes(version)) {
     throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_POLICY'), { code: 'UNSUPPORTED_OPTIMIZATION_POLICY' });
   }
-  return version === 2 ? POLICY_V2 : POLICY_V1;
+  return version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
 }
 
 export function objectivePolicyDocument(version = 1) {

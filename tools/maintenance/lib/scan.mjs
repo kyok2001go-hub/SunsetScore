@@ -233,7 +233,7 @@ export async function scanDataset(options = {}) {
       validationLedger = { status: 'VALID', sequence: ledger.sequence, sha256: ledger.sha256 };
       for (const node of evidenceNodes) {
         const recorded = ledger.rows.some(row => row.action === 'PLAN_REGISTERED' &&
-          row.evidence_id === node.id);
+          row.evidence_id === node.id || node.schema_version === 2 && row.action === 'FORMAL_EVIDENCE_REGISTERED' && row.evidence_id === node.id);
         if (!recorded) diagnostics.push(diagnostic('VALIDATION_EXPOSURE_NOT_RECORDED', { nodeId: node.id }));
       }
     } catch (error) {
@@ -268,7 +268,7 @@ export async function scanDataset(options = {}) {
       const rawDerivation = parent.phase_key === 'raw' && node.phase_key === 'raw' && parent.id !== node.id &&
         dependency.idField === 'selection.replay_exclusion.parent_dataset_id' &&
         dependency.expectedManifestSha256 !== null && !(parent._dependencies || []).length;
-      if (parent.phase >= node.phase && !rawDerivation) {
+      if (parent.phase >= node.phase && !rawDerivation && parent.phase < 10 && node.phase < 10) {
         diagnostics.push(diagnostic('PHASE_ORDER_INVALID', {
           nodeId: node.id, relatedId: parent.id,
           detail: { field: dependency.idField, parent_phase: parent.phase, child_phase: node.phase }
@@ -288,6 +288,13 @@ export async function scanDataset(options = {}) {
     // Tuning repeats Raw / GT without hashes; the Model dependency is the authority for them.
     if (node.phase_key === 'sensitivity') crossCheckTuning(node, byId, diagnostics);
   }
+
+  // External receipts cannot be discovered by a single-root graph. Conservative
+  // persistent guards prevent deleting sources without the external closure.
+  try {
+    const guards = await readdir(path.join(maintenanceRoot(datasetRoot), 'external-governance-references'));
+    if (guards.length) diagnostics.push(diagnostic('EXTERNAL_GOVERNANCE_CLOSURE_UNAVAILABLE', { detail: guards.length }));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
 
   const maintenance = await inspectMaintenanceState(datasetRoot);
   const graph = {

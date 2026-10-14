@@ -57,7 +57,7 @@ export function assertCoverageAccounting(metric, { cohortSampleCount, minCoverag
 export async function inspectSensitivity(directory, options = {}) {
   try {
     const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
-    if (manifest.tuning_schema_version === 2 || manifest.tuning_policy_version === 2) {
+    if ([2, 3].includes(manifest.tuning_schema_version) || [2, 3, 4].includes(manifest.tuning_policy_version)) {
       if (options.tuningVersion && options.tuningVersion !== manifest.tuning_policy_version) fail('UNSUPPORTED_TUNING_SCHEMA');
       return await inspectSensitivityV2(directory, options);
     }
@@ -252,7 +252,7 @@ async function inspect(directory, options) {
   if (options.model && options.raw && options.gt && options.baseline) {
     const rebuilt = await buildSensitivityPackage({
       model: options.model, raw: options.raw, gt: options.gt, baseline: options.baseline,
-      progress: options.progress
+      progress: options.progress, root: options.root
     });
     for (const file of FILES) {
       if (!loaded[file].equals(Buffer.from(rebuilt.files[file]))) {

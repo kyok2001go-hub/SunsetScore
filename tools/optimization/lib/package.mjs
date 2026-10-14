@@ -8,7 +8,7 @@ export { FILES, MANIFEST_FILE };
 export function identity(descriptor) {
   const digest = hash(canonicalJson(descriptor));
   const modelShort = descriptor.source.model_dataset_descriptor_sha256.slice(0, 12);
-  return { descriptor_sha256: digest, optimization_id: `optimization_v1_${modelShort}_${digest.slice(0, 12)}` };
+  return { descriptor_sha256: digest, optimization_id: `optimization_v${descriptor.optimization_schema_version}_${modelShort}_${digest.slice(0, 12)}` };
 }
 
 export function filesMetadata(files, fileList = FILES) {

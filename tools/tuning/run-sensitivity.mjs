@@ -11,14 +11,15 @@ import { tuningContract } from './v2/contract.mjs';
 import { withBuildLease } from '../maintenance/lib/lease.mjs';
 import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
 import { APP_ROOT } from './lib/engine-runtime.mjs';
+import { formalMissingReasons, validateFormalSourceContext, withFormalLeases } from '../formal/context.mjs';
 
 async function runSensitivityBuild(options) {
-  const v2 = [2, 3].includes(options.tuningVersion);
+  const v2 = [2, 3, 4].includes(options.tuningVersion);
   const built = v2 ? await buildSensitivityPackageV2(options) : await buildSensitivityPackage(options);
   const before = await captureWhitelistFingerprints(options.model);
   const published = await publishPackage({
     output: options.output,
-    roots: [options.model, options.raw, options.gt, options.baseline, options.validationEvidence].filter(Boolean),
+    roots: [options.model, options.raw, options.gt, options.baseline, options.validationEvidence, options.campaign, options.metricEvidence, options.runtimeBundle].filter(Boolean),
     files: built.files,
     manifest: built.manifest,
     exportFiles: v2 ? tuningContract(options.tuningVersion).files : undefined,
@@ -33,6 +34,7 @@ async function runSensitivityBuild(options) {
         throw error;
       }
       if (v2) {
+        if (options.tuningVersion === 4) await validateFormalSourceContext(JSON.parse(built.files['formal_context.json']), options);
         const current = await inspectBaselineLinkage(options);
         const frozen = Object.fromEntries(Object.keys(current).map(key => [key, built.manifest[key]]));
         if (canonicalJson(current) !== canonicalJson(frozen)) {
@@ -61,6 +63,10 @@ async function runSensitivityBuild(options) {
 
 /** Holds the shared maintenance lease for the whole run so prune never races a Sensitivity publish. */
 export async function runSensitivity(options) {
+  if (options.tuningVersion === 4) {
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    return withFormalLeases('sensitivity', options, options.output || defaultOutputRoot(APP_ROOT), () => runSensitivityBuild(options));
+  }
   return withBuildLease('sensitivity', () => runSensitivityBuild(options), {
     datasetRoot: datasetRootForPhaseOutput('sensitivity', options.output || defaultOutputRoot(APP_ROOT))
   });

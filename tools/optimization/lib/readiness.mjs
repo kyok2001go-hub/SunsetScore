@@ -10,7 +10,7 @@ import { gtLevelSupport, supportDigest } from '../../gt-level-support.mjs';
  * flips that flag: a newer upstream Policy has to.
  */
 
-export function cohortProfile(rows) {
+export function cohortProfile(rows, { canonicalLocations = false } = {}) {
   const events = unique(rows.map(row => row.event_id));
   const byDate = new Map();
   const byCity = new Map();
@@ -18,7 +18,7 @@ export function cohortProfile(rows) {
   for (const row of rows) {
     if (!byDate.has(row.event_date_local)) byDate.set(row.event_date_local, new Set());
     byDate.get(row.event_date_local).add(row.event_id);
-    const city = row.city ?? row.location_key ?? null;
+    const city = canonicalLocations ? row.location_key : row.city ?? row.location_key ?? null;
     if (city !== null) {
       if (!byCity.has(city)) byCity.set(city, new Set());
       byCity.get(city).add(row.event_id);
@@ -72,7 +72,7 @@ function labelConcentration(profile) {
 
 export function computeOptimizationReadiness({ profile, replayUsableRate, sensitivityLinkage, rows, policyVersion = 1 }) {
   const policy = optimizationPolicy(policyVersion);
-  const support = policyVersion === 2 ? gtLevelSupport(rows, 'TRAIN') : null;
+  const support = policyVersion >= 2 ? gtLevelSupport(rows, 'TRAIN') : null;
   const engineering = {
     status: sensitivityLinkage.engineering_readiness?.status ?? 'UNKNOWN',
     reasons: [...(sensitivityLinkage.engineering_readiness?.reasons ?? [])]
@@ -87,7 +87,8 @@ export function computeOptimizationReadiness({ profile, replayUsableRate, sensit
   if (engineering.status !== policy.formal_preconditions.engineering_readiness) reasons.push('ENGINEERING_NOT_READY');
   if (data.status !== policy.formal_preconditions.data_readiness) reasons.push('DATA_SUPPORT_INSUFFICIENT', ...data.reasons);
   if (metric.status !== policy.formal_preconditions.metric_readiness) reasons.push('METRIC_NOT_READY', ...metric.reasons);
-  if (sensitivityLinkage.result_usage !== policy.formal_preconditions.sensitivity_result_usage) {
+  const fixtureFormal = policyVersion === 3 && sensitivityLinkage.result_usage === 'TEST_FIXTURE_ONLY' && sensitivityLinkage.formal_contract_revision === 1;
+  if (sensitivityLinkage.result_usage !== policy.formal_preconditions.sensitivity_result_usage && !fixtureFormal) {
     reasons.push('SENSITIVITY_RESULT_USAGE_NOT_FORMAL');
   }
   // Tuning Policies 2 and 3 permanently define proxy/exploratory semantics. Numeric >=3 is
@@ -95,6 +96,8 @@ export function computeOptimizationReadiness({ profile, replayUsableRate, sensit
   if (!Number.isInteger(sensitivityLinkage.tuning_policy_version) || sensitivityLinkage.tuning_policy_version <= 3) {
     reasons.push('SENSITIVITY_POLICY_NOT_FORMAL_CAPABLE');
   }
+  if (policyVersion === 3 && (sensitivityLinkage.tuning_policy_version !== 4 || sensitivityLinkage.tuning_schema_version !== 3 ||
+      sensitivityLinkage.formal_contract_revision !== 1)) reasons.push('FORMAL_SENSITIVITY_CONTRACT_MISSING');
   if (concentration.status === 'FAIL') reasons.push('INSUFFICIENT_LABEL_BALANCE');
   const uniqueReasons = [...new Set(reasons)].sort(compare);
   const formal = uniqueReasons.length === 0;

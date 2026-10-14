@@ -16,6 +16,7 @@ import { evaluateGuardrails } from './guardrails.mjs';
 import { buildFreezeDocument, rankRecords, selectFinalists, validationSelectionRuleDocument } from './finalist.mjs';
 import { cohortProfile, computeOptimizationReadiness } from './readiness.mjs';
 import { csvFor, descriptorOf, filesMetadata, identity } from './package.mjs';
+import { assertFormalModelRows, formalContextIdentity, loadFormalContext, registerTrainAccess } from '../../formal/context.mjs';
 
 export function optimizationInputIdentity({ source, searchSpaceSha256, policy }) {
   return {
@@ -144,27 +145,32 @@ export async function buildOptimizationPackage(options) {
   const policyVersion = options.optimizationPolicyVersion ?? 1;
   const policy = optimizationPolicy(policyVersion);
   const input = options.input ?? await loadOptimizationInput({
-    model: options.model, raw: options.raw, gt: options.gt,
+    ...options, model: options.model, raw: options.raw, gt: options.gt,
     baseline: options.baseline, sensitivity: options.sensitivity,
     root: options.root, progress, optimizationPolicyVersion: policyVersion
   });
-  const replayRunner = options.runReplay ?? runReplay;
-  if (policyVersion === 2 ? input.sensitivity.linkage.tuning_policy_version !== 3 :
-      input.sensitivity.linkage.tuning_policy_version === 3) {
+  const replayRunner = options.runReplay ?? ((replay, runOptions) => runReplay(replay, { ...runOptions, engineRoot: options.root }));
+  if (policyVersion === 3 ? input.sensitivity.linkage.tuning_policy_version !== 4 :
+      policyVersion === 2 ? input.sensitivity.linkage.tuning_policy_version !== 3 : input.sensitivity.linkage.tuning_policy_version === 3) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
   }
-  if (policyVersion === 2 && canonicalJson(input.sensitivity.linkage.upstream_train_support?.gt_level_support) !==
+  if (policyVersion >= 2 && canonicalJson(input.sensitivity.linkage.upstream_train_support?.gt_level_support) !==
       canonicalJson(gtLevelSupport(input.model.rows, 'TRAIN'))) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UPSTREAM_TRAIN_SUPPORT_MISMATCH' });
   }
   const source = sourceIdentity(input);
-  const profile = cohortProfile(input.model.rows);
+  const formalContext = policyVersion === 3 ? await loadFormalContext({ ...options, formalContext: input.sensitivity.formalContext }) : null;
+  const formalFields = formalContext ? formalContextIdentity(formalContext) : {};
+  if (formalContext) assertFormalModelRows(formalContext, input.model.rows);
+  const profile = cohortProfile(input.model.rows, { canonicalLocations: options.optimizationPolicyVersion === 3 });
   const replayUsableRate = input.sensitivity.readiness?.metrics?.replay_usable_rate ?? 1;
   const readiness = computeOptimizationReadiness({
     profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage,
     rows: input.model.rows, policyVersion
   });
   const mode = readiness.optimization_mode;
+  if (formalContext && mode !== 'FORMAL_OPTIMIZATION') fail('FORMAL_CONTRACT_INVALID', { reason_code: 'FORMAL_OPTIMIZATION_NOT_READY', reasons: readiness.reasons });
+  if (formalContext && options.recordAccess !== false) await registerTrainAccess(formalContext, options, 'OPTIMIZATION');
 
   progress.stage('冻结 Search Space');
   const searchSpaceBase = buildSearchSpace({
@@ -197,7 +203,7 @@ export async function buildOptimizationPackage(options) {
     onProgress: value => progress.update(value),
     evaluate: async candidate => {
       const detailed = await evaluateCandidateDetailed({ prepared, vector: candidate.canonical_vector });
-      if (policyVersion === 2) auditRuns.push({ id: candidate.candidate_id, rows: detailed.rows || [],
+      if (policyVersion >= 2) auditRuns.push({ id: candidate.candidate_id, rows: detailed.rows || [],
         failures: [...prepared.controlFailures, ...(detailed.experimentFailures || [])] });
       if (detailed.status !== 'EVALUABLE') {
         return {
@@ -304,12 +310,12 @@ export async function buildOptimizationPackage(options) {
   const warningCounts = {};
   for (const row of warningRows) warningCounts[row.warning_code] = (warningCounts[row.warning_code] || 0) + 1;
 
-  const supportDoc = policyVersion === 2 ? supportDocument(input.model.rows, 'TRAIN', auditRuns) : null;
+  const supportDoc = policyVersion >= 2 ? supportDocument(input.model.rows, 'TRAIN', auditRuns) : null;
   const supportFields = supportDoc ? { gt_level_support: supportDoc.gt_level_support,
     gt_level_support_sha256: supportDoc.gt_level_support_sha256,
     upstream_train_support: input.sensitivity.linkage.upstream_train_support } : {};
   const plan = {
-    ...supportFields,
+    ...supportFields, ...formalFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_input_id: optimizationInputId,
@@ -332,7 +338,7 @@ export async function buildOptimizationPackage(options) {
     }
   };
   const searchPoints = {
-    usage: mode === 'FORMAL_OPTIMIZATION' ? 'FORMAL' : 'EXPLORATORY_ONLY',
+    usage: formalContext ? formalContext.result_usage : mode === 'FORMAL_OPTIMIZATION' ? 'FORMAL' : 'EXPLORATORY_ONLY',
     optimization_input_id: optimizationInputId,
     optimization_mode: mode,
     budget: search.budget,
@@ -355,8 +361,8 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   const finalistDocument = {
-    ...supportFields,
-    usage: freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY',
+    ...supportFields, ...formalFields,
+    usage: formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY',
     optimization_mode: mode,
     optimization_outcome: outcome,
     candidate_freeze_allowed: freezeAllowed,
@@ -384,7 +390,7 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   const readinessDocument = {
-    ...supportFields,
+    ...supportFields, ...formalFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_mode: mode,
@@ -402,7 +408,8 @@ export async function buildOptimizationPackage(options) {
   };
 
   const files = {
-    'schema.json': canonicalJson(optimizationSchema(1, policyVersion)),
+    ...(formalContext ? { 'formal_context.json': canonicalJson(formalContext) } : {}),
+    'schema.json': canonicalJson(optimizationSchema(policy.optimization_schema_version, policyVersion)),
     'policy.json': canonicalJson(policy),
     'objective_policy.json': canonicalJson(objectivePolicyDocument(policyVersion)),
     'guardrail_policy.json': canonicalJson(guardrailPolicyDocument(policyVersion)),
@@ -433,9 +440,9 @@ export async function buildOptimizationPackage(options) {
     feasible_candidate_count: feasible.length,
     finalist_count: finalists.length
   };
-  const resultUsage = freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY';
+  const resultUsage = formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY';
   const summary = {
-    ...supportFields,
+    ...supportFields, ...formalFields,
     ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     optimization_id: null,
     optimization_schema_version: policy.optimization_schema_version,
@@ -480,7 +487,7 @@ export async function buildOptimizationPackage(options) {
   if (freezeAllowed) {
     files[FREEZE_FILE] = canonicalJson(buildFreezeDocument({
       optimizationInputId, searchResultId, candidateSetId, finalists,
-      source, searchSpace, searchSpaceSha256
+      source, searchSpace, searchSpaceSha256, policyVersion
     }));
   }
   const descriptorFiles = [...policy.package.export_files, ...(freezeAllowed ? [FREEZE_FILE] : [])];
@@ -495,7 +502,7 @@ export async function buildOptimizationPackage(options) {
   files['reports/summary.json'] = canonicalJson(summary);
 
   const manifest = {
-    ...supportFields,
+    ...supportFields, ...formalFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
     optimization_id: id.optimization_id,

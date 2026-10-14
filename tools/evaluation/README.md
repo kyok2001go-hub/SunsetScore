@@ -8,6 +8,8 @@
 
 ## Evaluation V2：TRAIN-only 代理等级基线
 
+Model Schema 2 / Policy 4（55/30/15）已接入 Evaluation 2/3 的 TRAIN-only 读取器；旧 Evaluation V1 的来源矩阵和 Policy 字节保持不变，因此新 Model 必须显式选择 `--evaluation-version 2`（开发）或 `3`（匹配正式 Campaign）。新切分对应新的 Model 身份，旧 Baseline 不可混用。改变比例不代表正式支持度、Replay 或独立性自动通过。
+
 ```bash
 npm run evaluation:baseline -- --model <model_dir> --raw <raw_dir> --gt <gt_dir> --evaluation-version 2
 npm run evaluation:validate -- <baseline_v2_dir> --model <model_dir>
@@ -169,3 +171,9 @@ dataset/evaluation/
 上游 Model SOURCE_LINKED 验收、`PACKAGE_INTERNAL`、Evaluation `MODEL_LINKED` 是三种不同强度的结论。正式发布要求前两者与 `MODEL_LINKED` 同时成立；只有 `PACKAGE_INTERNAL` 通过不能证明指标来自正确的源样本。
 
 篡改 `overall_metrics.json` 或 `summary.json` 中的主指标、即使同步改写文件 Hash 与 Evaluation ID，也会在矩阵复算阶段以 `METRIC_TAMPER_DETECTED` 失败。
+
+## V2.5.4-B 正式链
+
+新增 Evaluation Schema 3 / Policy 3（--evaluation-version 3），须绑定通过独立人工复核的语义证据、冻结 Campaign 和 Protocol 2 Runtime。原有版本沿用原 Policy，不因样本增多而自动升为正式。详见 [Campaign 冻结与准入](../campaign/README.md) 和 [语义准备与独立复核](../metric-semantics/README.md)。
+
+Evaluation V1 的 VALIDATION 效果计算会事先登记主账本和 Model 所在数据根的历史暴露；跨输出目录不恢复独立性。旧包计算内容不变。通过 runtime-bundle 调用缺少该审计协议的历史工具时，由宿主网关补记。

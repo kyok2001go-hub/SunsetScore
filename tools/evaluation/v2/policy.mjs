@@ -1,4 +1,5 @@
 import { evaluationPolicy } from '../evaluation-policy.mjs';
+import { MAPPING as FORMAL_MAPPING } from '../../formal/contracts.mjs';
 
 export const MAPPING = Object.freeze({
   mapping_basis: 'ORDER_PRESERVING_PROXY',
@@ -42,5 +43,12 @@ export function evaluationPolicyV2() {
     metric_interpretation: MAPPING.interpretation_scope,
     no_skill_reference: 'weighted_median_of_distinct_TRAIN_events_then_fixed_for_all_benchmarks'
   };
+  return deepFreeze(policy);
+}
+export function evaluationPolicyV3() {
+  const policy = structuredClone(evaluationPolicyV2()); policy.evaluation_policy_version = 3;
+  policy.mapping = { ...policy.mapping, ...FORMAL_MAPPING, validation_evidence_id: 'REQUIRED_IMMUTABLE_SEMANTIC_EVIDENCE' };
+  policy.formal_contract_revision = 1; policy.result_usage = 'FORMAL';
+  policy.semantics.metric_interpretation = FORMAL_MAPPING.interpretation_scope;
   return deepFreeze(policy);
 }

@@ -6,8 +6,10 @@ import { fromMatrix } from '../lib/internal-checks.mjs';
 import { loadModelEvaluationInput } from '../lib/input.mjs';
 import { formatMetric } from '../metrics.mjs';
 import { evaluateV2 } from './core.mjs';
-import { evaluationSchemaV2, V2_EXPORT_FILES } from './schema.mjs';
-import { evaluationPolicyV2, MAPPING, NO_SKILL_COMPARATOR } from './policy.mjs';
+import { evaluationSchemaV2, evaluationSchemaV3, V2_EXPORT_FILES, V3_EXPORT_FILES } from './schema.mjs';
+import { evaluationPolicyV2, evaluationPolicyV3, MAPPING, NO_SKILL_COMPARATOR } from './policy.mjs';
+import { MAPPING as FORMAL_MAPPING } from '../../formal/contracts.mjs';
+import { formalContextIdentity, inspectFormalContext, validateFormalSourceContext } from '../../formal/context.mjs';
 
 const METRICS = ['mae', 'bias', 'exact_accuracy', 'within_1_accuracy', 'severe_error_rate',
   'overprediction_rate', 'underprediction_rate', 'qwk'];
@@ -37,10 +39,11 @@ function checkHeadline(actual, expected, sampleCount, weightSum, weighting) {
 }
 
 function checkInternal(manifest, overall, summary, csv) {
-  check(manifest.evaluation_schema_version === 2 && manifest.evaluation_policy_version === 2,
+  const version = manifest.evaluation_schema_version;
+  check([2, 3].includes(version) && manifest.evaluation_policy_version === version,
     'VERSION_MISMATCH');
-  check(overall.evaluation_schema_version === 2 && overall.evaluation_policy_version === 2 &&
-    summary.evaluation_schema_version === 2 && summary.evaluation_policy_version === 2,
+  check(overall.evaluation_schema_version === version && overall.evaluation_policy_version === version &&
+    summary.evaluation_schema_version === version && summary.evaluation_policy_version === version,
   'VERSION_MISMATCH');
   equal(manifest.evaluated_splits, ['TRAIN'], 'EVALUATED_SPLITS');
   check(manifest.validation_evaluated === false && manifest.validation_evaluation_sample_count === 0 &&
@@ -50,7 +53,7 @@ function checkInternal(manifest, overall, summary, csv) {
     manifest.computation_access_policy === 'TRAIN_ONLY' &&
     manifest.validation_access_policy === 'UPSTREAM_VALIDATION_ONLY' &&
     manifest.test_access_policy === 'UPSTREAM_VALIDATION_ONLY', 'ACCESS_POLICY');
-  for (const [key, value] of Object.entries(MAPPING)) {
+  for (const [key, value] of Object.entries(version === 3 ? FORMAL_MAPPING : MAPPING)) {
     equal(manifest[key], value, 'MAPPING_CONTRACT');
     equal(summary[key], value, 'MAPPING_CONTRACT');
   }
@@ -206,16 +209,18 @@ function checkInternal(manifest, overall, summary, csv) {
 export async function inspectEvaluationV2(directory, options = {}) {
   const manifestBytes = await readSafe(path.join(directory, 'manifest.json'));
   const manifest = parseJson(manifestBytes);
-  check(manifest.evaluation_schema_version === 2, 'SCHEMA_VERSION');
-  check(manifest.evaluation_policy_version === 2, 'POLICY_VERSION');
-  const schema = evaluationSchemaV2();
-  const policy = evaluationPolicyV2();
-  const expectedFiles = [...V2_EXPORT_FILES, 'manifest.json'].sort(compare);
+  const version = manifest.evaluation_schema_version;
+  check([2, 3].includes(version), 'SCHEMA_VERSION');
+  check(manifest.evaluation_policy_version === version, 'POLICY_VERSION');
+  const schema = version === 3 ? evaluationSchemaV3() : evaluationSchemaV2();
+  const policy = version === 3 ? evaluationPolicyV3() : evaluationPolicyV2();
+  const exportFiles = version === 3 ? V3_EXPORT_FILES : V2_EXPORT_FILES;
+  const expectedFiles = [...exportFiles, 'manifest.json'].sort(compare);
   equal((await inventory(directory)).sort(compare), expectedFiles, 'INVENTORY_MISMATCH');
-  equal(Object.keys(manifest.files).sort(compare), [...V2_EXPORT_FILES], 'MANIFEST_FILES');
+  equal(Object.keys(manifest.files).sort(compare), [...exportFiles], 'MANIFEST_FILES');
   const loaded = {};
   const csv = {};
-  for (const file of V2_EXPORT_FILES) {
+  for (const file of exportFiles) {
     const bytes = await readSafe(path.join(directory, file));
     check(hash(bytes) === manifest.files[file]?.sha256 && bytes.length === manifest.files[file]?.bytes,
       'FILE_HASH');
@@ -229,9 +234,14 @@ export async function inspectEvaluationV2(directory, options = {}) {
   equal(parseJson(loaded['policy.json']), policy, 'POLICY_MISMATCH');
   const overall = parseJson(loaded['overall_metrics.json']);
   const summary = parseJson(loaded['reports/summary.json']);
+  const formalContext = version === 3 ? inspectFormalContext(parseJson(loaded['formal_context.json'])) : null;
+  const formalFields = formalContext ? formalContextIdentity(formalContext) : {};
+  for (const [key, value] of Object.entries(formalFields)) {
+    equal(manifest[key], value, 'FORMAL_CONTEXT_MANIFEST_MISMATCH'); equal(summary[key], value, 'FORMAL_CONTEXT_SUMMARY_MISMATCH');
+  }
   const descriptor = {
     benchmark_modes: manifest.benchmark_modes, evaluated_splits: manifest.evaluated_splits,
-    evaluation_schema_version: 2, evaluation_policy_version: 2,
+    evaluation_schema_version: version, evaluation_policy_version: version,
     model_dataset_id: manifest.model_dataset_id,
     model_dataset_manifest_sha256: manifest.model_dataset_manifest_sha256,
     model_dataset_descriptor_sha256: manifest.model_dataset_descriptor_sha256,
@@ -242,13 +252,14 @@ export async function inspectEvaluationV2(directory, options = {}) {
     test_access_policy: manifest.test_access_policy,
     mapping_basis: manifest.mapping_basis, mapping_status: manifest.mapping_status,
     interpretation_scope: manifest.interpretation_scope,
+    ...formalFields,
     no_skill_reference: manifest.no_skill_reference,
-    files_sha256: Object.fromEntries(V2_EXPORT_FILES.map(file => [file, manifest.files[file].sha256]))
+    files_sha256: Object.fromEntries(exportFiles.map(file => [file, manifest.files[file].sha256]))
   };
   equal(manifest.descriptor, descriptor, 'DESCRIPTOR_MISMATCH');
   const digest = hash(canonicalJson(descriptor));
   equal(manifest.descriptor_sha256, digest, 'DESCRIPTOR_HASH');
-  const expectedId = `baseline_v2_${manifest.model_dataset_descriptor_sha256.slice(0, 12)}_${digest.slice(0, 12)}`;
+  const expectedId = `baseline_v${version}_${manifest.model_dataset_descriptor_sha256.slice(0, 12)}_${digest.slice(0, 12)}`;
   equal(manifest.evaluation_id, expectedId, 'EVALUATION_ID');
   if (!options.staging) equal(path.basename(path.resolve(directory)), expectedId, 'DIRECTORY_ID');
   checkInternal(manifest, overall, summary, csv);
@@ -258,12 +269,14 @@ export async function inspectEvaluationV2(directory, options = {}) {
     equal(manifest.model_dataset_id, source.modelManifest.model_dataset_id, 'SOURCE_DATASET_MISMATCH');
     equal(manifest.model_dataset_manifest_sha256, source.modelManifestSha256, 'SOURCE_DATASET_MISMATCH');
     const rebuilt = evaluateV2(source.modelManifest, source.modelManifestSha256,
-      source.trainRows, source.warnings, options.progress);
-    for (const file of V2_EXPORT_FILES) {
+      source.trainRows, source.warnings, options.progress, formalContext);
+    for (const file of exportFiles) {
       check(loaded[file].equals(Buffer.from(rebuilt.files[file])), 'RECOMPUTED_FILE_MISMATCH');
     }
     equal(manifest, rebuilt.manifest, 'MANIFEST_MISMATCH');
   }
-  return { status: 'PASS', validation_scope: options.model ? 'MODEL_LINKED' : 'PACKAGE_INTERNAL',
+  const fullyLinked = formalContext && options.model && options.raw && options.gt;
+  if (fullyLinked) await validateFormalSourceContext(formalContext, options);
+  return { status: 'PASS', validation_scope: fullyLinked ? 'SOURCE_LINKED_RECOMPUTED' : options.model ? 'MODEL_LINKED' : 'PACKAGE_INTERNAL',
     evaluation_id: manifest.evaluation_id, manifest, summary };
 }

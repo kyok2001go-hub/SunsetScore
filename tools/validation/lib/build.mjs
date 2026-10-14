@@ -56,23 +56,24 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
   })) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'PLAN_IDENTITY_MISMATCH' });
   const fixtureFormal = testFixtureFormal === true && core.fixture_only === true &&
     core.mode === 'FORMAL_VALIDATION' && core.status === 'READY_FORMAL';
-  if (!fixtureFormal && (core.mode !== 'DEVELOPMENT_VALIDATION' ||
+  const formal = policyVersion === 3 && core.mode === 'FORMAL_VALIDATION' && core.status === 'READY_FORMAL';
+  if (!formal && !fixtureFormal && (core.mode !== 'DEVELOPMENT_VALIDATION' ||
       core.status !== 'READY_DEVELOPMENT' || testFixtureFormal)) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'PLAN_NOT_RUNNABLE' });
   }
   const policy = validationPolicy(policyVersion);
   const replay = scoreGuard(runReplay);
   const cohort = input.cohort;
-  if (policyVersion === 2 && (canonicalJson(supportCohort(cohort)) !== canonicalJson(core.gt_level_support_cohort) ||
+  if (policyVersion >= 2 && (canonicalJson(supportCohort(cohort)) !== canonicalJson(core.gt_level_support_cohort) ||
       canonicalJson(validationSupport(cohort, policyVersion)) !== canonicalJson(core.support) ||
       (audited && canonicalJson(audited.manifest.upstream_train_support) !== canonicalJson(core.upstream_train_support)))) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'FROZEN_SUPPORT_CHANGED' });
   }
-  if (fixtureFormal && validationSupport(cohort, policyVersion).status !== 'READY') {
+  if ((formal || fixtureFormal) && validationSupport(cohort, policyVersion).status !== 'READY') {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'VALIDATION_SUPPORT_INSUFFICIENT' });
   }
   const parity = await verifyReplayParity({ cohort, runReplay: replay, progress, split: 'VALIDATION' });
-  if (fixtureFormal && parity.summary.fail_count) {
+  if ((formal || fixtureFormal) && parity.summary.fail_count) {
     fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'REPLAY_REFERENCE_PARITY_FAILED' });
   }
   const parityRows = parity.rows.map(row => ({
@@ -215,9 +216,9 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
     tables['reports/warnings.csv'].push({ warning_code: record.classification, candidate_id: record.candidate_id });
   }
   const outcome = selectOutcome(records, core.mode);
-  const resultUsage = fixtureFormal ? 'TEST_FIXTURE_ONLY' : 'DEVELOPMENT_ONLY';
-  const includeSelected = fixtureFormal && outcome.outcome === 'SELECTED';
-  const supportDoc = policyVersion === 2 ? supportDocument(cohort, 'VALIDATION', input.candidates.map(item => ({
+  const resultUsage = formal ? core.result_usage : fixtureFormal ? 'TEST_FIXTURE_ONLY' : 'DEVELOPMENT_ONLY';
+  const includeSelected = (formal || fixtureFormal) && outcome.outcome === 'SELECTED';
+  const supportDoc = policyVersion >= 2 ? supportDocument(cohort, 'VALIDATION', input.candidates.map(item => ({
     id: item.candidate_id, rows: tables['candidate_sample_predictions.csv'].filter(row => row.candidate_id === item.candidate_id)
       .map(row => ({ ...row, experiment_ordinal: row.candidate_ordinal })),
     failures: tables['replay_failures.csv'].filter(row => row.candidate_id === null || row.candidate_id === item.candidate_id)
@@ -228,14 +229,18 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
   for (const code of supportDoc?.gt_level_support.warnings || []) {
     tables['reports/warnings.csv'].push({ warning_code: code, candidate_id: null });
   }
-  const selection = { validation_schema_version: 1, validation_policy_version: policyVersion,
+  const promotion = formal && resultUsage === 'FORMAL' && outcome.outcome === 'SELECTED';
+  const formalFields = formal ? (await import('../../formal/context.mjs')).formalContextIdentity(core.formal_context) : {};
+  const selection = { validation_schema_version: formal ? 2 : 1, validation_policy_version: policyVersion,
+    ...formalFields,
     ...supportFields,
     mode: core.mode, outcome: outcome.outcome, selected_candidate_id: outcome.selected_candidate_id,
-    result_usage: resultUsage, formal_promotion_allowed: false,
-    test_fixture_only: fixtureFormal,
+    result_usage: resultUsage, formal_promotion_allowed: promotion,
+    test_fixture_only: resultUsage === 'TEST_FIXTURE_ONLY',
     reference_parity: parity.summary, control_failure_count: prepared.controlFailures.length,
     candidates: records };
   const summary = { mode: core.mode, status: resultUsage,
+    ...formalFields,
     ...supportFields,
     ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     plan_id: planIdentityResult.planId, cohort_sample_count: cohort.length,
@@ -243,6 +248,7 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
     selection_outcome: outcome.outcome, selected_candidate_id: outcome.selected_candidate_id,
     evaluated_splits: ['VALIDATION'], test_evaluated: false };
   const files = {
+    ...(formal ? { 'formal_context.json': canonicalJson(core.formal_context) } : {}),
     'schema.json': canonicalJson(validationSchema({ includeSelected, policyVersion })),
     'policy.json': canonicalJson(policy),
     'validation_plan.json': canonicalJson(planIdentityResult.payload),
@@ -280,7 +286,8 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
       effective_selection_policy_sha256: core.effective_selection_policy_sha256 ?? null,
       selection_evidence_sha256: evaluationResultsSha256,
       ...supportFields,
-      eligible_for_phase8: false, test_fixture_only: true
+      ...formalFields,
+      eligible_for_phase8: promotion, test_fixture_only: resultUsage === 'TEST_FIXTURE_ONLY'
     });
     files['selected_effective_config.json'] = canonicalJson(config);
   }

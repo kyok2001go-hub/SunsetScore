@@ -11,6 +11,9 @@ import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
 import { withBuildLease } from '../maintenance/lib/lease.mjs';
 import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
+import { formalMissingReasons, loadFormalContext, registerTrainAccess, validateFormalSourceContext, withFormalLeases } from '../formal/context.mjs';
+import { recordLegacyValidationAccess } from '../formal/legacy-access.mjs';
+export const LEGACY_VALIDATION_ACCESS_AUDIT_REVISION = 1;
 
 export async function capturePackageFingerprint(dir) {
   if (!dir) return null;
@@ -61,11 +64,12 @@ function defaultEvaluationRoot() {
 
 async function runEvaluateBaseline(model, raw, gt, options = {}) {
   const version = options.evaluationVersion ?? 1;
-  if (![1, 2].includes(version)) fail('INVALID_ARGUMENTS');
-  const whitelist = version === 2 ? TRAIN_WHITELIST_FILES : WHITELIST_FILES;
+  if (![1, 2, 3].includes(version)) fail('INVALID_ARGUMENTS');
+  const whitelist = version >= 2 ? TRAIN_WHITELIST_FILES : WHITELIST_FILES;
   const progress = options.progress || silentProgress;
   const roots = [model, raw, gt].filter(Boolean);
   const output = await outside(options.output || defaultEvaluationRoot(), roots);
+  const formalContext = version === 3 ? await loadFormalContext({ ...options, model, raw, gt }) : null;
 
   progress.stage('记录 Model、Raw、GT 完整来源指纹');
   const packageFingerprintsBefore = {
@@ -86,11 +90,13 @@ async function runEvaluateBaseline(model, raw, gt, options = {}) {
   if (gt) await verifyPackageFingerprint(gt, packageFingerprintsBefore.gt);
 
   progress.stage('受限读取 Model 白名单数据');
-  const input = await loadModelEvaluationInput(model, { progress, trainOnly: version === 2 });
+  const input = await loadModelEvaluationInput(model, { progress, trainOnly: version >= 2 });
 
   progress.stage('计算 Baseline 指标、分布、切片与对比');
-  const result = version === 2
-    ? evaluateV2(input.modelManifest, input.modelManifestSha256, input.trainRows, input.warnings, progress)
+  if (version === 1) await recordLegacyValidationAccess({ model, output, accessLedger: options.accessLedger, stage: 'EVALUATION_V1' });
+  if (formalContext) await registerTrainAccess(formalContext, { ...options, model }, 'EVALUATION');
+  const result = version >= 2
+    ? evaluateV2(input.modelManifest, input.modelManifestSha256, input.trainRows, input.warnings, progress, formalContext)
     : evaluate(input.modelManifest, input.modelManifestSha256, input.trainRows,
       input.validationRows, input.warnings, progress);
 
@@ -120,6 +126,7 @@ async function runEvaluateBaseline(model, raw, gt, options = {}) {
 
     progress.stage('等待发布锁、复核输入并检查重复');
     const status = await withEvaluationLock(lock, async () => {
+      if (formalContext) await validateFormalSourceContext(formalContext, { ...options, model, raw, gt });
       await verifyPackageFingerprint(model, packageFingerprintsBefore.model);
       if (raw) await verifyPackageFingerprint(raw, packageFingerprintsBefore.raw);
       if (gt) await verifyPackageFingerprint(gt, packageFingerprintsBefore.gt);
@@ -165,6 +172,7 @@ async function runEvaluateBaseline(model, raw, gt, options = {}) {
       directory: target,
       counts: result.counts,
       benchmark_counts: result.benchmarkCounts
+      ,...(formalContext ? { result_usage: formalContext.result_usage, evaluation_schema_version: 3, evaluation_policy_version: 3 } : {})
     };
   } catch (error) {
     try {
@@ -182,6 +190,12 @@ async function runEvaluateBaseline(model, raw, gt, options = {}) {
 
 /** Holds the shared maintenance lease for the whole run so prune never races an Evaluation publish. */
 export async function evaluateBaseline(model, raw, gt, options = {}) {
+  if (options.evaluationVersion === 3) {
+    const reasons = formalMissingReasons(options);
+    if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    return withFormalLeases('evaluation', { ...options, model, raw, gt }, options.output || defaultEvaluationRoot(),
+      () => runEvaluateBaseline(model, raw, gt, options));
+  }
   return withBuildLease('evaluation', () => runEvaluateBaseline(model, raw, gt, options), {
     datasetRoot: datasetRootForPhaseOutput('evaluation', options.output || defaultEvaluationRoot())
   });

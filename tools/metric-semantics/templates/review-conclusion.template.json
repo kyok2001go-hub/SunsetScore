@@ -1,0 +1,13 @@
+{
+  "review_conclusion_schema_version": 1,
+  "review_plan_id": "<实际review_plan_id>",
+  "reviewer_id": "<真实参与审核的人工ID>",
+  "reviewed_at_utc": "<实际UTC审核时间>",
+  "criteria": {"RUBRIC_COMPLETE":{"pass":false,"reason":"填写真实结论"},"MAPPING_REVIEWED":{"pass":false,"reason":"填写真实结论"},"NO_MAJOR_UNRESOLVED_AMBIGUITY":{"pass":false,"reason":"填写真实结论"},"EVIDENCE_SCOPE_REVIEWED":{"pass":false,"reason":"填写真实结论"},"LIMITATIONS_REVIEWED":{"pass":false,"reason":"填写真实结论"}},
+  "adjudications": [],
+  "scope_accepted": false,
+  "application_scope": {"locations":["<审核认可的地点>"],"date_from":"<适用起始日期>","date_to":"<适用截止日期>","source_kinds":["<审核认可的观测来源>"],"limitations":["填写适用范围限制"]},
+  "mapping_accepted": false,
+  "limitations": ["填写实际限制"],
+  "remarks": "填写真实审核说明；程序不会代填通过声明"
+}

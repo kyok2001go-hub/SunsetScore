@@ -81,13 +81,13 @@ export const SELECTED_FILES = Object.freeze([
 ]);
 
 export function validationResultFiles(version = 1) {
-  return version === 2 ? [...RESULT_FILES, 'gt_level_support.json'] : RESULT_FILES;
+  return version === 3 ? [...RESULT_FILES, 'gt_level_support.json', 'formal_context.json'] : version === 2 ? [...RESULT_FILES, 'gt_level_support.json'] : RESULT_FILES;
 }
 
 export function validationSchema({ includeSelected = false, policyVersion = 1 } = {}) {
-  if (policyVersion === 2) return { validation_schema_version: 1, validation_policy_version: 2,
-    tables: CSV_TABLES, json_files: [...CORE_JSON_FILES, 'gt_level_support.json', ...(includeSelected ? SELECTED_FILES : [])],
-    result_files: [...validationResultFiles(2), ...(includeSelected ? SELECTED_FILES : [])],
+  if (policyVersion >= 2) return { validation_schema_version: policyVersion === 3 ? 2 : 1, validation_policy_version: policyVersion,
+    tables: CSV_TABLES, json_files: [...CORE_JSON_FILES, 'gt_level_support.json', ...(policyVersion === 3 ? ['formal_context.json'] : []), ...(includeSelected ? SELECTED_FILES : [])],
+    result_files: [...validationResultFiles(policyVersion), ...(includeSelected ? SELECTED_FILES : [])],
     required_diagnostics: { plan: ['gt_level_support', 'gt_level_support_sha256', 'gt_level_support_cohort', 'upstream_train_support'],
       summary: ['gt_level_support', 'gt_level_support_sha256', 'upstream_train_support', 'rare_level_audit'],
       support: ['cohort', 'cohort_sha256', 'gt_level_support', 'gt_level_support_sha256', 'rare_level_audit'] } };

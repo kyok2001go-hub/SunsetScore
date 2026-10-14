@@ -8,8 +8,10 @@ import { loadModelHeader, readSplitRows } from '../../tuning/lib/input.mjs';
 import { runtimeDocument, APP_ROOT } from '../../tuning/lib/engine-runtime.mjs';
 import { loadReplayCohort } from '../../tuning/lib/replay-cohort.mjs';
 import { validationSupport } from '../validation-policy.mjs';
+import { assertFormalModelRows, inspectFormalContext, formalContextIdentity } from '../../formal/context.mjs';
 
 export const SOURCE_KEYS = Object.freeze(['raw', 'gt', 'model', 'baseline', 'sensitivity', 'optimization']);
+export const EXPERIMENT_PATH_KEYS = Object.freeze([...SOURCE_KEYS, 'campaign', 'metricEvidence', 'runtimeBundle', 'historyLedgers', 'accessLedger']);
 export const MODEL_ALLOW_FILES = Object.freeze([
   'manifest.json', 'schema.json', 'policy.json', 'splits/validation.csv'
 ]);
@@ -28,14 +30,17 @@ async function canonicalFile(directory, file) {
 /** Full Phase A attestation; the Phase B reader below has a separate VALIDATION-only allowlist. */
 export async function auditSources(paths, options = {}) {
   for (const key of SOURCE_KEYS) assert(typeof paths[key] === 'string' && paths[key], 'SOURCE_PATH_MISSING');
+  const initialFingerprints = {};
+  for (const key of SOURCE_KEYS) initialFingerprints[key] = await fingerprintSourcePackage(paths[key]);
   const { value: manifest, sha256: manifestSha256 } = await canonicalFile(paths.optimization, 'manifest.json');
   const currentRuntime = await runtimeDocument(options.root || APP_ROOT);
   assert(currentRuntime.engine_runtime_sha256 === manifest.engine_runtime_sha256,
     'RUNTIME_MISMATCH');
   const verified = await inspectOptimization(paths.optimization, {
+    ...options,
     model: paths.model, raw: paths.raw, gt: paths.gt,
     baseline: paths.baseline, sensitivity: paths.sensitivity,
-    progress: options.progress
+    progress: options.progress, root: options.root
   });
   assert(verified.validation_scope === 'SOURCE_LINKED_RECOMPUTED', 'OPTIMIZATION_SOURCE_NOT_RECOMPUTED');
   const { value: finalists } = await canonicalFile(paths.optimization, 'finalists.json');
@@ -51,10 +56,12 @@ export async function auditSources(paths, options = {}) {
     sourceDescriptorHashes[key] = sourceManifest.descriptor_sha256 ?? null;
   }
   assert(manifestSha256 === sourceManifestHashes.optimization, 'OPTIMIZATION_MANIFEST_CHANGED');
+  assert(canonicalJson(initialFingerprints) === canonicalJson(sourceFingerprints), 'SOURCE_CHANGED_DURING_ATTESTATION');
   assert(manifest.model_dataset_manifest_sha256 === sourceManifestHashes.model &&
     manifest.evaluation_manifest_sha256 === sourceManifestHashes.baseline &&
     manifest.sensitivity_manifest_sha256 === sourceManifestHashes.sensitivity, 'SOURCE_MANIFEST_MISMATCH');
-  return { manifest, manifestSha256, finalists, searchSpace, frozenPolicy,
+  const formalContext = manifest.optimization_policy_version === 3 ? inspectFormalContext((await canonicalFile(paths.optimization, 'formal_context.json')).value) : null;
+  return { manifest, manifestSha256, finalists, searchSpace, frozenPolicy, formalContext,
     sourceFingerprints, sourceManifestHashes, sourceDescriptorHashes };
 }
 
@@ -110,6 +117,11 @@ export async function readValidationInput(paths, audited, options = {}) {
     return { ...item, resolved };
   });
   const support = validationSupport(rows, version);
+  if (version === 3) {
+    assertFormalModelRows(audited.formalContext, rows, 'VALIDATION');
+    const identity = formalContextIdentity(audited.formalContext);
+    for (const [key, value] of Object.entries(identity)) assert(sensitivity.linkage[key] === value && audited.manifest[key] === value, 'FORMAL_SOURCE_CONTEXT_MISMATCH');
+  }
   let cohort = null;
   if (options.loadReplay) {
     for (const row of rows) {

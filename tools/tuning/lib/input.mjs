@@ -3,7 +3,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import { canonicalJson, hash, readSafe, safePath, within, fail, compare, unique } from '../../dataset/lib/common.mjs';
 import { readCsv } from '../../dataset/lib/csv.mjs';
 import { modelSchema } from '../../model-dataset/model-dataset-schema.mjs';
-import { modelPolicy } from '../../model-dataset/model-dataset-policy.mjs';
+import { modelPolicy, isSupportedModelVersion } from '../../model-dataset/model-dataset-policy.mjs';
 import { LABEL_TO_ORDINAL, computeLeadTimeBucket } from '../../evaluation/metrics.mjs';
 import { inspectModelDataset } from '../../model-dataset/validate-model-dataset.mjs';
 import { silentProgress } from '../../progress.mjs';
@@ -76,7 +76,6 @@ export function candidateAllowFiles(split) {
   return ['manifest.json', 'schema.json', 'policy.json', file];
 }
 
-const SUPPORTED_MODEL_VERSIONS = [{ schema: 1, policy: 1 }, { schema: 2, policy: 2 }, { schema: 2, policy: 3 }];
 
 function normalizeRow(row, schemaVersion, expectedSplit) {
   if (row.split !== expectedSplit) {
@@ -177,7 +176,7 @@ export async function loadModelHeader(modelDir, options = {}) {
   }
   const schemaVersion = manifest.model_dataset_schema_version;
   const policyVersion = manifest.model_dataset_policy_version;
-  if (!SUPPORTED_MODEL_VERSIONS.some(v => v.schema === schemaVersion && v.policy === policyVersion)) {
+  if (!isSupportedModelVersion(schemaVersion, policyVersion)) {
     fail('TUNING_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_MODEL_DATASET_VERSION', detail: { schemaVersion, policyVersion } });
   }
   if (!options.staging && path.basename(path.resolve(modelDir)) !== manifest.model_dataset_id) {

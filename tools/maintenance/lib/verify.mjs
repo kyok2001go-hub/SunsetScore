@@ -14,7 +14,16 @@ const VALIDATORS = Object.freeze({
   optimization: async () => (await import('../../optimization/validate-optimization.mjs')).inspectOptimization,
   validation_evidence: async () => (await import('../../validation/lib/disclosure.mjs')).inspectEvidence,
   validation_plan: async () => (await import('../../validation/lib/package.mjs')).inspectPlan,
-  validation: async () => (await import('../../validation/lib/package.mjs')).inspectValidation
+  validation: async () => (await import('../../validation/lib/package.mjs')).inspectValidation,
+  experiment_runtime: async () => (await import('../../experiment-runtime/lib/bundle.mjs')).verifyBundle,
+  replay_quality_plan: async () => (await import('../../replay-quality/quality.mjs')).inspectQuality,
+  replay_quality_report: async () => (await import('../../replay-quality/quality.mjs')).inspectQuality,
+  runtime_execution: async () => (await import('../../experiment-runtime/lib/package.mjs')).inspectGovernancePackage,
+  metric_rubric: async () => (await import('../../metric-semantics/semantics.mjs')).inspectMetricPackage,
+  metric_pilot: async () => (await import('../../metric-semantics/semantics.mjs')).inspectMetricPackage,
+  metric_review_plan: async () => (await import('../../metric-semantics/semantics.mjs')).inspectMetricPackage,
+  semantic_evidence: async () => (await import('../../metric-semantics/semantics.mjs')).inspectMetricPackage,
+  campaign: async () => (await import('../../campaign/campaign.mjs')).inspectCampaign
 });
 
 export async function verifyPackages(nodes, options = {}) {

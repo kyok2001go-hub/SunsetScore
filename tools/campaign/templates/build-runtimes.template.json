@@ -1,0 +1,6 @@
+{
+  "build_runtimes_schema_version": 1,
+  "bundles": [
+    {"engine_build_sha": "<实际40位完整Git提交SHA>", "directory": "<相对本JSON的对应Runtime-v2包目录>"}
+  ]
+}

@@ -4,6 +4,46 @@ import { canonicalJson, compare, fail, hash, inventory, readSafe, removeOwned, r
 
 const GENESIS = '0'.repeat(64);
 
+export async function withPlanLock(root, planId, operation) {
+  const active = await safePath(path.join(root, 'active'));
+  await mkdir(active, { recursive: true });
+  const lock = path.join(active, hash(planId) + '.lock');
+  try { await mkdir(lock); }
+  catch (error) { if (error.code === 'EEXIST') fail('VALIDATION_ACCESS_BUSY'); throw error; }
+  try { return await operation(); } finally { await rmdir(lock); }
+}
+export async function recordLedger(root, entry) {
+  return withLedgerLock(root, () => appendLedger(root, { audit_contract_revision: 1, ...entry }));
+}
+
+export function publicationReceipt(ledger, planId, resultId, descriptorSha256) {
+  return ledger.rows.find(row => row.action === 'PREPUBLISH_RECOMPUTE_COMPLETED' &&
+    row.plan_id === planId && row.result_id === resultId && row.descriptor_sha256 === descriptorSha256 &&
+    row.comparison?.status === 'PASS' && row.comparison.descriptor_sha256 === descriptorSha256 &&
+    ledger.rows.some(started => started.action === 'PREPUBLISH_RECOMPUTE_STARTED' &&
+      started.plan_id === planId && started.result_id === resultId && started.attempt_id === row.attempt_id) &&
+    ledger.rows.some(started => started.action === 'RUN_STARTED' && started.plan_id === planId &&
+      started.attempt_id === row.attempt_id));
+}
+/** Called only after a successful full recompute while the caller owns the Plan lock. */
+export async function completePublicationRecovery(root, entry, descriptorSha256) {
+  return withLedgerLock(root, async () => {
+    const ledger = await readLedger(root);
+    const prepublish = publicationReceipt(ledger, entry.plan_id, entry.result_id, descriptorSha256);
+    if (!prepublish) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'PREPUBLISH_RECEIPT_MISSING' });
+    const completed = ledger.rows.find(row => row.action === 'RUN_COMPLETED' && row.plan_id === entry.plan_id && row.result_id === entry.result_id);
+    if (!completed) {
+      const { sequence, previous_sha256, at_utc, entry_sha256, ...prior } = prepublish;
+      await appendLedger(root, { ...prior, action: 'RUN_COMPLETED',
+        prepublish_entry_sha256: prepublish.entry_sha256, recovered: true });
+    }
+    if (!ledger.rows.some(row => row.action === 'PUBLISH_RECOVERED' && row.result_id === entry.result_id && row.plan_id === entry.plan_id)) {
+      await appendLedger(root, { ...entry, action: 'PUBLISH_RECOVERED', prepublish_entry_sha256: prepublish.entry_sha256 });
+    }
+    return { status: completed ? 'ALREADY_COMPLETED' : 'RECOVERED' };
+  });
+}
+
 function ledgerFile(root) { return path.join(root, 'access.jsonl'); }
 
 export async function readLedger(root) {
@@ -45,6 +85,9 @@ export async function withLedgerLock(root, operation) {
 }
 
 export async function appendLedger(root, entry) {
+  if (['sequence', 'previous_sha256', 'entry_sha256', 'at_utc'].some(key => key in entry)) {
+    fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'LEDGER_RESERVED_FIELD' });
+  }
   const current = await readLedger(root);
   const payload = { sequence: current.sequence + 1, previous_sha256: current.sha256,
     at_utc: new Date().toISOString(), ...entry };
@@ -102,6 +145,7 @@ export function evidenceManifest(evidence, modelManifestSha256 = null) {
 
 export async function inspectEvidence(directory) {
   const manifestBytes = await readSafe(path.join(directory, 'manifest.json'));
+  if (JSON.parse(manifestBytes).evidence_schema_version === 2) return (await import('./formal-evidence.mjs')).inspectFormalEvidence(directory);
   const evidenceBytes = await readSafe(path.join(directory, 'evidence.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   const core = JSON.parse(evidenceBytes.toString('utf8'));
@@ -118,7 +162,8 @@ export async function inspectEvidence(directory) {
   return { status: 'PASS', validation_scope: 'PACKAGE_INTERNAL', evidence_id: evidence.evidence_id };
 }
 
-export async function publishEvidence(outputRoot, evidence, modelManifestSha256 = null) {
+export async function publishEvidence(outputRoot, evidence, modelManifestSha256 = null, campaign = null) {
+  if (evidence.core.evidence_schema_version === 2) return (await import('./formal-evidence.mjs')).publishFormalEvidence(outputRoot, evidence, campaign);
   const target = await safePath(path.join(outputRoot, 'evidence', 'exports', evidence.evidence_id));
   await mkdir(path.dirname(target), { recursive: true });
   const stagingRoot = await safePath(path.join(outputRoot, 'staging'));

@@ -8,6 +8,8 @@ import { evaluateCandidates, prepareCandidateRun } from './lib/candidate.mjs';
 import { loadCandidateCohort, verifyUpstreamSources } from './lib/input.mjs';
 import { runReplay } from '../replay/replay-runner.mjs';
 import { runCli } from './lib/cli.mjs';
+import { recordLegacyValidationAccess } from '../formal/legacy-access.mjs';
+export const LEGACY_VALIDATION_ACCESS_AUDIT_REVISION = 1;
 
 /**
  * Reads the candidate file. Accepted shapes: a bare array of vectors, a bare array of
@@ -50,6 +52,7 @@ export async function evaluateCandidateFile(options) {
   });
   const { vectors, labels } = await readCandidates(options.candidates);
   const loaded = await loadFrozenBaseConfig();
+  if (split === 'VALIDATION') await recordLegacyValidationAccess({ ...options, stage: 'LEGACY_CANDIDATE_VALIDATION' });
   const prepared = await prepareCandidateRun({
     cohort: cohortInput.cohort, config: loaded.config, units: UNITS, runReplay,
     progress: options.progress, policy

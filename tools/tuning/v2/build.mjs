@@ -11,6 +11,7 @@ import { CSV_TABLES, SLICE_DIMENSIONS, FIXED_SLICE_ENUMS, WARNING_FIELDS } from 
 import { inspectBaselineLinkage } from './baseline-linkage.mjs';
 import { CSV_TABLES_V2, tuningContract } from './contract.mjs';
 import { SUPPORT_FILE, supportDocument } from '../../gt-level-support.mjs';
+import { assertFormalModelRows, formalContextIdentity, loadFormalContext, registerTrainAccess } from '../../formal/context.mjs';
 
 const check = (condition, reason_code) => { if (!condition) fail('TUNING_VALIDATION_FAILED', { reason_code }); };
 const parse = content => JSON.parse(content);
@@ -94,7 +95,7 @@ export function alignmentSummary(rows) {
   };
 }
 
-function addPairedMetrics(files, ctx, referenceOrdinal) {
+function addPairedMetrics(files, ctx, referenceOrdinal, metricUsage = 'PROXY_EXPLORATORY') {
   const read = file => readCsv(CSV_TABLES[file], Buffer.from(files[file]));
   const metrics = read('experiment_metrics.csv');
   const ablations = read('ablation_metrics.csv');
@@ -158,7 +159,7 @@ function addPairedMetrics(files, ctx, referenceOrdinal) {
     results: metrics.map(metric => ({ entry: metric, rows: byExperiment.get(metric.experiment_id) || [] })),
     experimentMetrics: metrics
   });
-  for (const row of parameterSummary) row.metric_usage = 'PROXY_EXPLORATORY';
+  for (const row of parameterSummary) row.metric_usage = metricUsage;
   for (const [file, rows] of [
     ['experiment_metrics.csv', metrics], ['ablation_metrics.csv', ablations],
     ['slice_deltas.csv', slices], ['sample_deltas.csv', deltas], ['parameter_summary.csv', parameterSummary]
@@ -167,18 +168,23 @@ function addPairedMetrics(files, ctx, referenceOrdinal) {
 }
 
 export async function buildSensitivityPackageV2(options) {
-  const version = options.tuningVersion === 3 ? 3 : 2;
+  const version = [3, 4].includes(options.tuningVersion) ? options.tuningVersion : 2;
   const contract = tuningContract(version);
-  const linkage = await inspectBaselineLinkage(options);
+  const formalContext = version === 4 ? await loadFormalContext(options) : null;
+  const formalFields = formalContext ? formalContextIdentity(formalContext) : {};
+  const linkage = await inspectBaselineLinkage({ ...options, formalContext });
+  if (formalContext && options.recordAccess !== false) await registerTrainAccess(formalContext, options, 'SENSITIVITY');
   const built = await buildSensitivityPackage(options);
   check(linkage.evaluation_id === built.ctx.source.evaluation_id &&
     linkage.evaluation_manifest_sha256 === built.ctx.source.evaluation_manifest_sha256,
   'EVALUATION_LINKAGE_CHANGED');
   const { ctx } = built;
   const files = { ...built.files };
-  const paired = addPairedMetrics(files, ctx, linkage.no_skill_reference_ordinal);
+  if (formalContext) assertFormalModelRows(formalContext, ctx.input.rows);
+  const paired = addPairedMetrics(files, ctx, linkage.no_skill_reference_ordinal, version === 4 ? 'FORMAL_ORDINAL' : 'PROXY_EXPLORATORY');
   const { control, controlFailures } = await computeControl({
-    cohort: ctx.cohort, config: ctx.loaded.config, runReplay, progress: options.progress
+    cohort: ctx.cohort, config: ctx.loaded.config,
+    runReplay: (replay, runOptions) => runReplay(replay, { ...runOptions, engineRoot: ctx.root }), progress: options.progress
   });
   const controlById = new Map(control.map(item => [item.snapshot_id, item]));
   const failureIds = new Set(controlFailures.map(row => row.snapshot_id));
@@ -197,15 +203,15 @@ export async function buildSensitivityPackageV2(options) {
     };
   });
   files['control_alignment.csv'] = writeCsv(CSV_TABLES_V2['control_alignment.csv'], alignment);
-  const dataReasons = version === 3 ? ctx.readiness.reasons :
+  const dataReasons = version >= 3 ? ctx.readiness.reasons :
     ctx.readiness.reasons.filter(reason => reason !== 'REPLAY_USABLE_RATE_BELOW_REQUIRED');
   const auditRowsByExperiment = new Map();
-  if (version === 3) for (const row of readCsv(CSV_TABLES_V2['sample_deltas.csv'], files['sample_deltas.csv'])) {
+  if (version >= 3) for (const row of readCsv(CSV_TABLES_V2['sample_deltas.csv'], files['sample_deltas.csv'])) {
     if (!auditRowsByExperiment.has(row.experiment_id)) auditRowsByExperiment.set(row.experiment_id, []);
     auditRowsByExperiment.get(row.experiment_id).push(row);
   }
-  const auditFailures = version === 3 ? readCsv(CSV_TABLES_V2['experiment_failures.csv'], files['experiment_failures.csv']) : [];
-  const supportDoc = version === 3 ? supportDocument(ctx.input.rows, 'TRAIN', paired.metrics.map(metric => ({
+  const auditFailures = version >= 3 ? readCsv(CSV_TABLES_V2['experiment_failures.csv'], files['experiment_failures.csv']) : [];
+  const supportDoc = version >= 3 ? supportDocument(ctx.input.rows, 'TRAIN', paired.metrics.map(metric => ({
     id: metric.experiment_id, rows: auditRowsByExperiment.get(metric.experiment_id) || [],
     failures: auditFailures.filter(row => row.stage === 'CONTROL' || row.experiment_id === metric.experiment_id)
   }))) : null;
@@ -214,7 +220,8 @@ export async function buildSensitivityPackageV2(options) {
   if (supportDoc) files[SUPPORT_FILE] = canonicalJson(supportDoc);
   const engineering = { status: 'READY', reasons: [] };
   const data = { status: dataReasons.length ? 'INSUFFICIENT' : 'READY', reasons: dataReasons };
-  const metric = { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] };
+  const metric = formalContext ? { status: 'READY', reasons: [] } : { status: 'PROVISIONAL_PROXY', reasons: ['PROXY_MAPPING_NOT_VALIDATED'] };
+  if (formalContext && dataReasons.length) fail('FORMAL_CONTRACT_INVALID', { reason_code: 'TRAIN_SUPPORT_INSUFFICIENT', reasons: dataReasons });
   const globalReasons = [...(dataReasons.length ? ['DATA_SUPPORT_INSUFFICIENT'] : []),
     ...metric.reasons];
   const belowNoSkill = paired.metrics.some(row => row.control_mae_gap_to_no_skill > 0);
@@ -231,10 +238,11 @@ export async function buildSensitivityPackageV2(options) {
   for (const row of warningRows) warningCounts[row.warning_code] = (warningCounts[row.warning_code] || 0) + 1;
   const readiness = {
     ...parse(files['readiness.json']),
-    ...supportFields,
+    ...(formalContext ? { tuning_schema_version: 3, tuning_policy_version: 4 } : {}),
+    ...supportFields, ...formalFields,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
-    global_readiness: 'EXPLORATORY', reasons: [...new Set(globalReasons)].sort(compare),
-    evaluation_linkage: linkage, metric_usage: 'PROXY_EXPLORATORY',
+    global_readiness: formalContext ? 'READY' : 'EXPLORATORY', reasons: [...new Set(globalReasons)].sort(compare),
+    evaluation_linkage: linkage, metric_usage: formalContext ? 'FORMAL_ORDINAL' : 'PROXY_EXPLORATORY',
     parameter_readiness: paired.parameterSummary.map(row => ({
       parameter_id: row.parameter_id, wired_status: row.wired_status,
       parameter_readiness: row.parameter_readiness, observability_status: row.observability_status,
@@ -247,11 +255,12 @@ export async function buildSensitivityPackageV2(options) {
   files['readiness.json'] = canonicalJson(readiness);
   const summary = {
     ...parse(files['reports/summary.json']),
-    ...supportFields,
+    ...(formalContext ? { tuning_schema_version: 3, tuning_policy_version: 4 } : {}),
+    ...supportFields, ...formalFields,
     ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
     sensitivity_id: null,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
-    global_readiness: 'EXPLORATORY', result_usage: 'EXPLORATORY_ONLY',
+    global_readiness: formalContext ? 'READY' : 'EXPLORATORY', result_usage: formalContext ? formalContext.result_usage : 'EXPLORATORY_ONLY',
     mapping_status: linkage.mapping_status, interpretation_scope: linkage.interpretation_scope,
     no_skill_reference_ordinal: linkage.no_skill_reference_ordinal,
     validation_disclosure_status: linkage.validation_disclosure_status,
@@ -273,6 +282,7 @@ export async function buildSensitivityPackageV2(options) {
   files['reports/summary.json'] = canonicalJson(summary);
   files['schema.json'] = canonicalJson(contract.schema);
   files['policy.json'] = canonicalJson(contract.policy);
+  if (formalContext) files['formal_context.json'] = canonicalJson(formalContext);
   const metadataOf = value => {
     const result = {};
     for (const file of contract.files) {
@@ -284,7 +294,7 @@ export async function buildSensitivityPackageV2(options) {
   };
   const preIdMetadata = metadataOf(files);
   const descriptor = {
-    tuning_schema_version: 2, tuning_policy_version: version,
+    tuning_schema_version: formalContext ? 3 : 2, tuning_policy_version: version,
     ...supportFields,
     source: { ...ctx.source, ...linkage },
     selection: built.manifest.descriptor.selection,
@@ -293,17 +303,17 @@ export async function buildSensitivityPackageV2(options) {
     summary_template_sha256: preIdMetadata['reports/summary.json'].sha256
   };
   const descriptorSha256 = hash(canonicalJson(descriptor));
-  const sensitivityId = `sensitivity_v2_${ctx.source.model_dataset_descriptor_sha256.slice(0, 12)}_${descriptorSha256.slice(0, 12)}`;
+  const sensitivityId = `sensitivity_v${formalContext ? 3 : 2}_${ctx.source.model_dataset_descriptor_sha256.slice(0, 12)}_${descriptorSha256.slice(0, 12)}`;
   summary.sensitivity_id = sensitivityId;
   files['reports/summary.json'] = canonicalJson(summary);
   const metadata = metadataOf(files);
   const manifest = {
     ...built.manifest, ...linkage,
-    tuning_schema_version: 2, tuning_policy_version: version,
+    tuning_schema_version: formalContext ? 3 : 2, tuning_policy_version: version,
     ...supportFields,
     sensitivity_id: sensitivityId, descriptor_sha256: descriptorSha256, descriptor,
     engineering_readiness: engineering, data_readiness: data, metric_readiness: metric,
-    result_usage: 'EXPLORATORY_ONLY', files: metadata,
+    result_usage: formalContext ? formalContext.result_usage : 'EXPLORATORY_ONLY', files: metadata,
     schema_sha256: metadata['schema.json'].sha256, policy_sha256: metadata['policy.json'].sha256
   };
   return { ctx, files, manifest, summary, counts: built.counts };

@@ -1,0 +1,39 @@
+{
+  "campaign_specification_version": 2,
+  "name": "<实际Campaign名称>",
+  "frozen_at_utc": "<实际UTC冻结时间>",
+  "locations": ["<规范location_key>"],
+  "date_from": "<当地开始日期YYYY-MM-DD>",
+  "date_to": "<当地结束日期YYYY-MM-DD>",
+  "source_kinds": ["rednote_manual", "user"],
+  "gt_review": {
+    "reviewer_id": "<真实人工ID>",
+    "annotation_procedure": "<按冻结Rubric标注的实际流程>",
+    "dispute_rule": "<实际争议处理规则>",
+    "audit_rule": "<实际抽查及来源核验规则>"
+  },
+  "split_strategy": "complete_primary_local_date_blocks_prefix_counts_exhaustive",
+  "percentages": [55, 30, 15],
+  "search_space_id": "GLOBAL_CORE_V1",
+  "search_algorithm": {
+    "name": "DETERMINISTIC_CONSTRAINED_BEAM_COORDINATE_SEARCH",
+    "beam_width": 8,
+    "max_rounds": 4,
+    "max_unique_candidates": 500,
+    "stage_a_b_budget": 400,
+    "stage_c_budget": 100,
+    "refinement_rounds": 2,
+    "refinement_step_factor": 0.5,
+    "seed_includes_control": true
+  },
+  "selection_policy_version": 3,
+  "stopping_rule": "执行固定搜索预算和预先冻结的停止条件，不能根据VALIDATION或TEST结果重新搜索。",
+  "history_declaration": {
+    "reviewer_id": "<真实人工ID>",
+    "reviewed_at_utc": "<实际UTC审查时间>",
+    "all_known_ledgers_declared": false,
+    "validation_not_used_for_search_or_rubric": false,
+    "test_not_used_for_search_or_rubric": false,
+    "remarks": "<如实说明全部历史使用与范围，不能自动勾选声明>"
+  }
+}

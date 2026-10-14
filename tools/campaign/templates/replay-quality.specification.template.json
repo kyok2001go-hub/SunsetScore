@@ -1,0 +1,11 @@
+{
+  "quality_plan_schema_version": 1,
+  "deployments": {
+    "pages": {"deployment_id": "<真实Pages部署ID>", "commit": "<真实40位完整SHA>", "effective_at_utc": "<真实UTC生效时间>"},
+    "scheduler": {"deployment_id": "<真实Scheduler部署ID>", "commit": "<真实40位完整SHA>", "effective_at_utc": "<真实UTC生效时间>"}
+  },
+  "capture_dates_shanghai": ["<未来连续日期1>", "<未来连续日期2>", "<未来连续日期3>"],
+  "locations": [{"location_key": "<真实规范地点标识>", "timezone": "Asia/Hong_Kong"}],
+  "slots": ["1213", "1613", "1720"],
+  "cutoff_utc": "<真实UTC采集截止时间>"
+}

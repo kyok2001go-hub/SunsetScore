@@ -57,3 +57,10 @@ export function evaluationSchemaV2() {
   schema.tables.no_skill_comparison = NO_SKILL_FIELDS;
   return schema;
 }
+export const V3_EXPORT_FILES = Object.freeze([...V2_EXPORT_FILES, 'formal_context.json'].sort(compare));
+export function evaluationSchemaV3() {
+  const schema = evaluationSchemaV2(); schema.evaluation_schema_version = 3; schema.evaluation_policy_version = 3;
+  schema.files.export = V3_EXPORT_FILES;
+  for (const name of ['manifest', 'summary']) schema.json[name].required.push('result_usage', 'campaign_id', 'semantic_evidence_id', 'mapping_contract_sha256', 'runtime_bundle_id');
+  return schema;
+}

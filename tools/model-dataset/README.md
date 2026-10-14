@@ -7,19 +7,22 @@
 ```powershell
 npm run model-dataset:plan -- --raw <raw_dir> --gt <gt_dir>
 npm run model-dataset:build -- --raw <raw_dir> --gt <gt_dir>
+npm run model-dataset:build -- --raw <raw_dir> --gt <gt_dir> --model-policy-version 3
 npm run model-dataset:validate -- <model_dir> --raw <raw_dir> --gt <gt_dir>
 npm run model-dataset:stats -- <model_dir>
 ```
 
 `plan` 预检数据量与日期切分，`build` 发布不可变包。两者必须显式提供配套 Raw / GT 路径，可用 `--model-version a,b` 按源字段精确筛选模型版本；筛掉的 Snapshot 仍会进入 `excluded_samples.csv`，每条源 Snapshot 只属于一个输出类别。默认输出根为 `dataset/model`，`build` 可用 `--output <目录>` 指定。构建成功响应中的 `directory` 是后续校验和统计所需的 `<model_dir>`。
 
-`plan`、`build` 和带 `--raw` / `--gt` 的来源校验会完整校验 Raw（含 Replay 完整性）及 GT `SOURCE_LINKED`。这只检查文件与来源，不执行 Replay Engine，也不重写 GT。支持 Raw Schema 1；GT Schema 1/2 + Policy 1 或 Schema 3 + Policy 2。旧 Model Schema 1 / Policy 1 包仍按原策略校验；当前新包使用 Model Schema 2 / Policy 3，Schema 与 Policy 分别版本化。
+`plan`、`build` 和带 `--raw` / `--gt` 的来源校验会完整校验 Raw（含 Replay 完整性）及 GT `SOURCE_LINKED`。这只检查文件与来源，不执行 Replay Engine，也不重写 GT。支持 Raw Schema 1；GT Schema 1/2 + Policy 1 或 Schema 3 + Policy 2。当前新包默认使用 Model Schema 2 / Policy 4；`plan` / `build` 可显式传 `--model-policy-version 2|3|4`，旧 Model Schema 1 / Policy 1 与 Schema 2 / Policy 2、3 包仍按原策略校验。`validate` / `stats` 从包中读取版本，不接收覆盖策略的参数。Schema 与 Policy 分别版本化，Phase 2 GT 不负责切分。
 
 ## 入选和切分
 
 - `STRONG` / `MEDIUM` 且日落前的 Snapshot 为 Primary；`WEAK` 与其他符合条件的日落后 Snapshot 为 Diagnostic；`DISPUTED` / `UNLABELED` 等为 Excluded。`WEAK` 判定先于日落后诊断。
-- Policy 3 要求至少 30 个 Primary Event、至少三个可切分的完整当地日期块；TRAIN / VALIDATION / TEST 分别至少 15 / 5 / 5 个 Event。目标比例为 70% / 15% / 15%，不拆散同一当地日期。仅总量达到 30 仍不保证可切分；日期块超过 10,000 个会明确失败，不用近似搜索。
-- `plan` 对 `READY` 和 `INSUFFICIENT_SPLIT_DATA` 都以退出码 0 返回；不足时 `build` 非零退出且不发布包。旧 Policy 1/2 包继续按原 30/10/10 分组门槛校验，不套用 Policy 3。
+- Policy 4 的目标比例为 TRAIN / VALIDATION / TEST = 55% / 30% / 15%；Policy 3 保留 70% / 15% / 15%。两者均要求至少 30 个 Primary Event、至少三个可切分的完整当地日期块，分组至少 15 / 5 / 5 个 Event。按 Event 数搜索比例最接近的完整日期边界，同一天不拆散，实际比例可以偏离目标；相同目标差保留最早的验证、测试边界。仅总量达到 30 仍不保证可切分；日期块超过 10,000 个会明确失败，不用近似搜索。
+- `plan` 对 `READY` 和 `INSUFFICIENT_SPLIT_DATA` 都以退出码 0 返回，并声明 Schema / Policy 版本；不足时 `build` 非零退出且不发布包。旧 Policy 1/2 包继续按原 30/10/10 分组门槛校验，不套用 Policy 3/4。
+
+Policy 4 新 Model 必须重新构建对应 Phase 4–7，不混用旧 Model 的下游。开发链使用 Evaluation 2、Tuning Policy 3、Optimization Policy 2、Validation Policy 2；正式链使用 Campaign Policy 2（Specification 2，绑定 Model 2/4）和既有正式工具组合。Evaluation V1 保留旧来源矩阵，不读取 Policy 4。原冻结 Runtime 的工具快照不自动升级，运行新包前须重新冻结包含这些读取器的新 Runtime。比例调整不消除已登记的访问历史，也不放宽样本、日期、Replay、excellent 软警告或正式独立性门槛。
 
 ## 包结构与读取边界
 

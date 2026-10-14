@@ -8,18 +8,20 @@ import { defaultOutputRoot, publishOptimizationPackage } from './lib/publish.mjs
 import { inspectOptimization } from './validate-optimization.mjs';
 import { withBuildLease } from '../maintenance/lib/lease.mjs';
 import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
+import { formalMissingReasons, validateFormalSourceContext, withFormalLeases } from '../formal/context.mjs';
 
 async function runOptimizationBuild(options) {
   const built = await buildOptimizationPackage(options);
   const sourcesBefore = built.input.sourceFingerprints;
   const published = await publishOptimizationPackage({
     output: options.output,
-    roots: [options.model, options.raw, options.gt, options.baseline, options.sensitivity].filter(Boolean),
+    roots: [options.model, options.raw, options.gt, options.baseline, options.sensitivity, options.campaign, options.metricEvidence, options.runtimeBundle].filter(Boolean),
     files: built.files,
     manifest: built.manifest,
     progress: options.progress,
     validateStaging: async staging => { await inspectOptimization(staging, { staging: true }); },
     sourceCheck: async () => {
+      if (options.optimizationPolicyVersion === 3) await validateFormalSourceContext(built.input.sensitivity.formalContext, options);
       const sourceDirectories = {
         model: options.model, raw: options.raw, gt: options.gt,
         baseline: options.baseline, sensitivity: options.sensitivity
@@ -49,12 +51,17 @@ async function runOptimizationBuild(options) {
     engine_runtime_sha256: built.manifest.engine_runtime_sha256,
     tuning_base_config_sha256: built.manifest.tuning_base_config_sha256,
     parameter_registry_sha256: built.manifest.parameter_registry_sha256,
-    descriptor_sha256: built.manifest.descriptor_sha256
+    descriptor_sha256: built.manifest.descriptor_sha256,
+    ...(options.optimizationPolicyVersion === 3 ? { result_usage: built.manifest.result_usage } : {})
   };
 }
 
 /** Holds the shared maintenance lease so prune never races an Optimization publish. */
 export async function runOptimization(options) {
+  if (options.optimizationPolicyVersion === 3) {
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    return withFormalLeases('optimization', options, options.output || defaultOutputRoot(APP_ROOT), () => runOptimizationBuild(options));
+  }
   return withBuildLease('optimization', () => runOptimizationBuild(options), {
     datasetRoot: datasetRootForPhaseOutput('optimization', options.output || defaultOutputRoot(APP_ROOT))
   });

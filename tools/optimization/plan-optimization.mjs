@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from 'node:path';
 import { canonicalJson, hash, isMain } from '../dataset/lib/common.mjs';
 import { silentProgress } from '../progress.mjs';
 import { runCli } from './lib/cli.mjs';
@@ -8,22 +9,27 @@ import { coarseProposals } from './lib/generator.mjs';
 import { cohortProfile, computeOptimizationReadiness } from './lib/readiness.mjs';
 import { optimizationInputIdentity } from './lib/build.mjs';
 import { optimizationPolicy } from './optimization-policy.mjs';
+import { formalMissingReasons, loadFormalContext, formalContextIdentity, registerTrainAccess, withFormalLeases } from '../formal/context.mjs';
 
 /**
  * Dry run: reports the run mode, the eligible / excluded Search Space, the replay volume and the
  * freeze eligibility before any Candidate is evaluated.
  */
-export async function planOptimization(options) {
+async function buildPlanOptimization(options) {
   const progress = options.progress || silentProgress;
   const policyVersion = options.optimizationPolicyVersion ?? 1;
   const policy = optimizationPolicy(policyVersion);
+  if (policyVersion === 3) {
+    const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
+    await registerTrainAccess(await loadFormalContext(options), options, 'OPTIMIZATION_PLAN');
+  }
   const input = await loadOptimizationInput({
-    model: options.model, raw: options.raw, gt: options.gt,
+    ...options, model: options.model, raw: options.raw, gt: options.gt,
     baseline: options.baseline, sensitivity: options.sensitivity,
     root: options.root, progress, optimizationPolicyVersion: policyVersion
   });
   const source = sourceIdentity(input);
-  const profile = cohortProfile(input.model.rows);
+  const profile = cohortProfile(input.model.rows, { canonicalLocations: options.optimizationPolicyVersion === 3 });
   const replayUsableRate = input.sensitivity.readiness?.metrics?.replay_usable_rate ?? 1;
   const readiness = computeOptimizationReadiness({
     profile, replayUsableRate, sensitivityLinkage: input.sensitivity.linkage,
@@ -42,7 +48,8 @@ export async function planOptimization(options) {
   const seeds = 1 + coarseProposals(searchSpace).length;
   return {
     status: 'PLANNED',
-    ...(policyVersion === 2 ? { optimization_policy_version: 2, gt_level_support: readiness.gt_level_support,
+    ...(input.sensitivity.formalContext ? formalContextIdentity(input.sensitivity.formalContext) : {}),
+    ...(policyVersion >= 2 ? { optimization_policy_version: policyVersion, gt_level_support: readiness.gt_level_support,
       gt_level_support_sha256: readiness.gt_level_support_sha256,
       upstream_train_support: readiness.upstream_train_support, warnings: readiness.warnings } : {}),
     optimization_input_id: optimizationInputId,
@@ -82,4 +89,8 @@ export async function planOptimization(options) {
   };
 }
 
+export async function planOptimization(options) {
+  return options.optimizationPolicyVersion === 3 ? withFormalLeases('optimization_plan', options,
+    options.output || path.resolve('dataset/optimization'), () => buildPlanOptimization(options)) : buildPlanOptimization(options);
+}
 if (isMain(import.meta.url)) await runCli('plan', planOptimization);

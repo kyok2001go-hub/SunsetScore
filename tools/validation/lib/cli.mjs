@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { canonicalJson, errorCode, fail } from '../../dataset/lib/common.mjs';
 import { createProgress } from '../../progress.mjs';
+import { bundleArgs, executeBundleCli } from '../../experiment-runtime/lib/execute.mjs';
 
 const SOURCE_FLAGS = ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'optimization'];
 const FLAGS = {
   plan: [...SOURCE_FLAGS, 'mode', 'output', 'access-ledger', 'disclosure-evidence', 'validation-policy-version'],
   run: [...SOURCE_FLAGS, 'plan', 'mode', 'output', 'access-ledger'],
   validate: [...SOURCE_FLAGS, 'access-ledger'],
+  recover: [...SOURCE_FLAGS, 'access-ledger'],
   stats: []
 };
 
@@ -14,18 +16,24 @@ export function parseArgs(args, command) {
   if (!FLAGS[command]) fail('INVALID_ARGUMENTS');
   const options = {}, seen = new Set();
   let i = 0;
-  if (command === 'validate' || command === 'stats') {
+  if (command === 'validate' || command === 'stats' || command === 'recover') {
     if (!args[0] || args[0].startsWith('--')) fail('INVALID_ARGUMENTS');
     options.path = path.resolve(args[0]);
     i = 1;
   }
   for (; i < args.length; i++) {
     const flag = args[i];
+    if (flag === '--runtime-bundle' && command !== 'stats' && !seen.has(flag)) {
+      seen.add(flag); const value = args[++i];
+      if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
+      options.runtimeBundle = path.resolve(value); continue;
+    }
     if (flag === '--quiet' && !seen.has(flag)) { options.quiet = true; seen.add(flag); continue; }
     if (flag === '--acknowledge-exposed-validation' && command === 'plan' && !seen.has(flag)) {
       options.acknowledgeExposedValidation = true; seen.add(flag); continue;
     }
-    if (!flag.startsWith('--') || seen.has(flag) || !FLAGS[command].includes(flag.slice(2))) fail('INVALID_ARGUMENTS');
+    const allowed = [...FLAGS[command], ...(command !== 'stats' ? ['campaign', 'metric-evidence', 'history-ledgers'] : [])];
+    if (!flag.startsWith('--') || seen.has(flag) || !allowed.includes(flag.slice(2))) fail('INVALID_ARGUMENTS');
     seen.add(flag);
     const value = args[++i];
     if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
@@ -33,9 +41,11 @@ export function parseArgs(args, command) {
     if (name === 'access-ledger') options.accessLedger = path.resolve(value);
     else if (name === 'disclosure-evidence') options.disclosureEvidence = path.resolve(value);
     else if (name === 'validation-policy-version') {
-      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
       options.validationPolicyVersion = Number(value);
     }
+    else if (name === 'metric-evidence') options.metricEvidence = path.resolve(value);
+    else if (name === 'history-ledgers') options.historyLedgers = path.resolve(value);
     else if (name === 'mode') options.mode = value;
     else options[name] = path.resolve(value);
   }
@@ -43,6 +53,7 @@ export function parseArgs(args, command) {
     if (SOURCE_FLAGS.some(key => !options[key]) || (command === 'plan' && !options.mode) ||
         (command === 'run' && !options.plan)) fail('INVALID_ARGUMENTS');
   }
+  if (command === 'recover' && SOURCE_FLAGS.some(key => !options[key])) fail('INVALID_ARGUMENTS');
   if (command === 'validate' && SOURCE_FLAGS.some(key => Boolean(options[key])) &&
       !(SOURCE_FLAGS.every(key => Boolean(options[key])) ||
         Boolean(options.model && options.optimization && SOURCE_FLAGS.filter(key => !['model', 'optimization'].includes(key))
@@ -56,7 +67,8 @@ export async function runCli(command, operation) {
     const options = parseArgs(process.argv.slice(2), command);
     progress = createProgress(options);
     options.progress = progress;
-    const result = await operation(options);
+    const result = options.runtimeBundle ? await executeBundleCli(options.runtimeBundle, process.argv[1],
+      bundleArgs(process.argv.slice(2), command, 'validation')) : await operation(options);
     progress.finish(result.status || 'PASS');
     console.log(canonicalJson(result));
   } catch (error) {

@@ -32,11 +32,23 @@ export const POLICY_V2 = freeze({ ...POLICY_V1, model_dataset_policy_version: 2,
   legacy_gt_basis: 'OBSERVATION_AGGREGATED', basis_role: 'target_metadata_not_prediction_feature',
   statistics: { ...POLICY_V1.statistics, basis: 'one_per_event_including_splits' }
 });
-export const POLICY = freeze({ ...POLICY_V2, model_dataset_policy_version: 3, minimum_events: [15, 5, 5], minimum_total_events: 30 });
+export const POLICY_V3 = freeze({ ...POLICY_V2, model_dataset_policy_version: 3, minimum_events: [15, 5, 5], minimum_total_events: 30 });
+export const POLICY_V4 = freeze({ ...POLICY_V3, model_dataset_policy_version: 4, percentages: [55, 30, 15] });
+export const DEFAULT_MODEL_POLICY_VERSION = 4;
+// Preserve the legacy pure-function default; new build/plan entry points select Policy 4.
+export const POLICY = POLICY_V3;
+export function isSupportedModelVersion(schema, policy) {
+  return (schema === 1 && policy === 1) || (schema === 2 && [2, 3, 4].includes(policy));
+}
+export function selectedModelPolicyVersion(value = DEFAULT_MODEL_POLICY_VERSION) {
+  if (![2, 3, 4].includes(value)) throw Object.assign(new Error('INVALID_ARGUMENTS'), { code: 'INVALID_ARGUMENTS' });
+  return value;
+}
 export function modelPolicy(version) {
   if (version === 1) return POLICY_V1;
   if (version === 2) return POLICY_V2;
   if (version === 3) return POLICY;
+  if (version === 4) return POLICY_V4;
   throw new Error('UNSUPPORTED_MODEL_DATASET_POLICY');
 }
 export const Q = x => Number(x.toFixed(POLICY.numeric.decimals)) || 0;

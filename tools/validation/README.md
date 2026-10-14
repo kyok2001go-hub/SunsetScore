@@ -1,4 +1,20 @@
-# Phase 7 · V2.5.4 验证说明
+# Phase 7 可复现性治理补充（2026-10-12）
+
+真实 Run 在 staging 包内校验之后，必须启动新 Node 进程重新加载冻结输入、Replay 和统计，比较全部结果文件与 Manifest，再做最后来源、Plan、Evidence、执行源码复核并原子发布。重算不依赖 RUN_COMPLETED，也不复用第一次的预测或 Bootstrap。差异产生 VALIDATION_RECOMPUTE_MISMATCH，staging 保留诊断，exports 不产生结果。
+
+Run 和完整六源 Verify 共用 Plan 活动锁；账本只在检查/追加时短暂加锁。账本新增 PREPUBLISH_RECOMPUTE_*、VERIFY_RECOMPUTE_*、PUBLISH_RECOVERED，记录授权引用、尝试、来源和结果。PACKAGE_INTERNAL / MODEL_LINKED 为只读；SOURCE_LINKED_RECOMPUTED 会追加访问审计。旧包缺少历史 VERIFY 收据不使其包内失效，新复核须留下新审计。
+
+发布已经完成而完成日志失败时返回 PUBLISHED_AUDIT_INCOMPLETE。保留目标包后运行：
+
+```powershell
+npm run validation:recover -- <result-package> --model <model> --raw <raw> --gt <gt> --baseline <baseline> --sensitivity <sensitivity> --optimization <optimization> --runtime-bundle <bundle>
+```
+
+恢复要求合法的事前预发布重算记录和完整来源重算，再补齐 RUN_COMPLETED / PUBLISH_RECOVERED；不重新登记首次访问、不覆盖包。没有对应预发布证据的中断不能通过该命令伪造历史门禁。遗留活动锁和维护租约仍须确认进程结束后人工处理，工具不按时间自动删锁。
+
+Phase 5–7 实际支持 `--runtime-bundle`；用法见 [执行快照](../experiment-runtime/README.md)。采集质量独立使用 [Replay Quality](../replay-quality/README.md)。本轮不改统计策略、评分参数、旧包 Schema 或正式晋级边界。
+
+## Phase 7 · V2.5.4 验证说明
 
 本实现严格区分两种运行模式。`development`（开发模式）允许在模型数据集（Model Dataset）的 `VALIDATION` 划分上，评估最多 5 个来自 Phase 6 的探索性 `TOP_SEARCH_POINT` 候选。所有输出均永久标记为 `DEVELOPMENT_ONLY`，不能用于选择生产候选，也不能授予正式晋级资格。`formal`（正式模式）采用前置条件不满足即拒绝运行的机制；只有具备真实正式语义及独立映射证据的新版上游、正式优化冻结（Optimization Freeze）、独立披露证据及运行时（Runtime）证明均已实现且可用，才允许执行。V2.5.4.1 的 Tuning Policy 3 仍是代理探索策略，不是正式能力证明。
 
@@ -67,3 +83,10 @@ npm run validation:stats -- <validation-export-directory>
 新版结果清单会在顶层及描述对象中同时声明 `result_usage`。已有本地开发包即使缺少顶层字段，仍可按旧版清单格式读取，且不会被原地重写。
 
 `test/validation-fixture.cjs` 是仅供测试使用、在内存中构造正式流程数据的测试夹具。它可生成 `TEST_FIXTURE_ONLY` 数据包，用于覆盖已选出候选、结论不确定及无合格候选这三类结果。任何命令行入口都不能创建此类数据包；这些数据包不能通过 `MODEL_LINKED` / `SOURCE_LINKED` 校验，不能使候选晋级，也不能作为 Phase 8 的输入。真实的 `formal` 命令行调用仍会在前置条件不满足时拒绝运行，直到具备真实正式语义的独立新策略、冻结、披露及运行时条件全部满足；本版 Policy 3 不满足此条件。
+
+## V2.5.4-B 正式链
+
+新增 Validation Schema 2 / Policy 3（Plan 使用 --validation-policy-version 3），须绑定通过独立人工复核的语义证据、冻结 Campaign 和 Protocol 2 Runtime。原有版本沿用原 Policy，不因样本增多而自动升为正式。详见 [Campaign 冻结与准入](../campaign/README.md) 和 [语义准备与独立复核](../metric-semantics/README.md)。
+# Model Policy 4 来源兼容（2026-10-14）
+
+支持 Model Schema 2 / Policy 4 的 55/30/15 切分。Plan/Run 必须绑定同一新 Model 产生的六源，仍保留 VALIDATION-only 效果读取、TEST 隔离、发布前新进程重算和持久访问账本。开发 Policy 2 与正式 Policy 3 的门槛及 excellent 软警告不变；正式链的 Campaign Policy 2 须绑定 Model 2/4。新比例或新包身份不能恢复已经暴露的验证范围；新工具须使用包含当前实现的新 Runtime。

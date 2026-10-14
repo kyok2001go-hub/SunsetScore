@@ -1,0 +1,6 @@
+{
+  "review_plan_schema_version": 1,
+  "frozen_at_utc": "<实际UTC冻结时间，须早于第二人标注>",
+  "acceptance_rules": {"acceptance_rules_version":1,"criteria":["RUBRIC_COMPLETE","MAPPING_REVIEWED","NO_MAJOR_UNRESOLVED_AMBIGUITY","EVIDENCE_SCOPE_REVIEWED","LIMITATIONS_REVIEWED"],"rationale":"填写实际冻结的判据和依据；null不表示未制定定性判据","maximum_disagreement_rate":null,"maximum_unassessable_rate":null},
+  "independence_declaration": {"review_not_used_for_rubric_adjustment":false,"selection_not_based_on_candidate_errors":false}
+}

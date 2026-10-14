@@ -42,7 +42,7 @@ async function inspect(directory, options) {
 
   const schemaVersion = manifest.evaluation_schema_version;
   const policyVersion = manifest.evaluation_policy_version;
-  if (schemaVersion === 2 || policyVersion === 2) return inspectEvaluationV2(directory, options);
+  if ([2, 3].includes(schemaVersion) || [2, 3].includes(policyVersion)) return inspectEvaluationV2(directory, options);
   if (schemaVersion !== 1) fail('UNSUPPORTED_EVALUATION_SCHEMA');
   if (policyVersion !== 1) fail('UNSUPPORTED_EVALUATION_POLICY');
 

@@ -4,6 +4,10 @@
 
 纯本地运行：不联网、不执行生产采集、不写 D1 / R2、不修改评分代码与 `js/config.js`。
 
+Model Schema 2 / Policy 4（55/30/15）已登记为来源版本，TRAIN-only / VALIDATION-only 白名单保持不变。新切分须使用同一新 Model 构建的 Baseline 和后续包；开发链继续显式选择 Tuning Policy 3，正式链使用与 Campaign Policy 2 绑定的既有 Policy 4。此处 Model Policy 4 与 Tuning Policy 4 是两个独立版本，不因编号相同自动具备正式资格。新版本工具须归档到新的 Runtime，旧快照不自动升级。
+
+Phase 7 治理新增 `--runtime-bundle <快照目录>`：readiness / plan / run / validate / candidate 由归档工具在独立 Node 进程执行，并返回包外执行收据；stats 不接收此参数。快照身份、环境要求与旧环境恢复边界见 [Experiment Runtime](../experiment-runtime/README.md)。
+
 本版**不寻找最优参数、不发布 Candidate、不修改线上模型**。它回答的是"哪些参数值得调、数据够不够调"，并提供 V2.5.3 所需的候选点评估接口（见 §12）。
 
 ## Tuning V2（显式选择）
@@ -345,3 +349,9 @@ node tools/tuning/evaluate-candidate.mjs --model <dir> --raw <dir> --candidates 
 ```
 
 边界：候选点评估只回答"这个向量在当前 cohort 上得分如何"。它不是优化器，不做搜索、不收敛、不生成推荐值，也不把结果写进任何数据包；搜索循环与候选生成属于 V2.5.3。
+
+## V2.5.4-B 正式链
+
+新增 Sensitivity Schema 3 / Policy 4（--tuning-version 4），须绑定通过独立人工复核的语义证据、冻结 Campaign 和 Protocol 2 Runtime。原有版本沿用原 Policy，不因样本增多而自动升为正式。详见 [Campaign 冻结与准入](../campaign/README.md) 和 [语义准备与独立复核](../metric-semantics/README.md)。
+
+旧 `tuning:candidate --split VALIDATION` 在计算前登记主账本与 Model 数据根的暴露，支持 `--access-ledger`；TRAIN 默认分支不扩大到 VALIDATION/TEST。该旧入口仍为探索用途，不能替代正式冻结 Plan。

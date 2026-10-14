@@ -1,6 +1,7 @@
 import { tuningPolicy } from '../tuning-policy.mjs';
 import { tuningSchema, CSV_TABLES } from '../tuning-schema.mjs';
 import { SUPPORT_POLICY, SUPPORT_FILE } from '../../gt-level-support.mjs';
+import { MAPPING } from '../../formal/contracts.mjs';
 
 const field = (name, type = 'string', nullable = false, range = null) =>
   ({ name, type, nullable, range, enum: null, unit: null });
@@ -93,9 +94,20 @@ for (const name of ['manifest', 'readiness', 'summary']) {
 schema3.json.gt_level_support = { required: ['cohort', 'cohort_sha256', 'gt_level_support',
   'gt_level_support_sha256', 'rare_level_audit'] };
 export const SCHEMA_V3 = Object.freeze(schema3);
+const policy4 = structuredClone(POLICY_V3);
+policy4.tuning_schema_version = 3; policy4.tuning_policy_version = 4; policy4.formal_contract_revision = 1;
+policy4.formal_capable = true; policy4.metric_usage = 'FORMAL_ORDINAL'; policy4.result_usage = { formal: 'FORMAL' };
+policy4.evaluation_contract = { ...policy4.evaluation_contract, schema_version: 3, policy_version: 3,
+  mapping_status: MAPPING.mapping_status, interpretation_scope: MAPPING.interpretation_scope };
+policy4.package.export_files.push('formal_context.json'); policy4.package.export_files.sort();
+export const POLICY_V4 = Object.freeze(policy4);
+const schema4 = structuredClone(SCHEMA_V3);
+schema4.tuning_schema_version = 3; schema4.tuning_policy_version = 4; schema4.files.export = policy4.package.export_files;
+for (const name of ['manifest', 'readiness', 'summary']) schema4.json[name].required.push('campaign_id', 'semantic_evidence_id', 'mapping_contract_sha256', 'runtime_bundle_id');
+export const SCHEMA_V4 = Object.freeze(schema4);
 export function tuningContract(version = 2) {
-  if (![2, 3].includes(version)) throw Object.assign(new Error('UNSUPPORTED_TUNING_POLICY'), { code: 'UNSUPPORTED_TUNING_POLICY' });
-  return { policy: version === 3 ? POLICY_V3 : POLICY_V2,
-    schema: version === 3 ? SCHEMA_V3 : SCHEMA_V2,
-    files: version === 3 ? policy3.package.export_files : FILES_V2 };
+  if (![2, 3, 4].includes(version)) throw Object.assign(new Error('UNSUPPORTED_TUNING_POLICY'), { code: 'UNSUPPORTED_TUNING_POLICY' });
+  return { policy: version === 4 ? POLICY_V4 : version === 3 ? POLICY_V3 : POLICY_V2,
+    schema: version === 4 ? SCHEMA_V4 : version === 3 ? SCHEMA_V3 : SCHEMA_V2,
+    files: version === 4 ? policy4.package.export_files : version === 3 ? policy3.package.export_files : FILES_V2 };
 }

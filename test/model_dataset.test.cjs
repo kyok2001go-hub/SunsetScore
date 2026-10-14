@@ -251,6 +251,11 @@ test('Model full-source build, linked validation, dedup, GT V1 support and sourc
   const before = { raw: await m.fingerprints(f.raw), gt: await m.fingerprints(f.gt) };
   const p = await m.planModelDataset(f.raw, f.gt); assert.equal(p.status, 'READY');
   const first = await m.buildModelDataset(f.raw, f.gt, { output: f.output }); assert.equal(first.status, 'EXPORTED');
+  assert.equal((await m.inspectModelDataset(first.directory)).manifest.model_dataset_policy_version, 4);
+  assert.equal((await m.planModelDataset(f.raw, f.gt)).model_dataset_policy_version, 4);
+  const policy3Model = await m.buildModelDataset(f.raw, f.gt, { output: f.output, modelPolicyVersion: 3 });
+  assert.notEqual(first.model_dataset_id, policy3Model.model_dataset_id);
+  assert.equal((await m.inspectModelDataset(policy3Model.directory, { raw: f.raw, gt: f.gt })).manifest.model_dataset_policy_version, 3);
   assert.equal((await m.inspectModelDataset(first.directory, { raw: f.raw, gt: f.gt })).validation_scope, 'SOURCE_LINKED');
   const filesBefore = await m.fingerprints(first.directory);
   const { createProgress } = await import('../tools/progress.mjs');
@@ -384,4 +389,33 @@ test('Policy 3 accepts 30 Events and logged 33-date distribution, preserves old 
   const old=await pure();const prior=await savePackage(path.join(root,'old'),m,old.run());
   assert.equal(prior.manifest.model_dataset_policy_version,2);
   assert.equal((await m.inspectModelDataset(prior.dir)).status,'PASS');
+});
+
+test('Model Policy 4 changes complete date boundaries to 55/30/15 while Policy 3 remains reproducible', async t => {
+  const f = await pure(Array(20).fill(5)), { m } = f, root = await temp(t);
+  const { modelPolicy } = await import('../tools/model-dataset/model-dataset-policy.mjs');
+  const build = policy => m.derive(f.events, f.snapshots, f.gt, f.replays, m.selection(), undefined, 2, undefined, policy);
+  const current = build(4), legacy = build(3);
+  assert.deepEqual(Object.values(current.plan.selected_split.splits).map(split => split.events), [55, 30, 15]);
+  assert.deepEqual(Object.values(legacy.plan.selected_split.splits).map(split => split.events), [70, 15, 15]);
+  assert.equal(current.plan.selected_split.validation_boundary, '2026-09-12');
+  assert.equal(current.plan.selected_split.test_boundary, '2026-09-18');
+  for (const day of new Set(current.rows.map(row => row.event_date_local))) {
+    assert.equal(new Set(current.rows.filter(row => row.event_date_local === day).map(row => row.split)).size, 1);
+  }
+  assert.deepEqual(modelPolicy(3).percentages, [70, 15, 15]);
+  assert.deepEqual(modelPolicy(4).minimum_events, [15, 5, 5]);
+  const prior = await savePackage(root, m, legacy), priorBytes = await m.fingerprints(prior.dir);
+  const saved = await savePackage(root, m, current);
+  assert.notEqual(saved.manifest.model_dataset_id, prior.manifest.model_dataset_id);
+  assert.equal((await m.inspectModelDataset(saved.dir)).status, 'PASS');
+  assert.equal((await m.inspectModelDataset(prior.dir)).status, 'PASS');
+  assert.deepEqual(await m.fingerprints(prior.dir), priorBytes);
+  const forged = await savePackage(path.join(root, 'forged'), m, { ...legacy, policyVersion: 4 });
+  await assert.rejects(m.inspectModelDataset(forged.dir), /MODEL_DATASET_VALIDATION_FAILED/);
+  for (const version of ['1', '5', '04', '3.0']) {
+    assert.throws(() => m.parseArgs(['--raw','raw','--gt','gt','--model-policy-version',version], 'build'), /INVALID_ARGUMENTS/);
+  }
+  assert.equal(m.parseArgs(['--raw','raw','--gt','gt','--model-policy-version','4'], 'plan').modelPolicyVersion, 4);
+  assert.throws(() => m.parseArgs(['model','--model-policy-version','4'], 'validate'), /INVALID_ARGUMENTS/);
 });

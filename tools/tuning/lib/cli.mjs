@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { canonicalJson, errorCode, fail } from '../../dataset/lib/common.mjs';
 import { outside } from './input.mjs';
 import { createProgress } from '../../progress.mjs';
+import { bundleArgs, executeBundleCli } from '../../experiment-runtime/lib/execute.mjs';
 
 const FLAGS = {
   readiness: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'output', 'report-dir'],
@@ -10,7 +11,7 @@ const FLAGS = {
   sensitivity: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'output', 'report-dir'],
   validate: ['model', 'raw', 'gt', 'baseline', 'validation-evidence', 'tuning-version', 'report-dir'],
   stats: ['tuning-version', 'report-dir'],
-  candidate: ['model', 'raw', 'gt', 'split', 'candidates', 'output', 'report-dir']
+  candidate: ['model', 'raw', 'gt', 'split', 'candidates', 'output', 'report-dir', 'access-ledger']
 };
 
 /** Flags a mode cannot run without. Candidate evaluation may skip the Phase A source check. */
@@ -29,7 +30,7 @@ export function parseArgs(args, mode) {
     result.path = path.resolve(args[0]);
     start = 1;
   }
-  const allowed = FLAGS[mode];
+  const allowed = [...FLAGS[mode], ...(!['stats', 'candidate'].includes(mode) ? ['campaign', 'metric-evidence', 'access-ledger', 'history-ledgers'] : [])];
   for (let index = start; index < args.length; index++) {
     const flag = args[index];
     if (flag === '--quiet' && !seen.has('quiet')) {
@@ -39,6 +40,11 @@ export function parseArgs(args, mode) {
     }
     if (!flag.startsWith('--')) fail('INVALID_ARGUMENTS');
     const key = flag.slice(2);
+    if (key === 'runtime-bundle' && mode !== 'stats' && !seen.has(key)) {
+      const value = args[++index];
+      if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
+      seen.add(key); result.runtimeBundle = path.resolve(value); continue;
+    }
     if (!allowed.includes(key) || seen.has(key)) fail('INVALID_ARGUMENTS');
     const value = args[index + 1];
     if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
@@ -46,10 +52,13 @@ export function parseArgs(args, mode) {
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
     else if (key === 'tuning-version') {
-      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
+      if (!['1', '2', '3', '4'].includes(value)) fail('INVALID_ARGUMENTS');
       result.tuningVersion = Number(value);
     }
     else if (key === 'validation-evidence') result.validationEvidence = path.resolve(value);
+    else if (key === 'metric-evidence') result.metricEvidence = path.resolve(value);
+    else if (key === 'access-ledger') result.accessLedger = path.resolve(value);
+    else if (key === 'history-ledgers') result.historyLedgers = path.resolve(value);
     else if (key === 'split') result.split = value;
     else result[key] = path.resolve(value);
   }
@@ -58,7 +67,7 @@ export function parseArgs(args, mode) {
   if (result.validationEvidence && ![2, 3].includes(result.tuningVersion) && mode !== 'validate') fail('INVALID_ARGUMENTS');
   if (result.validationEvidence && mode === 'validate' && (result.tuningVersion === 1 ||
       !(result.model && result.raw && result.gt && result.baseline))) fail('INVALID_ARGUMENTS');
-  if (mode === 'validate' && [2, 3].includes(result.tuningVersion)) {
+  if (mode === 'validate' && [2, 3, 4].includes(result.tuningVersion)) {
     if ((result.raw || result.gt || result.baseline) && !(result.model && result.raw && result.gt && result.baseline)) fail('INVALID_ARGUMENTS');
   }
   return result;
@@ -91,12 +100,16 @@ export async function runCli(mode, operation) {
       candidate: '准备候选点评估'
     }[mode]);
 
-    const roots = [options.path, options.model, options.raw, options.gt, options.baseline, options.validationEvidence].filter(Boolean);
+    const roots = [options.path, options.model, options.raw, options.gt, options.baseline, options.validationEvidence,
+      options.campaign, options.metricEvidence, options.runtimeBundle].filter(Boolean);
     if (options.reportDir) await outside(options.reportDir, roots);
 
-    let data = await operation(options);
+    let data = options.runtimeBundle ? await executeBundleCli(options.runtimeBundle, process.argv[1],
+      bundleArgs(process.argv.slice(2), mode, 'tuning')) : await operation(options);
     if (mode === 'validate') {
-      data = { status: data.status, validation_scope: data.validation_scope, sensitivity_id: data.sensitivity_id };
+      data = { status: data.status, validation_scope: data.validation_scope, sensitivity_id: data.sensitivity_id,
+        ...(data.runtime_bundle_id ? { runtime_bundle_id: data.runtime_bundle_id,
+          execution_receipt_id: data.execution_receipt_id, execution_receipt_directory: data.execution_receipt_directory } : {}) };
     }
 
     if (options.reportDir) {

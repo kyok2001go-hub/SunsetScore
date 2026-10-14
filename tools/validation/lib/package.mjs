@@ -12,6 +12,7 @@ import { dateBlockBootstrap } from './stability.mjs';
 import { classifyCandidate, rankEligible, selectOutcome } from './selection.mjs';
 import { closestPreSunset } from './benchmark.mjs';
 import { withOptimizationLock } from '../../optimization/lib/publish.mjs';
+import { formalContextIdentity, inspectFormalContext } from '../../formal/context.mjs';
 
 function assert(condition, reason) {
   if (!condition) fail('VALIDATION_VALIDATION_FAILED', { reason_code: reason });
@@ -24,7 +25,7 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
   const baseFiles = validationResultFiles(policyVersion);
   const selection = JSON.parse(files['selection_result.json']);
   const fixture = selection.result_usage === 'TEST_FIXTURE_ONLY';
-  const selected = fixture && selection.outcome === 'SELECTED';
+  const selected = (fixture || policyVersion === 3 && selection.result_usage === 'FORMAL') && selection.outcome === 'SELECTED';
   const names = selected ? [...baseFiles, ...SELECTED_FILES] : baseFiles;
   const contents = Object.fromEntries(names.map(name => {
     assert(typeof files[name] === 'string', 'RESULT_FILE_MISSING');
@@ -39,11 +40,14 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
     control_source_coverage_rate: row.control_source_coverage_rate,
     candidate_control_coverage_rate: row.candidate_control_coverage_rate
   }));
-  const supportFields = policyVersion === 2 ? { gt_level_support: core.gt_level_support,
+  const supportFields = policyVersion >= 2 ? { gt_level_support: core.gt_level_support,
     gt_level_support_sha256: core.gt_level_support_sha256, upstream_train_support: core.upstream_train_support } : {};
-  const descriptor = { validation_schema_version: 1, validation_policy_version: policyVersion,
+  const formalFields = policyVersion === 3 ? formalContextIdentity(inspectFormalContext(core.formal_context)) : {};
+  const schemaVersion = policyVersion === 3 ? 2 : 1;
+  const descriptor = { validation_schema_version: schemaVersion, validation_policy_version: policyVersion,
+    ...formalFields,
     ...supportFields,
-    ...(legacy ? {} : { manifest_contract_revision: 2 }),
+    ...(legacy ? {} : { manifest_contract_revision: policyVersion === 3 ? 3 : 2 }),
     validation_plan_id: planId, validation_plan_sha256: hash(files['validation_plan.json']),
     evaluation_results_sha256: evaluationResultsSha256,
     summary_template_sha256: summaryTemplateSha256,
@@ -51,9 +55,10 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
     ...(legacy ? {} : { coverage_by_candidate: coverageByCandidate }),
     files: contents };
   const digest = hash(canonicalJson(descriptor));
-  return { validation_schema_version: 1, validation_policy_version: policyVersion,
+  return { validation_schema_version: schemaVersion, validation_policy_version: policyVersion,
+    ...formalFields,
     ...supportFields,
-    validation_id: `validation_v1_${digest.slice(0, 16)}`,
+    validation_id: `validation_v${schemaVersion}_${digest.slice(0, 16)}`,
     descriptor, descriptor_sha256: digest, files: contents,
     validation_plan_id: planId, validation_plan_sha256: hash(files['validation_plan.json']),
     validation_mode: core.mode, validation_outcome: selection.outcome,
@@ -73,7 +78,7 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
     effective_selection_policy_sha256: core.effective_selection_policy_sha256 ?? null,
     evaluation_results_sha256: evaluationResultsSha256,
     selection_evidence_sha256: evaluationResultsSha256,
-    formal_promotion_allowed: false,
+    formal_promotion_allowed: policyVersion === 3 && selection.result_usage === 'FORMAL' && selection.outcome === 'SELECTED',
     evaluated_splits: ['VALIDATION'], test_evaluated: false,
     test_evaluation_sample_count: 0 };
 }
@@ -110,7 +115,7 @@ export async function inspectValidation(directory) {
   assert(canonicalJson(manifest) === manifestBytes.toString('utf8'), 'MANIFEST_NOT_CANONICAL');
   const preliminarySelection = JSON.parse((await readSafe(path.join(directory,
     'selection_result.json'))).toString('utf8'));
-  const includeSelected = preliminarySelection.result_usage === 'TEST_FIXTURE_ONLY' &&
+  const includeSelected = (preliminarySelection.result_usage === 'TEST_FIXTURE_ONLY' || policyVersion === 3 && preliminarySelection.result_usage === 'FORMAL') &&
     preliminarySelection.outcome === 'SELECTED';
   const baseFiles = validationResultFiles(policyVersion);
   const resultFiles = includeSelected ? [...baseFiles, ...SELECTED_FILES] : baseFiles;
@@ -144,7 +149,7 @@ export async function inspectValidation(directory) {
   assert(canonicalJson(expected) === canonicalJson(manifest), 'MANIFEST_IDENTITY_MISMATCH');
   const selection = JSON.parse(files['selection_result.json']);
   const summary = JSON.parse(files['reports/summary.json']);
-  if (policyVersion === 2) {
+  if (policyVersion >= 2) {
     const doc = JSON.parse(files[SUPPORT_FILE]);
     const support = inspectSupportDocument(doc, 'VALIDATION', 'VALIDATION_VALIDATION_FAILED',
       plan.plan_core.gt_level_support_cohort);
@@ -175,14 +180,24 @@ export async function inspectValidation(directory) {
   const fixtureFormal = plan.plan_core.mode === 'FORMAL_VALIDATION' &&
     plan.plan_core.status === 'READY_FORMAL' && plan.plan_core.fixture_only === true &&
     selection.result_usage === 'TEST_FIXTURE_ONLY' && selection.test_fixture_only === true;
+  const formal = policyVersion === 3 && plan.plan_core.mode === 'FORMAL_VALIDATION' && plan.plan_core.status === 'READY_FORMAL' &&
+    ['FORMAL', 'TEST_FIXTURE_ONLY'].includes(selection.result_usage);
+  const promotion = formal && selection.result_usage === 'FORMAL' && selection.outcome === 'SELECTED';
+  if (formal) {
+    assert(canonicalJson(JSON.parse(files['formal_context.json'])) === canonicalJson(plan.plan_core.formal_context) &&
+      selection.result_usage === plan.plan_core.result_usage && selection.test_fixture_only === (selection.result_usage === 'TEST_FIXTURE_ONLY'), 'FORMAL_RESULT_CONTEXT_MISMATCH');
+    for (const [key, value] of Object.entries(formalContextIdentity(plan.plan_core.formal_context))) {
+      assert(selection[key] === value && summary[key] === value, 'FORMAL_RESULT_CONTEXT_MISMATCH');
+    }
+  }
   const development = plan.plan_core.mode === 'DEVELOPMENT_VALIDATION' &&
     plan.plan_core.status === 'READY_DEVELOPMENT' &&
     selection.result_usage === 'DEVELOPMENT_ONLY' && selection.test_fixture_only !== true;
-  assert(selection.formal_promotion_allowed === false &&
-    (fixtureFormal || (selection.selected_candidate_id === null && selection.outcome === 'DEVELOPMENT_ONLY')) &&
+  assert(selection.formal_promotion_allowed === promotion &&
+    (formal || fixtureFormal || (selection.selected_candidate_id === null && selection.outcome === 'DEVELOPMENT_ONLY')) &&
     manifest.test_evaluated === false && canonicalJson(manifest.evaluated_splits) === canonicalJson(['VALIDATION']),
   'DEVELOPMENT_PROMOTION_FORBIDDEN');
-  assert((development || fixtureFormal) && summary.mode === plan.plan_core.mode &&
+  assert((development || fixtureFormal || formal) && summary.mode === plan.plan_core.mode &&
     summary.status === selection.result_usage &&
     summary.plan_id === identity.planId && summary.selection_outcome === selection.outcome &&
     summary.candidate_count === plan.plan_core.candidates.length &&
@@ -190,7 +205,7 @@ export async function inspectValidation(directory) {
     canonicalJson(summary.evaluated_splits) === canonicalJson(['VALIDATION']),
   'SUMMARY_MISMATCH');
   auditDerivedTables(files, plan, selection);
-  if (fixtureFormal) auditFixtureSelection(files, manifest, selection);
+  if (fixtureFormal || formal) auditFixtureSelection(files, manifest, selection);
   return { status: 'PASS', validation_scope: 'PACKAGE_INTERNAL', validation_id: manifest.validation_id,
     plan_id: identity.planId, result_usage: manifest.result_usage,
     candidate_count: selection.candidates.length, manifest, files };
@@ -356,9 +371,12 @@ function auditDerivedTables(files, plan, selection) {
 }
 
 function auditFixtureSelection(files, manifest, selection) {
-  assert(manifest.test_fixture_only === true && manifest.result_usage === 'TEST_FIXTURE_ONLY' &&
-    manifest.formal_promotion_allowed === false &&
-    manifest.descriptor.manifest_contract_revision === 2,
+  const formal = manifest.validation_policy_version === 3;
+  const fixture = manifest.result_usage === 'TEST_FIXTURE_ONLY';
+  const promotion = formal && !fixture && selection.outcome === 'SELECTED';
+  assert((formal || manifest.test_fixture_only === true && fixture) &&
+    manifest.formal_promotion_allowed === promotion &&
+    manifest.descriptor.manifest_contract_revision === (formal ? 3 : 2),
   'FIXTURE_IDENTITY_MISMATCH');
   if (selection.outcome !== 'SELECTED') return;
   const selected = JSON.parse(files['selected_candidate.json']);
@@ -370,11 +388,12 @@ function auditFixtureSelection(files, manifest, selection) {
     selected.effective_config_sha256 === frozen.effective_config_sha256 &&
     hash(canonicalJson(config)) === frozen.effective_config_sha256 &&
     selected.selection_evidence_sha256 === manifest.evaluation_results_sha256 &&
-    selected.eligible_for_phase8 === false && selected.test_fixture_only === true,
+    selected.eligible_for_phase8 === promotion && selected.test_fixture_only === fixture,
   'FIXTURE_SELECTED_MISMATCH');
 }
 
-export async function publishValidation({ output, files, manifest, sourceCheck }) {
+export async function publishValidation({ output, files, manifest, sourceCheck, prepublish }) {
+  if (!prepublish && manifest.test_fixture_only !== true) fail('VALIDATION_PREPUBLISH_REQUIRED');
   const stagingRoot = await safePath(path.join(output, 'staging'));
   await mkdir(stagingRoot, { recursive: true });
   const staging = await safePath(path.join(stagingRoot, runId()));
@@ -386,6 +405,7 @@ export async function publishValidation({ output, files, manifest, sourceCheck }
       await writeFile(target, contents, { flag: 'wx' });
     }
     await inspectValidation(staging);
+    if (prepublish) await prepublish(staging);
     const exportsRoot = await safePath(path.join(output, 'exports'));
     await mkdir(exportsRoot, { recursive: true });
     const target = await safePath(path.join(exportsRoot, manifest.validation_id));

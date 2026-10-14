@@ -8,9 +8,13 @@ const ALIASED_NAMESPACES = Object.freeze([
   ['wind', 'wind'], ['skyState', 'skyState'], ['evolution', 'evolution'], ['goldenWindow', 'goldenWindow'],
   ['network', 'network'], ['api', 'endpoints'], ['cache', 'cachePolicy']
 ]);
+let configRoot = null;
 
 /** Loads the production config exactly as the browser does, then snapshots it. */
 export async function loadFrozenBaseConfig(root = APP_ROOT) {
+  root = path.resolve(root);
+  const sharedRoot = globalThis[Symbol.for('SunsetScore.engineRoot')];
+  if (configRoot && configRoot !== root || sharedRoot && sharedRoot !== root) fail('MULTIPLE_ENGINE_ROOTS_UNSUPPORTED');
   const existing = globalThis.SunsetScore;
   if (!existing || !existing.modelConfig) {
     // Never clear the shared global: the Replay runtime owns it and rebuilds it on its own
@@ -22,6 +26,8 @@ export async function loadFrozenBaseConfig(root = APP_ROOT) {
   if (!modelConfig || !modelConfig.scoring) {
     fail('TUNING_VALIDATION_FAILED', { reason_code: 'BASE_CONFIG_UNAVAILABLE' });
   }
+  configRoot = root;
+  globalThis[Symbol.for('SunsetScore.engineRoot')] = root;
   // The config root is SS.config, which production exposes as modelConfig.scoring.
   const config = JSON.parse(canonicalJson(modelConfig.scoring));
   return {

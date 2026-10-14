@@ -4,6 +4,7 @@ import { canonicalJson, errorCode, fail } from '../../dataset/lib/common.mjs';
 import { outside } from './input.mjs';
 import { selection } from './core.mjs';
 import { createProgress } from '../../progress.mjs';
+import { selectedModelPolicyVersion } from '../model-dataset-policy.mjs';
 export function parseArgs(args, mode) {
   const result = {}, seen = new Set();
   let start = 0;
@@ -11,13 +12,17 @@ export function parseArgs(args, mode) {
     if (!args[0] || args[0].startsWith('--')) fail('INVALID_ARGUMENTS');
     result.path = args[0]; start = 1;
   }
-  const allowed = mode === 'build' ? ['raw', 'gt', 'model-version', 'output'] : mode === 'plan' ? ['raw', 'gt', 'model-version', 'report-dir'] : mode === 'validate' ? ['raw', 'gt', 'report-dir'] : ['report-dir'];
+  const allowed = mode === 'build' ? ['raw', 'gt', 'model-version', 'model-policy-version', 'output'] : mode === 'plan' ? ['raw', 'gt', 'model-version', 'model-policy-version', 'report-dir'] : mode === 'validate' ? ['raw', 'gt', 'report-dir'] : ['report-dir'];
   for (let i = start; i < args.length; i += 2) {
     const flag = args[i], value = args[i + 1], key = flag.slice(2);
     if (flag === '--quiet' && !seen.has(key)) { seen.add(key); result.quiet = true; i--; continue; }
     if (!flag.startsWith('--') || !allowed.includes(key) || seen.has(key) || !value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
     seen.add(key);
     if (key === 'model-version') result.selection = selection(value);
+    else if (key === 'model-policy-version') {
+      if (!/^[234]$/.test(value)) fail('INVALID_ARGUMENTS');
+      result.modelPolicyVersion = selectedModelPolicyVersion(Number(value));
+    }
     else result[key === 'report-dir' ? 'reportDir' : key] = value;
   }
   if (['build', 'plan'].includes(mode) && (!result.raw || !result.gt)) fail('INVALID_ARGUMENTS');

@@ -1,0 +1,13 @@
+{
+  "team_confirmation_version": 1,
+  "authority": "PROJECT_OWNER_AND_TEAM",
+  "recorded_at_utc": "<本次确认归档UTC时间>",
+  "statement": "<负责人对录入前团队核对的实际确认，不虚构盲标或一致率>",
+  "all_entered_observations_team_confirmed": false,
+  "task": "SUNSET_AESTHETIC_FIVE_LEVEL",
+  "fixed_mapping_retained": false,
+  "source_ids": {
+    "raw": { "id": "<Raw ID>", "manifest_sha256": "<Raw Manifest SHA256>" },
+    "gt": { "id": "<GT ID>", "manifest_sha256": "<GT Manifest SHA256>" }
+  }
+}

@@ -123,15 +123,16 @@ export function sliceAggregate(rows, entry, dimensions, fixedEnums) {
   return out;
 }
 
-export function cohortProfiles(rows) {
+export function cohortProfiles(rows, { canonicalLocations = false } = {}) {
   const policy = tuningPolicy();
   const events = new Set(rows.map(row => row.event_id));
   const byDate = new Map(), byCity = new Map();
   for (const row of rows) {
     if (!byDate.has(row.event_date_local)) byDate.set(row.event_date_local, new Set());
     byDate.get(row.event_date_local).add(row.event_id);
-    if (!byCity.has(row.city)) byCity.set(row.city, new Set());
-    byCity.get(row.city).add(row.event_id);
+    const city = canonicalLocations ? row.location_key : row.city;
+    if (!byCity.has(city)) byCity.set(city, new Set());
+    byCity.get(city).add(row.event_id);
   }
   const eventLevels = new Map();
   for (const row of rows) eventLevels.set(row.event_id, row.gt_ordinal);

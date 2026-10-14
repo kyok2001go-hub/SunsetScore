@@ -26,7 +26,7 @@ export async function buildSensitivityPackage(options) {
   progress.stage(`执行 ${plan.length} 个实验`);
   const { results, failures } = await runExperiments({
     plan, units: ctx.units, ablations: ctx.ablations, cohort: ctx.cohort,
-    config: ctx.loaded.config, runReplay, progress
+    config: ctx.loaded.config, runReplay: (replay, options) => runReplay(replay, { ...options, engineRoot: ctx.root }), progress
   });
 
   progress.stage('汇总指标、切片与稳定性');

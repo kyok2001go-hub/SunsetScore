@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { canonicalJson, errorCode, fail } from '../../dataset/lib/common.mjs';
 import { createProgress } from '../../progress.mjs';
 import { outside } from '../../tuning/lib/input.mjs';
+import { bundleArgs, executeBundleCli } from '../../experiment-runtime/lib/execute.mjs';
 
 const FLAGS = {
   plan: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version'],
@@ -26,7 +27,7 @@ export function parseArgs(args, mode) {
     result.path = path.resolve(args[0]);
     start = 1;
   }
-  const allowed = FLAGS[mode];
+  const allowed = [...FLAGS[mode], ...(mode !== 'stats' ? ['campaign', 'metric-evidence', 'access-ledger', 'history-ledgers'] : [])];
   for (let index = start; index < args.length; index++) {
     const flag = args[index];
     if (flag === '--quiet' && !seen.has('quiet')) {
@@ -36,6 +37,11 @@ export function parseArgs(args, mode) {
     }
     if (!flag.startsWith('--')) fail('INVALID_ARGUMENTS');
     const key = flag.slice(2);
+    if (key === 'runtime-bundle' && mode !== 'stats' && !seen.has(key)) {
+      const value = args[++index];
+      if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
+      seen.add(key); result.runtimeBundle = path.resolve(value); continue;
+    }
     if (!allowed.includes(key) || seen.has(key)) fail('INVALID_ARGUMENTS');
     const value = args[index + 1];
     if (!value || value.startsWith('--')) fail('INVALID_ARGUMENTS');
@@ -43,9 +49,13 @@ export function parseArgs(args, mode) {
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
     else if (key === 'optimization-policy-version') {
-      if (!['1', '2'].includes(value)) fail('INVALID_ARGUMENTS');
+      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
       result.optimizationPolicyVersion = Number(value);
     }
+    else if (key === 'metric-evidence') result.metricEvidence = path.resolve(value);
+    else if (key === 'access-ledger') result.accessLedger = path.resolve(value);
+    else if (key === 'history-ledgers') result.historyLedgers = path.resolve(value);
+    else if (key === 'campaign') result.campaign = path.resolve(value);
     else if (PATH_FLAGS.has(key)) result[key] = path.resolve(value);
     else fail('INVALID_ARGUMENTS');
   }
@@ -81,16 +91,20 @@ export async function runCli(mode, operation) {
       stats: '校验数据包并展示优化统计'
     }[mode]);
 
-    const roots = [options.path, options.model, options.raw, options.gt, options.baseline, options.sensitivity].filter(Boolean);
+    const roots = [options.path, options.model, options.raw, options.gt, options.baseline, options.sensitivity,
+      options.campaign, options.metricEvidence, options.runtimeBundle].filter(Boolean);
     if (options.reportDir) await outside(options.reportDir, roots);
 
-    let data = await operation(options);
+    let data = options.runtimeBundle ? await executeBundleCli(options.runtimeBundle, process.argv[1],
+      bundleArgs(process.argv.slice(2), mode, 'optimization')) : await operation(options);
     if (mode === 'validate') {
       data = {
         status: data.status, validation_scope: data.validation_scope,
         optimization_id: data.optimization_id, optimization_mode: data.optimization_mode,
         optimization_outcome: data.optimization_outcome,
-        candidate_freeze_allowed: data.candidate_freeze_allowed
+        candidate_freeze_allowed: data.candidate_freeze_allowed,
+        ...(data.runtime_bundle_id ? { runtime_bundle_id: data.runtime_bundle_id,
+          execution_receipt_id: data.execution_receipt_id, execution_receipt_directory: data.execution_receipt_directory } : {})
       };
     }
     if (options.reportDir) {

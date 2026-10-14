@@ -10,6 +10,7 @@ import { runCli } from './lib/cli.mjs';
 import { silentProgress } from '../progress.mjs';
 import { withBuildLease } from '../maintenance/lib/lease.mjs';
 import { datasetRootForPhaseOutput } from '../maintenance/maintenance-policy.mjs';
+import { selectedModelPolicyVersion } from './model-dataset-policy.mjs';
 /**
  * Publish lock budget. The lock is held across a full source re-verification, which on slow
  * disks and larger fixtures can exceed the previous 10 second budget and make a legitimate
@@ -35,8 +36,9 @@ export async function withModelLock(lock, operation, timeoutMs = MODEL_LOCK_TIME
 }
 async function runModelDataset(raw, gt, options = {}) {
   const progress = options.progress || silentProgress;
+  const policyVersion = selectedModelPolicyVersion(options.modelPolicyVersion);
   const output = await outside(options.output || path.resolve('dataset/model'), [raw, gt]);
-  const input = await loadInputs(raw, gt, progress), result = derive(input.events, input.snapshots, input.gt, input.replays, options.selection || selection(), input.inputSummary, 2, progress, 3);
+  const input = await loadInputs(raw, gt, progress), result = derive(input.events, input.snapshots, input.gt, input.replays, options.selection || selection(), input.inputSummary, 2, progress, policyVersion);
   // Data insufficiency is a planning result, not a partial package.
   progress.stage(result.plan.publishable ? '样本门禁通过，准备写入数据包' : '样本门禁未通过');
   if (!result.plan.publishable) fail('INSUFFICIENT_SPLIT_DATA', { plan: { ...input.source, ...result.plan } });

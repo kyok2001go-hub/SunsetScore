@@ -23,19 +23,21 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
 
   // Default counts [25, 8, 8] gives 41 events across 3 dates (TRAIN 25, VAL 8, TEST 8)
   const counts = options.counts || [25, 8, 8];
+  const eventDate = options.date || date;
   let totalIdx = 0;
 
   for (let d = 0; d < counts.length; d++) {
-    const dt = date(d);
+    const dt = eventDate(d);
     for (let n = 0; n < counts[d]; n++) {
       const i = totalIdx++;
-      const location_id = String(101000000 + i);
+      const location_id = String(101000000 + (options.locationCount ? n % options.locationCount : i));
       const location_key = `qweather:${location_id}`;
       const eventId = `evt_v1_${common.hash(location_key).slice(0, 20)}_${dt}`;
       const snapshotId = `snap_fixture_${i}`;
 
       let replay = await replayFixture.createSizedReplay(5000, { eventId, snapshotId });
       replay = JSON.parse(JSON.stringify(replay).replaceAll('2026-09-09', dt));
+      if (options.replayTransform) replay = await options.replayTransform(replay, i, d);
       const bytes = Buffer.from(common.canonicalJson(replay));
       const compressed = gzipSync(bytes);
       objects.set(snapshotId, compressed);
@@ -46,7 +48,8 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
       const row = Object.fromEntries(
         datasetSchemaModule.SNAPSHOT_OFFLINE_FIELDS.filter(x => x !== 'lead_time_minutes').map(name => [name, null])
       );
-      Object.assign(row, replayFixture.snapshotRowForReplay(replay, { score: predScore, level: '很差', baseline_score: baseScore }));
+      const actual = options.actualPrediction ? await options.actualPrediction(replay, i, d) : { score: predScore, level: '很差', baseline_score: baseScore };
+      Object.assign(row, replayFixture.snapshotRowForReplay(replay, actual));
       for (const k of Object.keys(row)) {
         if (row[k] === undefined) row[k] = null;
       }
@@ -77,6 +80,7 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
       // Observation rating
       const ratings = ['poor', 'fair', 'good', 'very_good', 'excellent'];
       let obsRating = ratings[i % 5];
+      if (options.ratingOverride) obsRating = options.ratingOverride(i, d, obsRating);
       if (d === 1 && options.validationRatingOverride) {
         obsRating = options.validationRatingOverride(i, obsRating);
       }
@@ -109,7 +113,7 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
     }
   }
 
-  const cutoff = '2026-09-14T00:00:00.000Z';
+  const cutoff = options.cutoff || '2026-09-14T00:00:00.000Z';
   const source = {
     async query(sql) {
       return sql.includes('AS cutoff_epoch')
@@ -126,11 +130,11 @@ async function createSyntheticPipeline(tempRoot, options = {}) {
   const modelOut = path.join(tempRoot, options.suffix ? `model_${options.suffix}` : 'model');
 
   const raw = await exporter.exportDataset(
-    parser.parseExportArgs(['--from', date(0), '--to', date(counts.length - 1), '--cutoff', cutoff, '--output', rawOut]),
+    parser.parseExportArgs(['--from', eventDate(0), '--to', eventDate(counts.length - 1), '--cutoff', cutoff, '--output', rawOut]),
     { source, createdAt: cutoff }
   );
   const gt = await buildGroundTruth(raw.directory, { output: gtOut });
-  const model = await buildModelDataset(raw.directory, gt.directory, { output: modelOut });
+  const model = await buildModelDataset(raw.directory, gt.directory, { output: modelOut, modelPolicyVersion: options.modelPolicyVersion ?? 3 });
 
   return {
     rawDir: raw.directory,

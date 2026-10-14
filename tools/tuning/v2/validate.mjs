@@ -14,6 +14,8 @@ import { cohortProfiles } from '../lib/metrics.mjs';
 import { computeGlobalReadiness } from '../lib/readiness.mjs';
 import { inspectBaselineLinkage } from './baseline-linkage.mjs';
 import { computeRuntimeSha256 } from '../lib/engine-runtime.mjs';
+import { formalContextIdentity, inspectFormalContext } from '../../formal/context.mjs';
+import { MAPPING } from '../../formal/contracts.mjs';
 
 const check = (ok, reason_code) => { if (!ok) fail('TUNING_VALIDATION_FAILED', { reason_code }); };
 const equal = (a, b, reason_code) => check(canonicalJson(a) === canonicalJson(b), reason_code);
@@ -27,7 +29,8 @@ const json = bytes => {
 
 export async function inspectSensitivityV2(directory, options = {}) {
   const manifest = json(await readSafe(path.join(directory, 'manifest.json')));
-  check(manifest.tuning_schema_version === 2 && [2, 3].includes(manifest.tuning_policy_version), 'VERSION_MISMATCH');
+  check([2, 3, 4].includes(manifest.tuning_policy_version) &&
+    manifest.tuning_schema_version === (manifest.tuning_policy_version === 4 ? 3 : 2), 'VERSION_MISMATCH');
   const version = manifest.tuning_policy_version;
   if (options.model && options.raw && options.gt && options.baseline) {
     // Fail before a long experimental recomputation when the code bytes no
@@ -53,12 +56,18 @@ export async function inspectSensitivityV2(directory, options = {}) {
   }
   const readiness = json(loaded['readiness.json']);
   const summary = json(loaded['reports/summary.json']);
-  check(manifest.result_usage === 'EXPLORATORY_ONLY' && summary.result_usage === 'EXPLORATORY_ONLY' &&
-    readiness.global_readiness === 'EXPLORATORY' && summary.global_readiness === 'EXPLORATORY', 'RESULT_USAGE_MISMATCH');
-  check(manifest.mapping_status === 'PROVISIONAL' && manifest.interpretation_scope === 'PROXY_ORDINAL_ONLY' &&
+  const formalContext = version === 4 ? inspectFormalContext(json(loaded['formal_context.json'])) : null;
+  const resultUsage = formalContext ? formalContext.result_usage : 'EXPLORATORY_ONLY';
+  check(manifest.result_usage === resultUsage && summary.result_usage === resultUsage &&
+    readiness.global_readiness === (formalContext ? 'READY' : 'EXPLORATORY') && summary.global_readiness === readiness.global_readiness, 'RESULT_USAGE_MISMATCH');
+  if (formalContext) for (const [key, value] of Object.entries(formalContextIdentity(formalContext))) {
+    for (const record of [manifest, summary, readiness]) equal(record[key], value, 'FORMAL_CONTEXT_MISMATCH');
+  }
+  check(manifest.mapping_status === (formalContext ? MAPPING.mapping_status : 'PROVISIONAL') &&
+    manifest.interpretation_scope === (formalContext ? MAPPING.interpretation_scope : 'PROXY_ORDINAL_ONLY') &&
     summary.mapping_status === manifest.mapping_status && summary.interpretation_scope === manifest.interpretation_scope,
   'MAPPING_CONTRACT');
-  check(manifest.evaluation_schema_version === 2 && manifest.evaluation_policy_version === 2 &&
+  check(manifest.evaluation_schema_version === (formalContext ? 3 : 2) && manifest.evaluation_policy_version === (formalContext ? 3 : 2) &&
     manifest.evaluation_validation_scope === 'MODEL_LINKED', 'EVALUATION_CONTRACT');
   equal(manifest.evaluated_splits, ['TRAIN'], 'SPLIT_CONTRACT');
   equal(manifest.evaluation_evaluated_splits, ['TRAIN'], 'EVALUATION_SPLIT_CONTRACT');
@@ -78,9 +87,9 @@ export async function inspectSensitivityV2(directory, options = {}) {
   equal(summary.data_readiness, manifest.data_readiness, 'READINESS_MISMATCH');
   equal(summary.metric_readiness, manifest.metric_readiness, 'READINESS_MISMATCH');
   check(manifest.engineering_readiness.status === 'READY' &&
-    manifest.metric_readiness.status === 'PROVISIONAL_PROXY', 'READINESS_CONTRACT');
+    manifest.metric_readiness.status === (formalContext ? 'READY' : 'PROVISIONAL_PROXY'), 'READINESS_CONTRACT');
   const descriptor = manifest.descriptor;
-  check(descriptor?.tuning_schema_version === 2 && descriptor?.tuning_policy_version === version, 'DESCRIPTOR_VERSION');
+  check(descriptor?.tuning_schema_version === (formalContext ? 3 : 2) && descriptor?.tuning_policy_version === version, 'DESCRIPTOR_VERSION');
   const source = descriptor.source;
   for (const key of ['model_dataset_id', 'model_dataset_manifest_sha256', 'model_dataset_descriptor_sha256',
     'evaluation_id', 'evaluation_manifest_sha256', 'evaluation_schema_version',
@@ -95,12 +104,12 @@ export async function inspectSensitivityV2(directory, options = {}) {
   check(descriptor.summary_template_sha256 === hash(canonicalJson(summaryTemplate)), 'DESCRIPTOR_SUMMARY_MISMATCH');
   const digest = hash(canonicalJson(descriptor));
   check(manifest.descriptor_sha256 === digest &&
-    manifest.sensitivity_id === `sensitivity_v2_${manifest.model_dataset_descriptor_sha256.slice(0, 12)}_${digest.slice(0, 12)}` &&
+    manifest.sensitivity_id === `sensitivity_v${formalContext ? 3 : 2}_${manifest.model_dataset_descriptor_sha256.slice(0, 12)}_${digest.slice(0, 12)}` &&
     summary.sensitivity_id === manifest.sensitivity_id, 'DESCRIPTOR_ID_MISMATCH');
 
   const alignment = csv['control_alignment.csv'];
   let supportDoc;
-  if (version === 3) {
+  if (version >= 3) {
     supportDoc = json(loaded[SUPPORT_FILE]);
     const support = inspectSupportDocument(supportDoc, 'TRAIN', 'TUNING_VALIDATION_FAILED');
     for (const value of [manifest, descriptor, readiness, summary]) {
@@ -113,7 +122,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
     const parity = csv['replay_parity.csv'];
     const replayRate = parity.length ? parity.filter(row => row.pass).length / parity.length : 0;
     const recomputed = computeGlobalReadiness({ rows: supportDoc.cohort,
-      profiles: cohortProfiles(supportDoc.cohort), supportPolicyVersion: 3,
+      profiles: cohortProfiles(supportDoc.cohort, { canonicalLocations: version === 4 }), supportPolicyVersion: 3,
       replaySummary: { replay_usable_rate: replayRate,
         pass_count: parity.filter(row => row.pass).length, fail_count: parity.filter(row => !row.pass).length },
       integrity: { checks: [] } });
@@ -124,6 +133,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
     equal(readiness.data_readiness, { status: recomputed.reasons.length ? 'INSUFFICIENT' : 'READY',
       reasons: recomputed.reasons }, 'DATA_READINESS_MISMATCH');
     for (const warning of support.warnings) check(readiness.warnings.includes(warning), 'RARE_WARNING_MISSING');
+    if (formalContext) check(recomputed.reasons.length === 0 && manifest.data_readiness.status === 'READY', 'FORMAL_TRAIN_SUPPORT_INSUFFICIENT');
   }
   check(alignment.length === manifest.sample_count, 'CONTROL_ALIGNMENT_COUNT');
   equal(summary.control_alignment, alignmentSummary(alignment), 'CONTROL_ALIGNMENT_SUMMARY');
@@ -231,7 +241,7 @@ export async function inspectSensitivityV2(directory, options = {}) {
     const diagnostic = pairedDiagnostics(matching, manifest.no_skill_reference_ordinal);
     for (const name of Object.keys(diagnostic.fields)) equal(row[name], diagnostic.fields[name], 'SLICE_NO_SKILL_MISMATCH');
   }
-  check(csv['parameter_summary.csv'].every(row => row.metric_usage === 'PROXY_EXPLORATORY'), 'PARAMETER_METRIC_USAGE');
+  check(csv['parameter_summary.csv'].every(row => row.metric_usage === (formalContext ? 'FORMAL_ORDINAL' : 'PROXY_EXPLORATORY')), 'PARAMETER_METRIC_USAGE');
   for (const row of csv['parameter_summary.csv']) {
     const probes = metrics.filter(metric => metric.parameter_id === row.parameter_id);
     const values = probes.map(metric => metric.delta_mae).filter(Number.isFinite);
@@ -261,9 +271,9 @@ export async function inspectSensitivityV2(directory, options = {}) {
   }
   if (options.model && options.raw && options.gt && options.baseline) {
     await verifyUpstreamSources(options.model, options.raw, options.gt);
-    const linkage = await inspectBaselineLinkage(options);
+    const linkage = await inspectBaselineLinkage({ ...options, tuningVersion: version, formalContext });
     for (const key of Object.keys(linkage)) equal(manifest[key], linkage[key], 'EVALUATION_LINKAGE_MISMATCH');
-    const rebuilt = await buildSensitivityPackageV2({ ...options, tuningVersion: version });
+    const rebuilt = await buildSensitivityPackageV2({ ...options, tuningVersion: version, formalContext, recordAccess: false });
     for (const file of FILES_V2) check(loaded[file].equals(Buffer.from(rebuilt.files[file])), 'RECOMPUTED_FILE_MISMATCH');
     equal(manifest, rebuilt.manifest, 'RECOMPUTED_MANIFEST_MISMATCH');
   }

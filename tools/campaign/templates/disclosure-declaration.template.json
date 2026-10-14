@@ -1,0 +1,8 @@
+{
+  "reviewer_id": "<真实人工ID>",
+  "reviewed_at_utc": "<实际UTC审查时间>",
+  "validation_unexposed": false,
+  "test_unexposed": false,
+  "all_known_access_declared": false,
+  "remarks": "<如实说明所有已知数据使用；未核实项不得改为true>"
+}

@@ -1,0 +1,6 @@
+{
+  "capture_inventory_schema_version": 1,
+  "captures": [
+    {"location_key": "<冻结Plan的真实地点标识>", "capture_date_shanghai": "<冻结Plan的上海采集日期>", "scheduled_slot": "1213", "status": "UNKNOWN", "snapshot_ids": []}
+  ]
+}

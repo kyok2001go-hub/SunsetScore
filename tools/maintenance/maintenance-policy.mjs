@@ -48,42 +48,62 @@ export const PHASES = Object.freeze([
   Object.freeze({
     phase: 3, key: 'model', label: 'Phase 3 Model Dataset', relativeRoot: 'model/exports',
     idField: 'model_dataset_id', schemaField: 'model_dataset_schema_version', policyField: 'model_dataset_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [2, 2], [2, 3]])
+    supportedVersions: Object.freeze([[1, 1], [2, 2], [2, 3], [2, 4]])
   }),
   Object.freeze({
     phase: 4, key: 'evaluation', label: 'Phase 4 Baseline Evaluation', relativeRoot: 'evaluation/exports',
     idField: 'evaluation_id', schemaField: 'evaluation_schema_version', policyField: 'evaluation_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [2, 2]])
+    supportedVersions: Object.freeze([[1, 1], [2, 2], [3, 3]])
   }),
   Object.freeze({
     phase: 5, key: 'sensitivity', label: 'Phase 5 Parameter Sensitivity', relativeRoot: 'tuning/exports',
     idField: 'sensitivity_id', schemaField: 'tuning_schema_version', policyField: 'tuning_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [2, 2], [2, 3]])
+    supportedVersions: Object.freeze([[1, 1], [2, 2], [2, 3], [3, 4]])
   }),
   Object.freeze({
     phase: 6, key: 'optimization', label: 'Phase 6 Parameter Optimization', relativeRoot: 'optimization/exports',
     idField: 'optimization_id', schemaField: 'optimization_schema_version',
     policyField: 'optimization_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [1, 2]])
+    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3]])
   }),
   Object.freeze({
     phase: 7, key: 'validation_evidence', label: 'Phase 7 Disclosure Evidence',
     relativeRoot: 'validation/evidence/exports', idField: 'evidence_id',
     schemaField: 'evidence_schema_version', policyField: null,
-    supportedVersions: Object.freeze([[1, null]])
+    supportedVersions: Object.freeze([[1, null], [2, null]])
   }),
   Object.freeze({
     phase: 8, key: 'validation_plan', label: 'Phase 7 Validation Plan',
     relativeRoot: 'validation/plans', idField: 'validation_plan_id',
     schemaField: 'validation_plan_schema_version', policyField: null,
-    supportedVersions: Object.freeze([[1, null]])
+    supportedVersions: Object.freeze([[1, null], [2, null]])
   }),
   Object.freeze({
     phase: 9, key: 'validation', label: 'Phase 7 Validation Result',
     relativeRoot: 'validation/exports', idField: 'validation_id',
     schemaField: 'validation_schema_version', policyField: 'validation_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [1, 2]])
-  })
+    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3]])
+  }),
+  Object.freeze({ phase: 10, key: 'experiment_runtime', label: 'Experiment Runtime',
+    relativeRoot: 'experiment_runtime/exports', idField: 'runtime_bundle_id',
+    schemaField: 'experiment_runtime_protocol_version', policyField: null, supportedVersions: Object.freeze([[1, null], [2, null]]) }),
+  Object.freeze({ phase: 11, key: 'replay_quality_plan', label: 'Replay Quality Plan',
+    relativeRoot: 'replay_quality/plans/exports', idField: 'replay_quality_plan_id',
+    schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }),
+  Object.freeze({ phase: 12, key: 'replay_quality_report', label: 'Replay Quality Report',
+    relativeRoot: 'replay_quality/exports', idField: 'replay_quality_report_id',
+    schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }),
+  Object.freeze({ phase: 13, key: 'runtime_execution', label: 'Runtime Execution Receipt',
+    relativeRoot: 'experiment_runtime/executions/exports', idField: 'execution_receipt_id',
+    schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }),
+  ...[
+    [14, 'metric_rubric', 'metric_semantics/rubrics/exports', 'rubric_id'],
+    [15, 'metric_pilot', 'metric_semantics/pilots/exports', 'pilot_id'],
+    [16, 'metric_review_plan', 'metric_semantics/review_plans/exports', 'review_plan_id'],
+    [17, 'semantic_evidence', 'metric_semantics/exports', 'semantic_evidence_id'],
+    [18, 'campaign', 'campaign/exports', 'campaign_id']
+  ].map(([phase, key, relativeRoot, idField]) => Object.freeze({ phase, key, label: key, relativeRoot, idField,
+    schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }))
 ]);
 
 export function phaseByKey(key) {
@@ -117,6 +137,9 @@ export function supportedVersionLabel(phase) {
 export function dependenciesOf(phase, manifest) {
   const dependencies = [];
   const add = (idField, hashField, kind) => {
+    // Governance families use the same field names for their own ID and for links in children.
+    // The package's primary identity is not an upstream dependency.
+    if (idField === phase.idField) return;
     const id = manifest[idField];
     if (id === undefined || id === null) return;
     if (typeof id !== 'string' || !id) {
@@ -129,6 +152,38 @@ export function dependenciesOf(phase, manifest) {
     dependencies.push({ idField, id, expectedManifestSha256: declaredHash ?? null, kind });
   };
   switch (phase.key) {
+    case 'metric_rubric':
+    case 'metric_pilot':
+    case 'metric_review_plan':
+    case 'semantic_evidence':
+    case 'campaign':
+      add('rubric_id', 'rubric_manifest_sha256', 'SOURCE');
+      add('pilot_id', 'pilot_manifest_sha256', 'SOURCE');
+      add('review_plan_id', 'review_plan_manifest_sha256', 'SOURCE');
+      if (phase.key === 'campaign' || phase.key === 'semantic_evidence') {
+        for (const [key, item] of Object.entries(manifest.source_ids || {})) dependencies.push({ idField: `source_ids.${key}.id`,
+          id: item.id, expectedManifestSha256: item.manifest_sha256, kind: 'SOURCE' });
+        for (const item of manifest.build_runtime_sources || []) dependencies.push({ idField: 'build_runtime_sources.runtime_bundle_id',
+          id: item.id, expectedManifestSha256: item.manifest_sha256, kind: 'SOURCE' });
+      }
+      break;
+    case 'replay_quality_plan':
+      add('runtime_bundle_id', 'runtime_bundle_manifest_sha256', 'SOURCE');
+      break;
+    case 'replay_quality_report':
+      add('runtime_bundle_id', 'runtime_bundle_manifest_sha256', 'SOURCE');
+      add('replay_quality_plan_id', 'replay_quality_plan_manifest_sha256', 'SOURCE');
+      add('source_dataset_id', 'source_dataset_manifest_sha256', 'SOURCE');
+      break;
+    case 'runtime_execution':
+      add('runtime_bundle_id', 'runtime_bundle_manifest_sha256', 'SOURCE');
+      add('result_id', 'result_manifest_sha256', 'SOURCE');
+      for (const [key, item] of Object.entries(manifest.source_ids || {})) {
+        if (!item.id || typeof item.manifest_sha256 !== 'string') fail('MAINTENANCE_INVALID_MANIFEST');
+        dependencies.push({ idField: `source_ids.${key}.id`, id: item.id,
+          expectedManifestSha256: item.manifest_sha256, kind: 'SOURCE' });
+      }
+      break;
     case 'raw': {
       const audit = manifest.selection?.replay_exclusion;
       if (audit) dependencies.push({ idField: 'selection.replay_exclusion.parent_dataset_id', id: audit.parent_dataset_id,
@@ -186,6 +241,11 @@ export function dependenciesOf(phase, manifest) {
     }
     default:
       break;
+  }
+  if (phase.key !== 'experiment_runtime') {
+    add('campaign_id', 'campaign_manifest_sha256', 'EVIDENCE');
+    add('semantic_evidence_id', 'semantic_evidence_manifest_sha256', 'EVIDENCE');
+    if (!dependencies.some(x => x.idField === 'runtime_bundle_id')) add('runtime_bundle_id', 'runtime_bundle_manifest_sha256', 'SOURCE');
   }
   return dependencies;
 }
