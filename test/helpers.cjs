@@ -106,7 +106,7 @@ function localSample(fc) {
 function loadLegacy(runtime, files) {
   const SS = load(runtime, files);
   Object.assign(SS.config, JSON.parse(readFileSync(join(__dirname, 'fixtures/model-246-config.json'), 'utf8')));
-  SS.version = Object.freeze({ ...SS.version, model: '2.4.6', assetRevision: 'replay1-hk1' });
+  SS.version = Object.freeze({ ...SS.version, app: '2.4.6', model: '2.4.6', assetRevision: 'replay1-hk1' });
   load(runtime, ['js/model_config.js']);
   return SS;
 }

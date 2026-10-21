@@ -1,9 +1,11 @@
 # V2.5.5.0 已选参数发布验收
 
+当前 app/model/config.version 均为 2.5.5.0，assetRevision=app2550；npm package/lock 使用合法 SemVer 2.5.5。评分参数不变。原 V2.5.5.0发布证据/ 对应已部署的 app 2.4.6／model 2.5.5.0，请保留原制品、线上与回退记录，新一轮验证使用单独目录。
+
 在应用根目录执行：
 
 ```powershell
-npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.0发布证据'
+npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.0版本统一证据'
 ```
 
 该命令只在本地核验并准备制品，不提交、推送、部署、访问气象服务或写入云端数据。固定读取 V6 `practical_tuning_v6_7afed8a39cb7ddfc8d4c`，重新校验 selected 原始字节 SHA-256；加载真正的 `config.js` / `model_config.js`，核对别名和严格列举的四处版本／默认等价字段差异。然后使用原有 655 个成员与输入执行共享 Replay，以逐条整数分数、等级和原指标完全相等为通过条件，不重新搜索、不改 Raw/GT/Model。
@@ -14,4 +16,4 @@ npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.0发布�
 
 完整本期结论与部署／回退步骤见 [实施记录](../../../ref_docs/Dev_version_record/2026-10-21_V2.5.5.0已选参数发布与一致性验收.md) 和 [PRD](../../../ref_docs/PRD/V2.5.5.0--已选模型参数发布与一致性验收方案.md)。生产提交／推送／部署须按 PRD 获得明确授权；本地验收不能替代线上查询、正常采集或独立 TEST。
 
-Git→Pages 构建独立使用 `node scripts/stage-pages.mjs`，仅需 Node 内置模块，固定写入被 Git 忽略的 `artifacts/pages`，拒绝输出中存在白名单外文件；不读取 dataset、不调用本页的 655 条验收、不部署。已验证该输出 68 文件逐字节等于已审阅制品。实际云端当前仍为根目录输出；拟授权修改为构建命令 `npm ci --omit=dev && node scripts/stage-pages.mjs`、输出 `artifacts/pages`，root 与绑定保持。精确差异和执行顺序保存于 `pages_build_plan.json`，当前未应用。
+Git→Pages 构建独立使用 `node scripts/stage-pages.mjs`，仅需 Node 内置模块，固定写入被 Git 忽略的 `artifacts/pages`，拒绝输出中存在白名单外文件；不读取 dataset、不调用本页的 655 条验收、不部署。已验证该输出 68 文件逐字节等于已审阅制品。首次发布准备时核对云端为根目录输出；当时计划使用构建命令 `npm ci --omit=dev && node scripts/stage-pages.mjs`、输出 `artifacts/pages`，root 与绑定保持。精确差异和执行顺序保存于 `pages_build_plan.json`，该记录保留首次准备时状态。用户后续已自行部署，本轮未读取或调整 Cloudflare 构建设置；版本统一沿用现有发布流程。

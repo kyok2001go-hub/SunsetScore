@@ -72,7 +72,7 @@ export async function prepareRelease(output,{progress=()=>{}}={}) {
   const inspected=await inspectPractical(source),selectedBytes=await readFile(path.join(source,'selected_effective_config.json'));
   if(hash(selectedBytes)!==SOURCE_CONFIG_SHA||inspected.result.selected_candidate!=='practical_candidate_v6_34df8f13f05d6275e49d')fail('RELEASE_SOURCE_IDENTITY_MISMATCH');
   const selected=JSON.parse(selectedBytes),request=await json(path.join(source,'verification_request.json')),production=await loadProduction();
-  if(production.version.model!=='2.5.5.0'||production.version.app!=='2.4.6'||production.version.assetRevision!=='model2550'||production.scoring.version!=='2.5.5.0')fail('RELEASE_VERSION_MISMATCH');
+  if(production.version.model!=='2.5.5.0'||production.version.app!=='2.5.5.0'||production.version.assetRevision!=='app2550'||production.scoring.version!=='2.5.5.0')fail('RELEASE_VERSION_MISMATCH');
   const configDiff=compareSelected(selected,production.scoring),effective=await captureEffective(production.SS),loaded=await loadPool(inspected.spec.sources,progress);
   if(digest(loaded.fingerprints)!==digest(inspected.spec.identity.inputs)||loaded.exclusions.length)fail('RELEASE_INPUT_MISMATCH');
   const byId=new Map(loaded.rows.map(r=>[r.snapshot_id,r])),rows=weightedRows(request.pool.included.map(r=>{const live=byId.get(r.snapshot_id);if(!live||['event_id','gt_ordinal','gt_confidence','input_sha256'].some(k=>r[k]!==live[k]))fail('RELEASE_MEMBER_MISMATCH');return live;}));

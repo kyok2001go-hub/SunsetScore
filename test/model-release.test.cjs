@@ -12,7 +12,7 @@ const serviceFiles=[...CORE_FILES,'js/vendor/suncalc.js','js/solar.js','js/cache
 test('release loads real production aliases, admits only four declared metadata/default diffs, hashes real Replay config',async()=>{
   const m=await import('../tools/model-release/release.mjs'),p=await m.loadProduction();
   const source=JSON.parse(await fs.readFile(path.join(__dirname,'fixtures/model-2550-selected-config.json'),'utf8'));
-  assert.equal(p.version.app,'2.4.6');assert.equal(p.version.model,'2.5.5.0');assert.equal(p.version.assetRevision,'model2550');
+  assert.equal(p.version.app,'2.5.5.0');assert.equal(p.version.model,'2.5.5.0');assert.equal(p.version.assetRevision,'app2550');
   assert.equal(p.model.scoring,p.SS.config);assert.equal(p.model.goldenWindow,p.model.scoring.goldenWindow);
   assert.equal(m.compareSelected(source,p.scoring).length,4);
   const bad=structuredClone(p.scoring);bad.highCloudCenter=61;assert.throws(()=>m.compareSelected(source,bad),/UNEXPECTED_RELEASE/);
@@ -25,7 +25,7 @@ test('release loads real production aliases, admits only four declared metadata/
   assert.equal(effective.effective_config.scoring.goldenWindow.floor,.507692307692);
   assert.equal(effective.config_hash,await p.SS.replayService.sha256(p.SS.replayService.canonicalJson(effective.effective_config)));
   const html=await fs.readFile(path.join(__dirname,'../index.html'),'utf8');
-  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.4.6-model2550')));
+  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.5.5.0-app2550')));
   assert.match(html,/sunset-score-v2\.5\.5\.0/);
 });
 
@@ -53,13 +53,15 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   SS.data.fetchForecastWithRetry=async()=>fc;SS.data.fetchAirQuality=async()=>null;
   SS.data.gather=async nodes=>({samples:nodes.map(point=>({point,forecast:fc})),successCount:nodes.length});
   const opts={location,nowUtcMs:Date.parse('2026-08-26T17:00:00Z')},query=()=>SS.prediction.predict('31.23,121.47',opts);
-  const first=await query();assert.equal(first.model_version,'2.5.5.0');assert.equal((await query()).result_cache_status,'HIT');
+  const first=await query();assert.equal(first.app_version,'2.5.5.0');assert.equal(first.model_version,'2.5.5.0');assert.equal((await query()).result_cache_status,'HIT');
   const index=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),cached=SS.cache.get(index.resultKey);
   SS.cache.set(index.resultKey,{...cached,model_version:'2.4.6'},60);assert.equal((await query()).result_cache_status,'MISS');
+  const currentIndex=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),currentCache=SS.cache.get(currentIndex.resultKey);
+  SS.cache.set(currentIndex.resultKey,{...currentCache,app_version:'2.4.6'},60);assert.equal((await query()).result_cache_status,'MISS');
   SS.config.weights.skyCanvas+=.001;assert.equal((await query()).result_cache_status,'MISS');assert.equal((await query()).result_cache_status,'HIT');SS.config.weights.skyCanvas-=.001;
   SS.config.midCloudCenter+=1;assert.equal((await query()).result_cache_status,'MISS');SS.config.midCloudCenter-=1;
   const captured=await SS.prediction.predict('31.23,121.47',{...opts,captureReplay:true}),replay=captured.replay_payload;
-  assert.equal(replay.identity.model_version,'2.5.5.0');assert.equal(replay.context.asset_revision,'model2550');
+  assert.equal(replay.context.app_version,'2.5.5.0');assert.equal(replay.identity.model_version,'2.5.5.0');assert.equal(replay.context.asset_revision,'app2550');
   assert.equal(replay.effective_config.scoring.midCloudCenter,54);assert.equal(replay.effective_config.scoring.weights.weather,0);
   assert.equal(replay.effective_config.scoring.goldenWindow.floor,.507692307692);
   assert.equal(replay.identity.config_hash,await SS.replayService.sha256(SS.replayService.canonicalJson(replay.effective_config)));
@@ -67,7 +69,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   assert.equal(replay.identity.config_hash,(await captureEffective((await loadProduction()).SS)).config_hash);
   const payload=await SS.snapshotService.buildPayload(captured,{source:'github_schedule',scheduledSlot:'1213',nowUtcMs:opts.nowUtcMs});
   const row=await (await import('../server/event-dataset.js')).buildSnapshotRow(payload);
-  assert.equal(row.model_version,'2.5.5.0');await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
+  assert.equal(row.app_version,'2.5.5.0');assert.equal(row.model_version,'2.5.5.0');await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
   assert.equal(captured.nowcast_active,true);assert.ok(captured.sky_evolution);
   assert.equal(captured.score,Math.round(SS.domain.clamp(captured.base_score*captured.sky_evolution_factor*captured.sky_evolution.gwFactor,0,100)));
   assert.ok(captured.sky_evolution.gwFactor>=.507692307692);

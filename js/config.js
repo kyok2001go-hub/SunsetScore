@@ -8,10 +8,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.4.6',
+    app: '2.5.5.0',
     model: '2.5.5.0',
     schema: 3,
-    assetRevision: 'model2550',
+    assetRevision: 'app2550',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3

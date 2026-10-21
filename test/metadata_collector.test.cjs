@@ -338,9 +338,9 @@ test('workflow enforces Cloudflare cron dispatch inputs without native schedule 
 
   // Verify package versions
   assert.equal(packageJson.scripts['metadata:collect'], 'node scripts/pre-sunset-metadata.mjs');
-  assert.equal(packageJson.version, '2.4.6');
-  assert.equal(lock.version, '2.4.6');
-  assert.equal(lock.packages[''].version, '2.4.6');
+  assert.equal(packageJson.version, '2.5.5');
+  assert.equal(lock.version, '2.5.5');
+  assert.equal(lock.packages[''].version, '2.5.5');
   assert.match(workflow, /REPLAY_INGEST_SECRET:\s*\$\{\{ secrets\.REPLAY_INGEST_SECRET \}\}/);
   assert.match(workflow, /ENABLE_SCHEDULED_REPLAY:\s*\$\{\{ vars\.ENABLE_SCHEDULED_REPLAY \}\}/);
   assert.equal(typeof packageJson.devDependencies.playwright, 'string');

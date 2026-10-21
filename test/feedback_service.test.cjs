@@ -18,7 +18,7 @@ test('feedback payload carries canonical timezone and version fields', () => {
     rating: 'good', ratingLabel: '普通有霞', comment: '西侧有霞', nowUtcMs: Date.parse('2026-08-26T10:30:00Z')
   });
   assert.equal(payload.timezone, 'Asia/Shanghai');
-  assert.equal(payload.app_version, '2.4.6');
+  assert.equal(payload.app_version, '2.5.5.0');
   assert.equal(payload.model_version, '2.5.5.0');
   assert.equal(payload.schema_version, 3);
   assert.equal(payload.user_comment, '西侧有霞');

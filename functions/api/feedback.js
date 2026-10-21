@@ -84,6 +84,7 @@ const PAYLOAD_FIELDS = [
   ['sunset_azimuth', (p) => numberOrNull(p.sunset_azimuth)],
   ['twilight_minutes', (p) => integerOrNull(p.twilight_minutes)],
   ['best_viewing_window', (p) => textOrNull(p.best_viewing_window, 120)],
+  // Missing versions identify legacy 2.4.6 clients; current clients send explicit versions.
   ['app_version', (p) => textOrNull(p.app_version, 30) || '2.4.6'],
   ['model_version', (p) => textOrNull(p.model_version, 30) || '2.4.6'],
   ['schema_version', (p) => integerOrNull(p.schema_version) ?? 3],

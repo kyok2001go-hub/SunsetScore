@@ -100,7 +100,9 @@ test('static resources, edge logs and server identifiers match the app version a
   assert.ok(versions.length > 20);
   assert.ok(versions.every((version) => version === SS.version.app + '-' + SS.version.assetRevision));
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
-  assert.equal(pkg.version, SS.version.app);
+  // npm uses three-part SemVer; runtime keeps the four-part release identity.
+  assert.equal(pkg.version, '2.5.5');
+  assert.equal(SS.version.app, pkg.version + '.0');
   assert.equal(SS.version.model, '2.5.5.0');
   assert.equal(SS.config.version, SS.version.model);
   assert.ok(html.includes('sunset-score-v' + SS.version.model));
@@ -108,7 +110,7 @@ test('static resources, edge logs and server identifiers match the app version a
   assert.equal(EDGE_APP_VERSION, SS.version.app);
   const feedback = readFileSync(join(__dirname, '..', 'functions/api/feedback.js'), 'utf8');
   for (const field of ['app_version', 'model_version']) {
-    assert.ok(feedback.includes("['" + field + "', (p) => textOrNull(p." + field + ", 30) || '" + SS.version.app + "']"));
+    assert.ok(feedback.includes("['" + field + "', (p) => textOrNull(p." + field + ", 30) || '" + '2.4.6' + "']"));
   }
   const devServer = readFileSync(join(__dirname, '..', 'scripts/dev-server.mjs'), 'utf8');
   assert.ok(devServer.includes('SunsetScore V' + SS.version.app + ' local server:'));
