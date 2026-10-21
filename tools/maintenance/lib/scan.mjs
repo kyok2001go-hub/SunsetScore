@@ -268,7 +268,9 @@ export async function scanDataset(options = {}) {
       const rawDerivation = parent.phase_key === 'raw' && node.phase_key === 'raw' && parent.id !== node.id &&
         dependency.idField === 'selection.replay_exclusion.parent_dataset_id' &&
         dependency.expectedManifestSha256 !== null && !(parent._dependencies || []).length;
-      if (parent.phase >= node.phase && !rawDerivation && parent.phase < 10 && node.phase < 10) {
+      const historicalProduct=node.phase_key==='optimization'&&node.schema_version===2&&node.policy_version===5&&
+        dependency.product_history_parent_phase===parent.phase_key&&dependency.expectedManifestSha256!==null&&parent.id!==node.id;
+      if (parent.phase >= node.phase && !rawDerivation && !historicalProduct && parent.phase < 10 && node.phase < 10) {
         diagnostics.push(diagnostic('PHASE_ORDER_INVALID', {
           nodeId: node.id, relatedId: parent.id,
           detail: { field: dependency.idField, parent_phase: parent.phase, child_phase: node.phase }

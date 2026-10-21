@@ -1,5 +1,7 @@
 # 数据检测与清理自动化（V2.5.4）
 
+V2.5.4.8 注册 Product Evaluation Plan/Result（Phase 24/25，Schema/Policy 1/1）与 Product Validation Plan（Phase 26，2/5），原 Optimization/Validation 节点新增精确组合 2/5。依赖声明覆盖 Product Plan/Result、旧固定来源、原三份 Runtime 和五源；清理不能删除访问/单次名单冻结历史。Product 包、Policy 5 搜索/验证和新 Plan 均用对应包内校验器，不能以治理外壳 Hash 代替业务契约。仅非正式 Optimization 2/5、绑定 Product Plan/Result 且有 Hash 的 legacy_source_ids 固定历史引用，可连接同阶段旧 Optimization 或较高阶段旧 Validation；Hash、闭包及环检查仍执行，其他策略、正式标记或非历史边不享受该例外。详见 [产品工具](../product-evaluation/README.md)。
+
 本工具处理 Phase 1–7 的离线发布包（含 Phase 7 开发包），提供两项能力：
 
 1. `dataset:lineage`：只读枚举发布包、披露 Evidence 与 Plan，按每个包的完整主 ID 生成依赖图。
@@ -158,3 +160,16 @@ npm run dataset:prune -- --dry-run <完整-runtime或结果ID>
 ## V2.5.4-B 新节点
 
 新增 Rubric、试标、独立复核计划、语义证据及 Campaign 五种节点（14–18），并识别 Evaluation 3/3、Sensitivity 3/4、Optimization 2/3、Validation 2/3、正式 Disclosure/Plan Schema 2、Runtime Protocol 2。来源边包括 Campaign、语义证据、执行 Runtime 和历史 build Runtime。数字节点顺序不代表执行先后；删除顺序按真实依赖拓扑处理。跨根保护规则仍然保守拒绝无法证明的闭包。
+# V2.5.4.5 开发诊断节点
+
+新增登记 `optimization_diagnostic_plan`（19）、`optimization_diagnostic`（20）、`optimization_search_plan`（21）。Diagnostic Plan/Run 使用 Governance Schema 1 承载独立 Diagnostic Schema 1 / Policy 1；新的 Optimization/Validation 精确支持 Schema 2 / Policy 4，永久开发用途。旧版本登记保留。
+
+Optimization 结果声明冻结 Optimization Plan、Diagnostic Plan/Run 的 ID/Manifest Hash；诊断与搜索 Plan 再声明五源与 Runtime。清理按这些声明边求闭包，不能只按包目录名或迭代号删除。Model 根和已声明历史账本保留训练/开发验证访问，结果删除不恢复验证集独立性。跨根引用仍使用现有保护，不能删保护记录绕过 prune。
+
+## V2.5.4.6 评分诊断节点
+
+新增 `score_diagnostic_plan`（22）与 `score_diagnostic`（23），目录分别为 `score_diagnostics/plans/exports` 和 `score_diagnostics/exports`。Governance Schema 1 承载 Score Diagnostic Schema 1 / Policy 1，永久 DEVELOPMENT_ONLY。
+
+两类节点声明 Raw/GT/Model/Baseline/Sensitivity、历史 Diagnostic Plan/Result、旧来源 Runtime 与新诊断 Runtime；Result 另声明本期 Score Plan 的 ID/Manifest Hash。新旧 Runtime 均为真实依赖，trace 兼容回执不替代来源边，也不授权正式跨 Runtime 晋级。包内验证还复核折映射、OOF 成员及固定指标；SOURCE_LINKED_RECOMPUTED 由评分诊断 CLI 显式执行。
+
+V2.5.4.7 沿用 Phase 22/23 和 Governance Schema 1，精确支持 Score Diagnostic Schema/Policy 1/1、2/2，未知或混合组合拒绝。V2 节点额外声明 parent_score_diagnostic_id、parent_score_diagnostic_plan_id、parent_runtime_bundle_id 及对应 Manifest Hash；新统计 Runtime 和父包双 Runtime 均保留真实依赖边。清理以这些声明边求闭包，不因新版发布而覆盖或清理父包；TRAIN 访问仍保留。

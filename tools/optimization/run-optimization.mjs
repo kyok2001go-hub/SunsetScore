@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { canonicalJson, fail, isMain } from '../dataset/lib/common.mjs';
+import path from 'node:path';
+import { canonicalJson, fail, isMain, readSafe } from '../dataset/lib/common.mjs';
 import { runCli } from './lib/cli.mjs';
 import { buildOptimizationPackage } from './lib/build.mjs';
 import { fingerprintSourcePackage } from './lib/input.mjs';
@@ -58,6 +59,11 @@ async function runOptimizationBuild(options) {
 
 /** Holds the shared maintenance lease so prune never races an Optimization publish. */
 export async function runOptimization(options) {
+  if(options.optimizationPolicyVersion===5||options.plan&&JSON.parse(await readSafe(path.join(options.plan,'manifest.json'))).optimization_policy_version===5)
+    return (await import('../product-evaluation/package.mjs')).runProductArtifact(options);
+  if (options.plan || options.optimizationPolicyVersion === 4) {
+    return (await import('../optimization-diagnostics/optimization-adapter.mjs')).runDevelopmentOptimization(options);
+  }
   if (options.optimizationPolicyVersion === 3) {
     const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', blocking_reasons: reasons };
     return withFormalLeases('optimization', options, options.output || defaultOutputRoot(APP_ROOT), () => runOptimizationBuild(options));

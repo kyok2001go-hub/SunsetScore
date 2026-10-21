@@ -187,14 +187,15 @@ const READINESS_JSON_SCHEMA = {
 };
 
 export function optimizationSchema(version = OPTIMIZATION_SCHEMA_VERSION, policyVersion = 1) {
-  if (version !== (policyVersion === 3 ? 2 : OPTIMIZATION_SCHEMA_VERSION)) {
+  if(policyVersion===5){if(version!==2)throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_SCHEMA'),{code:'UNSUPPORTED_OPTIMIZATION_SCHEMA'});return {optimization_schema_version:2,optimization_policy_version:5,files:optimizationPolicy(5).package.export_files};}
+  if (version !== ([3, 4].includes(policyVersion) ? 2 : OPTIMIZATION_SCHEMA_VERSION)) {
     throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_SCHEMA'), { code: 'UNSUPPORTED_OPTIMIZATION_SCHEMA' });
   }
   const files = [...optimizationPolicy(policyVersion).package.export_files].sort();
   return {
     optimization_schema_version: version,
     optimization_policy_version: policyVersion,
-    modes: OPTIMIZATION_MODES,
+    modes: policyVersion === 4 ? optimizationPolicy(4).modes : OPTIMIZATION_MODES,
     outcomes: OPTIMIZATION_OUTCOMES,
     files: { manifest: 'manifest.json', freeze: 'candidate_freeze.json', export: files },
     csv: {

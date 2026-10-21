@@ -102,4 +102,25 @@ function localSample(fc) {
   };
 }
 
-module.exports = { createRuntime, load, CORE_FILES, forecast, localSample };
+// Keep the frozen 2.4.6 regression independent of the changed production default.
+function loadLegacy(runtime, files) {
+  const SS = load(runtime, files);
+  Object.assign(SS.config, JSON.parse(readFileSync(join(__dirname, 'fixtures/model-246-config.json'), 'utf8')));
+  SS.version = Object.freeze({ ...SS.version, model: '2.4.6', assetRevision: 'replay1-hk1' });
+  load(runtime, ['js/model_config.js']);
+  return SS;
+}
+
+async function pinLegacyTuningBase(t) {
+  // Initialize Replay first: its dedicated first import recreates the global root.
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const { createSizedReplay } = await import('../tools/replay/replay-fixture.mjs');
+  await runReplay(await createSizedReplay(5000));
+  const { loadFrozenBaseConfig, buildModelConfig } = await import('../tools/tuning/lib/base-config.mjs');
+  await loadFrozenBaseConfig();
+  const SS = globalThis.SunsetScore, previous = SS.modelConfig;
+  SS.modelConfig = buildModelConfig(JSON.parse(readFileSync(join(__dirname, 'fixtures/model-246-config.json'), 'utf8')));
+  t.after(() => { SS.modelConfig = previous; });
+}
+
+module.exports = { createRuntime, load, loadLegacy, pinLegacyTuningBase, CORE_FILES, forecast, localSample };

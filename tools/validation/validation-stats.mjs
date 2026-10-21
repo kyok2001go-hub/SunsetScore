@@ -7,6 +7,7 @@ import { CSV_TABLES } from './validation-schema.mjs';
 
 export async function validationStats(options) {
   const checked = await inspectValidation(options.path);
+  if(checked.manifest?.validation_policy_version===5)return (await import('../product-evaluation/package.mjs')).statsProductArtifact(options);
   const selection = JSON.parse(checked.files['selection_result.json']);
   const metrics = readCsv(CSV_TABLES['candidate_validation_metrics.csv'],
     checked.files['candidate_validation_metrics.csv']);

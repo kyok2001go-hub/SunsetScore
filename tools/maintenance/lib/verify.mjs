@@ -12,6 +12,17 @@ const VALIDATORS = Object.freeze({
   evaluation: async () => (await import('../../evaluation/validate-evaluation.mjs')).inspectEvaluation,
   sensitivity: async () => (await import('../../tuning/validate-sensitivity.mjs')).inspectSensitivity,
   optimization: async () => (await import('../../optimization/validate-optimization.mjs')).inspectOptimization,
+  optimization_diagnostic_plan: async () => (await import('../../optimization-diagnostics/package.mjs')).inspectDiagnostic,
+  optimization_diagnostic: async () => (await import('../../optimization-diagnostics/package.mjs')).inspectDiagnostic,
+  optimization_search_plan: async () => async directory=>{
+    const checked=await (await import('../../experiment-runtime/lib/package.mjs')).inspectGovernancePackage(directory);
+    return checked.manifest.optimization_policy_version===5?(await import('../../product-evaluation/package.mjs')).inspectProductPackage(directory):checked;
+  },
+  score_diagnostic_plan: async () => (await import('../../score-diagnostics/package.mjs')).inspectScoreDiagnostic,
+  score_diagnostic: async () => (await import('../../score-diagnostics/package.mjs')).inspectScoreDiagnostic,
+  product_evaluation_plan:async()=>(await import('../../product-evaluation/package.mjs')).inspectProductPackage,
+  product_evaluation:async()=>(await import('../../product-evaluation/package.mjs')).inspectProductPackage,
+  product_validation_plan:async()=>(await import('../../product-evaluation/package.mjs')).inspectProductPackage,
   validation_evidence: async () => (await import('../../validation/lib/disclosure.mjs')).inspectEvidence,
   validation_plan: async () => (await import('../../validation/lib/package.mjs')).inspectPlan,
   validation: async () => (await import('../../validation/lib/package.mjs')).inspectValidation,

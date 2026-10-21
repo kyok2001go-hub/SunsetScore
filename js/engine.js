@@ -44,13 +44,15 @@
     for (var i = 0; i < arr.length; i++) s += (arr[i] - m) * (arr[i] - m);
     return Math.sqrt(s / arr.length);
   }
-  function weightedMean(items) {
+  function weightedMean(items, observer) {
     /* items: [{value, weight}]，缺失值时按可用权重重新归一 */
     var sum = 0, wsum = 0;
     items.forEach(function (it) {
       if (valid(it.value)) { sum += it.weight * it.value; wsum += it.weight; }
     });
-    return wsum > 0 ? sum / wsum : null;
+    var mean = wsum > 0 ? sum / wsum : null;
+    if (observer) observer({ items: items, numerator: sum, denominator: wsum, value: mean });
+    return mean;
   }
 
   /* ---------- V1.6 空间工具 ---------- */
@@ -137,6 +139,16 @@
    * } */
   function compute(input) {
     var cfg = SS.modelConfig.scoring;
+    var illuminationTrace = input.illuminationTrace === true && typeof input.offlineTrace === 'function'
+      ? { schema_version: 1, nodes: input.samples.map(function (s, index) { return { index: index,
+        distance_km: s.point.distanceKm, azimuth_offset: s.point.azimuthOffset,
+        has_forecast: !!s.forecast, sunset_values: null, cloud_scores: null, spatial_mixture: null,
+        source_cloud_series: s.forecast && s.forecast.hourly ? { time: s.forecast.hourly.time,
+          utc_offset_seconds: s.forecast.utc_offset_seconds, high: s.forecast.hourly.cloud_cover_high || null,
+          mid: s.forecast.hourly.cloud_cover_mid || null, low: s.forecast.hourly.cloud_cover_low || null,
+          total: s.forecast.hourly.cloud_cover || null } : null,
+        interpolation_contract: 'SHARED_CLOUD_FIELD_SUNSET_INTERPOLATION; MISSING_CLOUD_LAYER_DEFAULT_IS_ZERO' }; }), bands: [] } : null;
+    function captureMean(name) { return illuminationTrace ? function (value) { illuminationTrace[name] = value; } : undefined; }
 
     /* ===== 定位分析时刻 ===== */
     var localSample = null;
@@ -163,7 +175,12 @@
     function scoresAt(sample) {
       if (!sample.forecast) return null;
       var interpolated = interpolateAt(sample.forecast, input.solar.sunset);
-      return interpolated ? cloudScores(interpolated, cfg) : null;
+      var scores = interpolated ? cloudScores(interpolated, cfg) : null;
+      if (illuminationTrace) {
+        var node = illuminationTrace.nodes[input.samples.indexOf(sample)];
+        node.sunset_values = interpolated; node.cloud_scores = scores;
+      }
+      return scores;
     }
 
     /* ===== 9. Sky Canvas ===== */
@@ -232,7 +249,17 @@
 
     /* ===== 12. Illumination（V1.6：半开区间分带 + 预报可信度） ===== */
     /* 太阳角度因子：民用昏影越长，低角度照射云层的时间越充分 */
-    var solarAngleScore = 30 + 70 * clamp(input.solar.twilightMinutes / 35, 0, 1);
+    var illuminationCfg = cfg.illuminationModel || {};
+    var twilightSaturationMinutes = valid(illuminationCfg.twilightSaturationMinutes) && illuminationCfg.twilightSaturationMinutes > 0
+      ? illuminationCfg.twilightSaturationMinutes : 35;
+    var bankShare = valid(illuminationCfg.bankShare) ? illuminationCfg.bankShare : 0.5;
+    var twilightRatio = input.solar.twilightMinutes / twilightSaturationMinutes;
+    var twilightRatioClamped = clamp(twilightRatio, 0, 1);
+    var solarAngleScore = 30 + 70 * twilightRatioClamped;
+    if (illuminationTrace) illuminationTrace.solar = { twilight_minutes: input.solar.twilightMinutes,
+      source: 'INPUT_SOLAR_TWILIGHT_MINUTES', sunset_utc: input.solar.sunset.toISOString(),
+      civil_dusk_utc: input.solar.civilDusk ? input.solar.civilDusk.toISOString() : null,
+      saturation_minutes: twilightSaturationMinutes, ratio: twilightRatio, clamped_ratio: twilightRatioClamped, score: solarAngleScore };
 
     var spatialSum = 0, spatialW = 0, bandWeightSum = 0;
     Object.keys(sf.distanceBands).forEach(function (bandName) {
@@ -242,8 +269,14 @@
       var vals = inBand.map(function (s) {
         var sc = scoresAt(s);
         if (!sc || sc.high == null || sc.mid == null) return null;
-        return 0.65 * sc.high + 0.35 * sc.mid;   /* 第 12.2 节 CIP */
+        var mixture = 0.65 * sc.high + 0.35 * sc.mid;   /* 第 12.2 节 CIP */
+        if (illuminationTrace) illuminationTrace.nodes[input.samples.indexOf(s)].spatial_mixture = mixture;
+        return mixture;
       }).filter(valid);
+      var bandObservation = illuminationTrace ? { band: bandName, node_indices: inBand.map(function (s) { return input.samples.indexOf(s); }),
+        available_values: vals.slice(), available_count: vals.length, mean: vals.length ? avg(vals) : null,
+        distance_weight: sf.distanceBands[bandName], configured_confidence: sf.forecastConfidence[bandName],
+        effective_confidence: null, weight: 0, numerator: 0, status: vals.length ? 'EXECUTED' : 'NO_VALID_HIGH_MID_PAIR' } : null;
       if (vals.length) {
         /* CloudPotential = DistanceWeight × ForecastConfidence × CloudTypeScore */
         var conf = sf.forecastConfidence[bandName] || 1;
@@ -251,7 +284,10 @@
         spatialSum += w * avg(vals);
         spatialW += w;
         bandWeightSum += sf.distanceBands[bandName];
+        if (bandObservation) { bandObservation.effective_confidence = conf; bandObservation.weight = w;
+          bandObservation.numerator = w * avg(vals); }
       }
+      if (illuminationTrace) illuminationTrace.bands.push(bandObservation);
     });
     var spatialCompat = spatialW > 0 ? spatialSum / spatialW : canvas;
     // Diagnostic only: weighted reliability of available distance bands, not a calibrated probability.
@@ -290,7 +326,7 @@
           weight: angularWeight(0, sf.angularPower)
         };
       })
-      .filter(function (it) { return it !== null; }));
+      .filter(function (it) { return it !== null; }), captureMean('center_mean'));
 
     /* ContrastBonus：中心比两侧明显时奖励（文档示例：contrast=70 → +20），
        归一到 0-100 参与加权 */
@@ -311,13 +347,13 @@
           weight: sf.distanceBonus[s.point.distanceKm] || 0.2
         };
       })
-      .filter(function (it) { return it !== null; }));
+      .filter(function (it) { return it !== null; }), captureMean('distance_mean'));
 
     var bankScore = weightedMean([
       { value: centerScore, weight: bankCfg.centerWeight },
       { value: contrastScoreNorm, weight: bankCfg.contrastWeight },
       { value: distanceScore, weight: bankCfg.distanceWeight }
-    ]);
+    ], captureMean('bank_mean'));
     if (bankScore == null) bankScore = canvas;
 
     /* ===== V1.61 Cloud Continuity（增强方案 4.2 节） ===== */
@@ -389,9 +425,26 @@
       ? spatialEvolution.structure.bonusValue : 0;
 
     /* Illumination = SolarAngle × CloudBankPotential × IlluminationDataFactor */
-    var cloudBankPotential = 0.5 * bankScore + 0.5 * spatialCompat;
-    var illumination = clamp(
-      solarAngleScore * cloudBankPotential / 100 * illuminationDataFactor, 0, 100);
+    var cloudBankPotential = bankShare * bankScore + (1 - bankShare) * spatialCompat;
+    var illuminationRaw = solarAngleScore * cloudBankPotential / 100 * illuminationDataFactor;
+    var illumination = clamp(illuminationRaw, 0, 100);
+    if (illuminationTrace) {
+      illuminationTrace.spatial = { numerator: spatialSum, denominator: spatialW, band_weight_sum: bandWeightSum,
+        canvas: canvas, value: spatialCompat, fallback: spatialW > 0 ? null : 'NO_POSITIVE_SPATIAL_WEIGHT_USES_CANVAS',
+        distance_reliability: distanceReliability, reliability_role: 'DIAGNOSTIC_ONLY_NOT_MULTIPLIED',
+        data_factor: illuminationDataFactor, configured_far_confidence: sf.forecastConfidence.far,
+        data_factor_source: spatialW > 0 ? 'VALID_SPATIAL_DATA_ONE' : 'LEGACY_FAR_CONFIDENCE_OR_0_75' };
+      illuminationTrace.bank = { center_raw_values: centerVals.slice(), side_raw_values: sideVals.slice(),
+        center_cloud_raw: centerCloudRaw, side_cloud_raw: sideCloudRaw, contrast_raw: contrastRaw,
+        contrast_full: bankCfg.contrastFull, contrast_bonus_max: bankCfg.contrastBonusMax,
+        contrast_bonus: contrastBonus, contrast_score_normalized: contrastScoreNorm,
+        center_score: centerScore, distance_score: distanceScore, value: bankScore,
+        fallback: illuminationTrace.bank_mean.value == null ? 'NO_AVAILABLE_BANK_MEAN_USES_CANVAS' : null };
+      illuminationTrace.formula = { bank_share: bankShare, spatial_share: 1 - bankShare,
+        cloud_bank_potential: cloudBankPotential, raw: illuminationRaw, value: illumination,
+        clamp_range: [0, 100], shared_dependencies: ['BANK_SCORE_ALSO_IN_SKY_CANVAS', 'HIGH_MID_CLOUD_SCORES_SHARED'],
+        contrast_bonus_max_cancels_for_positive_values: true };
+    }
 
     /* ===== 13. Atmosphere ===== */
     var visKm = valid(lv.visM) ? lv.visM / 1000 : null;
@@ -742,6 +795,37 @@
     if (hardGates.length) score = Math.min(score, cfg.hardGate.scoreCap);
     if (!valid(score)) throw new Error('INVALID_CORE_SCORE');
     score = Math.round(score);
+
+    // Explicit offline observer. It receives intermediate values from this execution only;
+    // the normal prediction path neither installs it nor stores diagnostic data.
+    if (typeof input.offlineTrace === 'function') {
+      var rawComponents = { skyCanvas: skyCanvas, horizon: horizon, illumination: illumination,
+        atmosphere: atmosphere, weather: weather };
+      var contributions = {};
+      Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; });
+      var beforeClamp = P * Q * gate + bonus - pWeather;
+      var clamped = clamp(beforeClamp, 0, 100);
+      var gated = hardGates.length ? Math.min(clamped, cfg.hardGate.scoreCap) : clamped;
+      if (illuminationTrace) illuminationTrace.contribution = { dynamic_weight: dynamicWeights.illumination,
+        value: contributions.illumination, P: P, Q: Q, score_engine: score,
+        structure_bonus: structureBonus, transition_bonus: transitionBonusVal, weather_penalty: pWeather };
+      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}),
+        components: rawComponents, dynamic_weights: dynamicWeights, contributions: contributions,
+        P: P, Q: Q, horizon_gate: gate, structure_bonus: structureBonus, transition_bonus: transitionBonusVal,
+        weather_penalty: pWeather, atmosphere_inputs: { visibility_km: visKm, aod: aod, pm25: pm25,
+          humidity: valid(lv.rh) ? lv.rh : null }, hard_gate_reasons: hardGates.slice(),
+        stages: [
+          { stage: 'weighted_components', input_score: null, output_score: P },
+          { stage: 'atmosphere_quality', input_score: P, output_score: P * Q },
+          { stage: 'horizon_gate', input_score: P * Q, output_score: P * Q * gate },
+          { stage: 'structure_bonus', input_score: P * Q * gate, output_score: P * Q * gate + structureBonus },
+          { stage: 'transition_bonus', input_score: P * Q * gate + structureBonus, output_score: P * Q * gate + bonus },
+          { stage: 'weather_penalty', input_score: P * Q * gate + bonus, output_score: beforeClamp },
+          { stage: 'core_clamp', input_score: beforeClamp, output_score: clamped },
+          { stage: 'hard_gate', input_score: clamped, output_score: gated },
+          { stage: 'core_round', input_score: gated, output_score: score }
+        ] });
+    }
 
     /* ===== 19. 等级 ===== */
     var level = cfg.levels[cfg.levels.length - 1].label;

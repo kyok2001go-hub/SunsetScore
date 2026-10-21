@@ -74,6 +74,14 @@ test('offline Replay Runner reproduces the seven required golden scenario classe
   for (const spec of cases) {
     const fixture = await capture(spec);
     const report = await runReplay(fixture.replay, { reference: fixture.reference });
+    const traced = await runReplay(fixture.replay, { reference: fixture.reference, trace: true });
+    assert.deepEqual(traced.actual, report.actual, spec.name + ': trace is observational');
+    assert.equal(Object.hasOwn(report, 'trace'), false);
+    assert.equal(traced.trace.status, 'COMPLETE_REPLAY_PATH');
+    assert.equal(traced.trace.stages.at(-1).output_score, report.actual.score);
+    for (let i = 1; i < traced.trace.stages.length; i++) {
+      assert.equal(traced.trace.stages[i].input_score, traced.trace.stages[i - 1].output_score, spec.name);
+    }
     assert.equal(report.pass, true, spec.name + ': ' + JSON.stringify(report));
     assert.ok(Math.abs(report.deltas.score) <= 1);
     assert.ok(report.deltas.components && Object.values(report.deltas.components).every((value) => value == null || Math.abs(value) <= 1));

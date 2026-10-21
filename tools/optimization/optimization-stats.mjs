@@ -6,6 +6,7 @@ import { inspectOptimization } from './validate-optimization.mjs';
 /** Package-internal validation plus a short, readable optimization summary. */
 export async function optimizationStats(options) {
   const inspected = await inspectOptimization(options.path, options);
+  if(inspected.manifest?.optimization_policy_version===5)return (await import('../product-evaluation/package.mjs')).statsProductArtifact(options);
   const { manifest, summary } = inspected;
   return {
     status: 'PASS',

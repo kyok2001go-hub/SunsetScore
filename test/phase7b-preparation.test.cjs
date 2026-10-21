@@ -19,7 +19,9 @@ test('fixed mapping keeps integer boundaries and rejects decimals; old policies 
   assert.equal(tuningContract(3).policy.formal_capable, false); assert.equal(tuningContract(4).policy.tuning_schema_version, 3);
   const { validationPolicy } = await import('../tools/validation/validation-policy.mjs');
   assert.equal(validationPolicy(2).formal_capable, false); assert.equal(validationPolicy(3).formal_capable, true);
-  assert.throws(() => validationPolicy(4));
+  assert.equal(validationPolicy(4).formal_capable, false);
+  assert.deepEqual(validationPolicy(4).modes, ['DEVELOPMENT_VALIDATION']);
+  assert.throws(() => validationPolicy(6));
 });
 test('single-reviewer preparation cannot become READY; frozen review emits a safe blind template', async t => {
   const f = await metricFixture(await temporary(t));
@@ -88,7 +90,9 @@ test('CLI cannot authorize fixtures or accept a numeric future-version shortcut'
   assert.throws(() => day('2026-02-30'));
   const { optimizationPolicy } = await import('../tools/optimization/optimization-policy.mjs');
   const { tuningContract } = await import('../tools/tuning/v2/contract.mjs');
-  assert.throws(() => optimizationPolicy(4)); assert.throws(() => tuningContract(5));
+  assert.equal(optimizationPolicy(4).formal_capable, false);
+  assert.deepEqual(optimizationPolicy(4).modes, ['EXPLORATORY_SEARCH']);
+  assert.throws(() => optimizationPolicy(6)); assert.throws(() => tuningContract(5));
 });
 
 test('formal concentration uses canonical locations while historical profiles keep display-city behavior', async () => {

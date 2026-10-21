@@ -202,9 +202,9 @@ test('Constraint layer rejects out-of-range, integer, enum, simplex, monotonic a
   assert.throws(() => m.validateBaseConfig(m.UNITS, unmonotonic), error => error.reason_code === 'MONOTONIC_CONSTRAINT_VIOLATION');
 });
 
-test('SIMPLEX probe renormalises remaining members and keeps the group sum at one', async () => {
+test('SIMPLEX probes on frozen nonzero weights renormalise members and keep the group sum at one', async () => {
   const m = await api();
-  const loaded = await m.loadFrozenBaseConfig(APP);
+  const loaded = { config: JSON.parse(JSON.stringify(require('./fixtures/model-246-config.json'))) };
   const group = m.UNITS.find(item => item.parameter_id === 'component_weights');
   const baseline = m.resolvePath(loaded.config, group.canonical_path).value;
   const probes = m.simplexProbes(group, baseline);

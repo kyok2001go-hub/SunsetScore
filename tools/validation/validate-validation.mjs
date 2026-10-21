@@ -149,8 +149,15 @@ async function validateCore(options) {
 }
 
 export async function validateValidation(options) {
+  const currentManifest=JSON.parse(await readSafe(path.join(options.path,'manifest.json')));
+  if(currentManifest.validation_policy_version===5)return (await import('../product-evaluation/package.mjs')).validateProductArtifact(options);
   if (options.raw) {
     const manifest = JSON.parse(await readSafe(path.join(options.path, 'manifest.json')));
+    if (manifest.validation_policy_version === 4) {
+      options = await (await import('../optimization-diagnostics/validation-options.mjs')).developmentValidationOptions(options);
+      return withFormalLeases('development_validation_verify', options,
+        path.dirname(path.dirname(options.path)), () => validateCore(options));
+    }
     if (manifest.validation_policy_version === 3) return withFormalLeases('validation_verify', options,
       path.dirname(path.dirname(options.path)), () => validateCore(options));
   }

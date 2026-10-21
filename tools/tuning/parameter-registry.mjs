@@ -71,71 +71,71 @@ export const UNITS = Object.freeze([
   oat({
     parameter_id: 'high_cloud_center', canonical_path: 'highCloudCenter',
     range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 122, token: 'highCloudCenter' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 124, token: 'highCloudCenter' }] }
   }),
   oat({
     parameter_id: 'high_cloud_width', canonical_path: 'highCloudWidth',
     range: [1, 60], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 122, token: 'highCloudWidth' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 124, token: 'highCloudWidth' }] }
   }),
   oat({
     parameter_id: 'mid_cloud_center', canonical_path: 'midCloudCenter',
     range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 123, token: 'midCloudCenter' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 125, token: 'midCloudCenter' }] }
   }),
   oat({
     parameter_id: 'mid_cloud_width', canonical_path: 'midCloudWidth',
     range: [1, 60], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 123, token: 'midCloudWidth' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 125, token: 'midCloudWidth' }] }
   }),
   oat({
     parameter_id: 'aod_center', canonical_path: 'aodCenter', range: [0, 2],
     probe_offsets: WIDE_OFFSETS,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 406, token: 'aodCenter' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 459, token: 'aodCenter' }] }
   }),
   oat({
     parameter_id: 'aod_width', canonical_path: 'aodWidth', range: [0.01, 1],
     probe_offsets: WIDE_OFFSETS,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 406, token: 'aodWidth' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 459, token: 'aodWidth' }] }
   }),
   oat({
     parameter_id: 'humidity_center', canonical_path: 'humidityCenter', range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 408, token: 'humidityCenter' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 461, token: 'humidityCenter' }] }
   }),
   oat({
     parameter_id: 'humidity_width', canonical_path: 'humidityWidth', range: [1, 60], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 408, token: 'humidityWidth' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 461, token: 'humidityWidth' }] }
   }),
   oat({
     parameter_id: 'visibility_scale_km', canonical_path: 'visibilityScaleKm', range: [0.5, 40],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 398, token: 'visibilityScaleKm' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 451, token: 'visibilityScaleKm' }] }
   }),
   oat({
     parameter_id: 'atmosphere_quality_base', canonical_path: 'atmosphereQuality.base', range: [0, 1],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 740, token: 'atmosphereQuality' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 793, token: 'atmosphereQuality' }] }
   }),
   oat({
     parameter_id: 'atmosphere_quality_scale', canonical_path: 'atmosphereQuality.scale', range: [0, 1],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 740, token: 'atmosphereQuality' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 793, token: 'atmosphereQuality' }] }
   }),
   oat({
     parameter_id: 'hard_gate_horizon_opening_pct', canonical_path: 'hardGate.horizonOpeningPct', range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 725, token: 'hardGate' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 778, token: 'hardGate' }] }
   }),
   oat({
     parameter_id: 'hard_gate_visibility_km', canonical_path: 'hardGate.visibilityKm', range: [0, 50],
     probe_absolute: [1, 1.5, 2, 3, 5],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 726, token: 'hardGate' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 778, token: 'hardGate' }] }
   }),
   oat({
     parameter_id: 'hard_gate_score_cap', canonical_path: 'hardGate.scoreCap', range: [0, 100], integer: true,
     probe_absolute: [5, 10, 15, 25, 40],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 727, token: 'hardGate' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 778, token: 'hardGate' }] }
   }),
   oat({
     parameter_id: 'minimum_weather_weight', canonical_path: 'weatherRegime.minimumWeatherWeight', range: [0, 1],
     probe_absolute: [0, 0.02, 0.05, 0.1, 0.15],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 671, token: 'minimumWeatherWeight' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 724, token: 'minimumWeatherWeight' }] }
   }),
   oat({
     parameter_id: 'golden_window_floor', canonical_path: 'goldenWindow.floor', range: [0, 1],
@@ -166,12 +166,12 @@ export const UNITS = Object.freeze([
   }),
   oat({
     parameter_id: 'regime_score_clear', canonical_path: 'regimeScore.CLEAR', range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 532, token: 'regimeScore' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 585, token: 'regimeScore' }] }
   }),
   oat({
     parameter_id: 'structure_bonus_value', canonical_path: 'spatialEvolution.structure.bonusValue', range: [0, 50],
     probe_absolute: [0, 2, 5, 8, 12],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 389, token: 'bonusValue' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 425, token: 'bonusValue' }] }
   }),
   oat({
     parameter_id: 'nowcast_analysis_horizon_minutes', canonical_path: 'nowcast.analysisHorizonMinutes', range: [30, 360], integer: true,
@@ -189,7 +189,7 @@ export const UNITS = Object.freeze([
     parameter_id: 'rain_to_clear_min_rain_mm', canonical_path: 'rainToClearMinRainMm', range: [0, 10],
     replay_class: 'CONDITIONALLY_REPLAYABLE', activation_condition: 'regime_rain_to_clear',
     trigger_regimes: ['RAIN_TO_CLEAR'], probe_absolute: [0.1, 0.2, 0.3, 0.5, 0.8],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 498, token: 'rainToClearMinRainMm' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 551, token: 'rainToClearMinRainMm' }] }
   }),
   oat({
     parameter_id: 'rain_to_clear_golden_window_min', canonical_path: 'rainToClearGoldenWindow.min', range: [0, 120], integer: true,
@@ -198,7 +198,7 @@ export const UNITS = Object.freeze([
     extra_constraint_types: ['MIN_MAX'],
     pair_constraint: { sibling_path: 'rainToClearGoldenWindow.max', relation: 'LESS_THAN_OR_EQUAL' },
     probe_absolute: [15, 20, 30, 45, 60],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 505, token: 'rainToClearGoldenWindow' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 558, token: 'rainToClearGoldenWindow' }] }
   }),
   oat({
     parameter_id: 'satellite_high_cloud_center', canonical_path: 'nowcast.satellite.highCloudCenter', range: [0, 100], integer: true,
@@ -206,35 +206,44 @@ export const UNITS = Object.freeze([
     extra_constraint_types: ['DEPENDENT'], depends_on: { path: 'nowcast.satellite.enabled', equals: true },
     wiring_evidence: { read_at: [{ file: 'js/nowcast.js', line: 640, token: 'highCloudCenter' }] }
   }),
+  oat({ parameter_id: 'sky_arrival_risk_slope', canonical_path: 'skyState.factorCoefficients.arrivalRiskSlope', range: [0, 1],
+    default_value: 0.30, probe_absolute: [0.18, 0.24, 0.30, 0.36, 0.42],
+    wiring_evidence: { read_at: [{ file: 'js/sky_state.js', line: 161, token: 'arrivalRiskSlope', binding: 'skyState' }] } }),
+  oat({ parameter_id: 'illumination_bank_share', canonical_path: 'illuminationModel.bankShare', range: [0, 1],
+    default_value: 0.5, probe_absolute: [0.25, 0.375, 0.5, 0.625, 0.75],
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 255, token: 'illuminationCfg.bankShare', binding: 'illuminationModel' }] } }),
+  oat({ parameter_id: 'illumination_twilight_saturation', canonical_path: 'illuminationModel.twilightSaturationMinutes', range: [10, 90],
+    default_value: 35, probe_absolute: [25, 30, 35, 40, 45],
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 253, token: 'illuminationCfg.twilightSaturationMinutes', binding: 'illuminationModel' }] } }),
   simplex({
     parameter_id: 'component_weights', group_id: 'component_weights', canonical_path: 'weights',
     members: ['skyCanvas', 'horizon', 'illumination', 'atmosphere', 'weather'],
     wiring_evidence: {
       read_at: [
-        { file: 'js/engine.js', line: 667, token: 'weights.skyCanvas' },
-        { file: 'js/engine.js', line: 671, token: 'weights.weather' }
+        { file: 'js/engine.js', line: 720, token: 'weights.skyCanvas' },
+        { file: 'js/engine.js', line: 724, token: 'weights.weather' }
       ]
     }
   }),
   simplex({
     parameter_id: 'canvas_weights', group_id: 'canvas_weights', canonical_path: 'canvasWeights',
     members: ['high', 'mid', 'low'],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 382, token: 'canvasWeights' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 415, token: 'canvasWeights' }] }
   }),
   simplex({
     parameter_id: 'atmosphere_weights', group_id: 'atmosphere_weights', canonical_path: 'atmosphereWeights',
     members: ['visibility', 'aod', 'pm25', 'humidity'],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 411, token: 'atmosphereWeights' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 464, token: 'atmosphereWeights' }] }
   }),
   simplex({
     parameter_id: 'sky_canvas_weights', group_id: 'sky_canvas_weights', canonical_path: 'spatialEvolution.skyCanvasWeights',
     members: ['local', 'bank', 'far', 'structure', 'antiSunset'],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 379, token: 'skyCanvasWeights' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 415, token: 'skyCanvasWeights' }] }
   }),
   simplex({
     parameter_id: 'horizon_distance_weights', group_id: 'horizon_distance_weights', canonical_path: 'horizonDistanceWeights',
     members: ['0', '50', '100', '200', '300'],
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 209, token: 'horizonDistanceWeights' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 226, token: 'horizonDistanceWeights' }] }
   }),
   simplex({
     parameter_id: 'nowcast_weights', group_id: 'nowcast_weights', canonical_path: 'nowcast.weights',
@@ -250,10 +259,10 @@ export const UNITS = Object.freeze([
     reason_code: 'PARTIALLY_WIRED_EXCLUDED_FROM_FORMAL_SENSITIVITY',
     extra_constraint_types: ['MIN_MAX'],
     wiring_evidence: {
-      read_at: [{ file: 'js/sky_state.js', line: 149, token: 'factorRange' }],
+      read_at: [{ file: 'js/sky_state.js', line: 202, token: 'factorRange' }],
       truncation_sites: [
         { file: 'js/prediction_service.js', line: 282, token: '0.65, 1.15' },
-        { file: 'tools/replay/replay-runner.mjs', line: 244, token: '0.65, 1.15' }
+          { file: 'tools/replay/replay-runner.mjs', line: 249, token: '0.65, 1.15' }
       ]
     }
   }),
@@ -263,7 +272,7 @@ export const UNITS = Object.freeze([
     scan_token: 'viewingWindow',
     reason_code: 'DISPLAY_ONLY_NOT_IN_SCORING_PATH',
     wiring_evidence: {
-      read_at: [{ file: 'js/engine.js', line: 939, token: 'viewingWindow', outside_scoring_path: true }]
+      read_at: [{ file: 'js/engine.js', line: 1023, token: 'viewingWindow', outside_scoring_path: true }]
     }
   })
 ]);
@@ -279,25 +288,25 @@ export const ABLATIONS = Object.freeze([
     ablation: 'NO_SKY_EVOLUTION', ablation_layer: 'RUNNER', optimizable: false,
     mechanism: 'CONFIG_RANGE_PIN', override: { skyState: { factorRange: [1, 1] } },
     canonical_path: 'skyState.factorRange',
-    wiring_evidence: { read_at: [{ file: 'js/sky_state.js', line: 149, token: 'factorRange' }] }
+    wiring_evidence: { read_at: [{ file: 'js/sky_state.js', line: 202, token: 'factorRange' }] }
   },
   {
     ablation: 'NO_STRUCTURE_BONUS', ablation_layer: 'ENGINE', optimizable: false,
     mechanism: 'CONFIG_ZERO', override: { spatialEvolution: { structure: { bonusValue: 0 } } },
     canonical_path: 'spatialEvolution.structure.bonusValue',
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 389, token: 'bonusValue' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 425, token: 'bonusValue' }] }
   },
   {
     ablation: 'NO_TRANSITION_BONUS', ablation_layer: 'ENGINE', optimizable: false,
     mechanism: 'CONFIG_SWITCH', override: { weatherRegime: { transitionEnabled: false } },
     canonical_path: 'weatherRegime.transitionEnabled',
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 681, token: 'transitionEnabled' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 734, token: 'transitionEnabled' }] }
   },
   {
     ablation: 'NO_DYNAMIC_REGIME_WEIGHT', ablation_layer: 'ENGINE', optimizable: false,
     mechanism: 'CONFIG_NEUTRALIZE_MAP', override: { weatherRegime: { weights: 'NEUTRALIZE_TO_ONE' } },
     canonical_path: 'weatherRegime.weights',
-    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 663, token: 'regimeConfig.weights' }] }
+    wiring_evidence: { read_at: [{ file: 'js/engine.js', line: 716, token: 'regimeConfig.weights' }] }
   }
 ]);
 

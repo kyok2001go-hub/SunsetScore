@@ -19,7 +19,7 @@ test('feedback payload carries canonical timezone and version fields', () => {
   });
   assert.equal(payload.timezone, 'Asia/Shanghai');
   assert.equal(payload.app_version, '2.4.6');
-  assert.equal(payload.model_version, '2.4.6');
+  assert.equal(payload.model_version, '2.5.5.0');
   assert.equal(payload.schema_version, 3);
   assert.equal(payload.user_comment, '西侧有霞');
   const snapshot = JSON.parse(payload.raw_snapshot_json);

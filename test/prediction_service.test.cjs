@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createRuntime, load, forecast } = require('./helpers.cjs');
+const { createRuntime, load, loadLegacy, forecast } = require('./helpers.cjs');
 
 const SERVICE_FILES = [
   'js/config.js', 'js/model_config.js', 'js/network.js', 'js/domain.js', 'js/time.js',
@@ -75,9 +75,9 @@ test('Hong Kong metadata reaches scheduled/feedback snapshots and Replay with st
   assert.equal(geocodes, 2, 'only the initial name query uses provider variants; selections reuse identity');
 });
 
-test('prediction service runs without DOM and returns a valid V2.4 result', async () => {
+test('prediction service reproduces frozen 2.4.6 score and components without DOM', async () => {
   const runtime = createRuntime();
-  const SS = load(runtime, SERVICE_FILES);
+  const SS = loadLegacy(runtime, SERVICE_FILES);
   const fc = forecast({ cloud: 48, low: 18, mid: 44, high: 62 });
   fc.timezone = 'Asia/Shanghai';
   fc.utc_offset_seconds = 8 * 3600;

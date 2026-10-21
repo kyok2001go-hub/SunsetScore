@@ -5,6 +5,7 @@
  * Every number here is part of `optimization_input_id`: changing one changes the campaign.
  */
 
+import { productPolicy, digest as productDigest } from '../product-evaluation/policy.mjs';
 export const OPTIMIZATION_SCHEMA_VERSION = 1;
 export const OPTIMIZATION_POLICY_VERSION = 1;
 
@@ -200,11 +201,30 @@ policy3.formal_contract_revision = 1; policy3.formal_capable = true;
 policy3.package.export_files.push('formal_context.json'); policy3.package.export_files.sort();
 export const POLICY_V3 = deepFreeze(policy3);
 
+const policy4 = structuredClone(POLICY_V2);
+policy4.optimization_schema_version = 2; policy4.optimization_policy_version = 4;
+policy4.modes = ['EXPLORATORY_SEARCH']; policy4.formal_capable = false;
+policy4.result_usage = 'DEVELOPMENT_ONLY';
+policy4.algorithm = { ...policy4.algorithm, beam_width: 8, max_rounds: 3,
+  max_unique_candidates: 100, stage_a_b_budget: 80, stage_c_budget: 20, refinement_rounds: 1,
+  parent_selector: 'QUALITY_STRATIFIED_PARETO_V1' };
+policy4.package.export_files.push('search_selection_trace.json', 'pareto_front.json', 'candidate_quality.json', 'diagnostic_source.json');
+policy4.package.export_files.sort();
+export const POLICY_V4 = deepFreeze(policy4);
+const policy5=structuredClone(POLICY_V4);
+policy5.optimization_policy_version=5;
+policy5.product_evaluation_policy_version=1;policy5.product_policy_sha256=productDigest(productPolicy());
+policy5.algorithm.parent_selector='PRODUCT_QUALITY_STRATIFIED_PARETO_V1';
+policy5.objective={primary:{metric:'product_loss',weighting:'weighted',direction:'MINIMIZE'},tie_breakers:productPolicy().search.tie_breakers};
+policy5.guardrails={contract:'PRODUCT_EVALUATION_POLICY_1',qualification:productPolicy().qualification};
+policy5.package.export_files=['schema.json','policy.json','product_policy.json','plan.json','source_manifest.json','fold_assignments.json','fold_candidates.json','fold_metrics.json','oof_predictions.json','oof_metrics.json','searches.json','final_candidates.json','decision.json','reports/summary.md'];
+export const POLICY_V5=deepFreeze(policy5);
+
 export function optimizationPolicy(version = OPTIMIZATION_POLICY_VERSION) {
-  if (![1, 2, 3].includes(version)) {
+  if (![1, 2, 3, 4, 5].includes(version)) {
     throw Object.assign(new Error('UNSUPPORTED_OPTIMIZATION_POLICY'), { code: 'UNSUPPORTED_OPTIMIZATION_POLICY' });
   }
-  return version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
+  return version === 5 ? POLICY_V5 : version === 4 ? POLICY_V4 : version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
 }
 
 export function objectivePolicyDocument(version = 1) {

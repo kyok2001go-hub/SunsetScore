@@ -114,7 +114,10 @@ async function buildPlan(options) {
     const members = input.rows.map(row => ({ snapshot_id: row.snapshot_id, event_id: row.event_id,
       location_key: row.location_key, event_date_local: row.event_date_local }));
     const core = {
-      validation_schema_version: version === 3 ? 2 : 1, validation_policy_version: version, mode, status,
+      validation_schema_version: [3, 4].includes(version) ? 2 : 1, validation_policy_version: version, mode, status,
+      ...(version === 4 ? { diagnostic_id: audited.manifest.diagnostic_id,
+        diagnostic_plan_id: audited.manifest.diagnostic_plan_id,
+        validation_disclosure_status: 'DEVELOPMENT_EXPOSED' } : {}),
       ...(version >= 2 ? { gt_level_support: input.support.gt_level_support,
         gt_level_support_sha256: input.support.gt_level_support_sha256,
         gt_level_support_cohort: supportCohort(input.rows),
@@ -171,7 +174,13 @@ async function buildPlan(options) {
 }
 
 export async function planValidation(options) {
+  if(options.validationPolicyVersion===5)return (await import('../product-evaluation/package.mjs')).planProductValidation(options);
   validationPolicy(options.validationPolicyVersion ?? 1);
+  if (options.validationPolicyVersion === 4) {
+    if (options.mode !== 'development' || !options.acknowledgeExposedValidation) fail('INVALID_ARGUMENTS');
+    options = await (await import('../optimization-diagnostics/validation-options.mjs')).developmentValidationOptions(options);
+    return withFormalLeases('development_validation_plan', options, options.output || defaultValidationRoot(), () => buildPlan(options));
+  }
   if (options.validationPolicyVersion === 3) {
     if (options.mode !== 'formal' || !options.disclosureEvidence || options.acknowledgeExposedValidation) fail('INVALID_ARGUMENTS');
     const reasons = formalMissingReasons(options); if (reasons.length) return { status: 'BLOCKED', mode: 'FORMAL_VALIDATION', plan_id: null, blocking_reasons: reasons };

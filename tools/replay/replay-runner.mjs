@@ -203,14 +203,19 @@ export async function runReplay(replay, options = {}) {
     const currentField = SS.cloudField.buildCloudField(nodes, nowMs);
     const sunsetField = SS.cloudField.buildCloudField(nodes, sunsetMs);
     const motion = SS.cloudMotion.forecast({ currentField, targetAzimuthDeg: ctx.sunset_azimuth_deg, samples: nodes, nowUtcMs: nowMs });
-    const skyState = SS.skyState.determineState(currentField, motion, ctx.sunset_azimuth_deg);
+    let skyBranchTrace;
+    const skyState = SS.skyState.determineState(currentField, motion, ctx.sunset_azimuth_deg,
+      options.skyBranchTrace === true ? value => { skyBranchTrace = value; } : undefined);
     const localSunset = SS.time.toLocalShifted(sunsetMs, ctx.utc_offset_seconds);
     const localForecast = nodes.find((sample) => sample.point.distanceKm === 0)?.forecast || nodes[0].forecast;
     const precip = restorePrecip(replay.minute_precip, SS, nowMs);
     const air = restoreAir(replay.air_quality, ctx.utc_offset_seconds);
     const engineSamples = corridor.map(sample => ({ ...sample,
       forecast: SS.data.trimForecastWindow(sample.forecast, nowMs, sunsetMs) }));
+    let coreTrace;
     const result = SS.engine.compute({
+      ...(options.trace === true ? { offlineTrace: value => { coreTrace = value; } } : {}),
+      ...(options.illuminationTrace === true ? { illuminationTrace: true } : {}),
       location: { name: ctx.city, admin1: ctx.admin1, country: ctx.country, latitude: ctx.latitude, longitude: ctx.longitude },
       utcOffsetSeconds: ctx.utc_offset_seconds, localNowUtc: new Date(nowMs), solar,
       sunsetLocal: localSunset, samples: engineSamples, air, cloudField: sunsetField,
@@ -226,6 +231,7 @@ export async function runReplay(replay, options = {}) {
     result.baseline_level = baseline.level;
     result.sky_evolution_factor = skyState.factor;
     let gwFactor = 1;
+    let fusionTrace;
     const time = { nowUtcMs: nowMs, sunsetUtcMs: sunsetMs, minutesToSunset: (sunsetMs - nowMs) / 60000 };
     if (SS.evolution.isGoldenWindowActive({ time })) {
       const radar = restoreVisual(replay.radar);
@@ -242,8 +248,22 @@ export async function runReplay(replay, options = {}) {
       });
       gwFactor = evo ? SS.domain.clamp(evo.gwFactor, SS.modelConfig.goldenWindow.floor, 1, 1) : 1;
       result.score = Math.round(SS.domain.clamp(result.score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1) * gwFactor, 0, 100));
+      if (options.trace === true) fusionTrace = { sky: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
+        fused: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1) * gwFactor,
+        clamped: SS.domain.clamp(result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1) * gwFactor, 0, 100), golden_window_active: true,
+        golden_window_observation: evo ? {
+          status: 'OBSERVED_PROBABILITY_AND_FACTOR_REMAINING_INTERNALS_PARTIAL_TRACE',
+          sunset_open_probability: evo.sunsetOpenProbability ?? null,
+          probability_source: evo.sunsetProbabilitySource ?? null,
+          returned_factor: evo.gwFactor ?? null, applied_factor: gwFactor,
+          floor: SS.modelConfig.goldenWindow.floor,
+          state: evo.state ?? null, confidence: evo.confidence ?? null
+        } : { status: 'EXECUTED_NO_RESULT', applied_factor: 1, reason_code: 'EVOLUTION_RETURNED_NULL' } };
     } else {
       result.score = Math.round(SS.domain.clamp(result.score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), 0, 100));
+      if (options.trace === true) fusionTrace = { sky: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
+        fused: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
+        clamped: SS.domain.clamp(result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), 0, 100), golden_window_active: false };
     }
     result.level = levelOf(SS, result.score);
     const actual = {
@@ -255,6 +275,29 @@ export async function runReplay(replay, options = {}) {
     };
     const comparison = options.reference ? compareReference(actual, options.reference) : null;
     return { mode: options.modelConfig ? 'tuning-base' : (options.configOverride ? 'candidate' : 'reference'),
+      ...(options.trace === true ? { trace: { trace_schema_version: 1,
+        status: coreTrace ? 'COMPLETE_REPLAY_PATH' : 'PARTIAL_TRACE',
+        reason_code: coreTrace ? null : 'CORE_OBSERVER_UNAVAILABLE', ...coreTrace,
+        ...(options.skyBranchTrace === true ? { sky_branch: { ...skyBranchTrace,
+          execution_context: { prediction_time_utc: replay.identity.prediction_time_utc, sunset_time_utc: ctx.sunset_time_utc,
+            current_field_timestamp: currentField.timestamp, future_horizon: 'M60_FROM_CURRENT_MOTION; NOT_SUNSET_FIELD' },
+          fusion: { returned_factor: skyState.factor, external_range: [0.65, 1.15],
+            applied_factor: SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), score_engine: result.base_score,
+            score_after_sky: fusionTrace.sky, F_gw: gwFactor, final_score: result.score, final_ordinal: result.score >= 90 ? 4 : result.score >= 60 ? 3 : result.score >= 40 ? 2 : result.score >= 20 ? 1 : 0 } } } : {}),
+        nowcast: { status: 'NOT_EXECUTED', reason_code: 'REPLAY_PATH_HAS_NO_SEPARATE_NOWCAST_ADJUSTMENT' },
+        golden_window_active: fusionTrace.golden_window_active,
+        golden_window_observation: fusionTrace.golden_window_observation ?? { status: 'NOT_EXECUTED', reason_code: 'OUTSIDE_GOLDEN_WINDOW' },
+        executed_regime: { label: result.regime_label, strength: result.regime_state?.strength ?? null },
+        internal_trace_limits: options.skyBranchTrace === true ? ['GOLDEN_WINDOW_INTERNAL_CONTRIBUTIONS_PARTIAL_TRACE'] : ['SKY_STATE_FACTOR_INTERNAL_CONTRIBUTIONS_PARTIAL_TRACE','GOLDEN_WINDOW_INTERNAL_CONTRIBUTIONS_PARTIAL_TRACE'],
+        stages: [...(coreTrace?.stages || []),
+          { stage: 'sky_evolution', input_score: result.base_score,
+            output_score: fusionTrace.sky },
+          { stage: 'golden_window', input_score: fusionTrace.sky, output_score: fusionTrace.fused },
+          { stage: 'final_clamp', input_score: fusionTrace.fused, output_score: fusionTrace.clamped },
+          { stage: 'final_round', input_score: fusionTrace.clamped, output_score: result.score }].map(stage => ({ ...stage,
+            reason_code: stage.input_score === null ? 'WEIGHTED_COMPONENT_SUM_ORIGIN' : 'OBSERVED_REPLAY_EXECUTION',
+            trace_detail: options.skyBranchTrace === true && stage.stage === 'sky_evolution' ? 'COMPLETE_SHARED_BRANCH_OBSERVER' : ['sky_evolution','golden_window'].includes(stage.stage) ? 'PARTIAL_TRACE_FACTOR_BOUNDARY' : 'EXECUTION_BOUNDARY' })),
+        final_score: result.score, rounded_score: true } } : {}),
       pass: comparison ? comparison.pass : null, actual,
       reference: comparison ? comparison.reference : null,
       deltas: comparison ? comparison.deltas : {},

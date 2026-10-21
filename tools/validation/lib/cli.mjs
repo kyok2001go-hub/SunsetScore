@@ -32,7 +32,8 @@ export function parseArgs(args, command) {
     if (flag === '--acknowledge-exposed-validation' && command === 'plan' && !seen.has(flag)) {
       options.acknowledgeExposedValidation = true; seen.add(flag); continue;
     }
-    const allowed = [...FLAGS[command], ...(command !== 'stats' ? ['campaign', 'metric-evidence', 'history-ledgers'] : [])];
+    const allowed = [...FLAGS[command], ...(command !== 'stats' ? ['campaign', 'metric-evidence', 'history-ledgers',
+      'diagnostic-plan', 'diagnostic-result', 'optimization-plan', 'sources','product-plan','product-result', ...(command === 'plan' ? ['validation-version'] : [])] : [])];
     if (!flag.startsWith('--') || seen.has(flag) || !allowed.includes(flag.slice(2))) fail('INVALID_ARGUMENTS');
     seen.add(flag);
     const value = args[++i];
@@ -40,17 +41,22 @@ export function parseArgs(args, command) {
     const name = flag.slice(2);
     if (name === 'access-ledger') options.accessLedger = path.resolve(value);
     else if (name === 'disclosure-evidence') options.disclosureEvidence = path.resolve(value);
-    else if (name === 'validation-policy-version') {
-      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
+    else if (name === 'validation-policy-version' || name === 'validation-version') {
+      if (!['1', '2', '3', '4','5'].includes(value) || options.validationPolicyVersion) fail('INVALID_ARGUMENTS');
       options.validationPolicyVersion = Number(value);
     }
+    else if (name === 'diagnostic-plan') options.diagnosticPlan = path.resolve(value);
+    else if(name==='product-plan')options.productPlan=path.resolve(value);
+    else if(name==='product-result')options.productResult=path.resolve(value);
+    else if (name === 'diagnostic-result') options.diagnosticResult = path.resolve(value);
+    else if (name === 'optimization-plan') options.optimizationPlan = path.resolve(value);
     else if (name === 'metric-evidence') options.metricEvidence = path.resolve(value);
     else if (name === 'history-ledgers') options.historyLedgers = path.resolve(value);
     else if (name === 'mode') options.mode = value;
     else options[name] = path.resolve(value);
   }
   if (command === 'plan' || command === 'run') {
-    if (SOURCE_FLAGS.some(key => !options[key]) || (command === 'plan' && !options.mode) ||
+    if ((SOURCE_FLAGS.some(key => !options[key])&&!(options.sources&&(options.validationPolicyVersion===5||command==='run'&&options.plan))) || (command === 'plan' && !options.mode) ||
         (command === 'run' && !options.plan)) fail('INVALID_ARGUMENTS');
   }
   if (command === 'recover' && SOURCE_FLAGS.some(key => !options[key])) fail('INVALID_ARGUMENTS');

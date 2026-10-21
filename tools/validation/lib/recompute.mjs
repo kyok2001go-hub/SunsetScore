@@ -53,9 +53,12 @@ export function compareRecompute(files, manifest, rebuilt) {
 }
 export async function validationFingerprint(paths, audited, protectedFiles = {}, root = APP_ROOT) {
   const execution = await fingerprintExecutionRoot(root);
+  const dependencies = audited.manifest.optimization_policy_version === 4 ?
+    await (await import('../../optimization-diagnostics/plan-binding.mjs')).developmentDependencyCheck(paths, audited.manifest) : async () => {};
   return async () => {
     const { hash, readSafe } = await import('../../dataset/lib/common.mjs');
     await assertSourcesUnchanged(paths, audited.sourceFingerprints);
+    await dependencies();
     if (audited.formalContext) await (await import('../../formal/context.mjs')).validateFormalSourceContext(audited.formalContext, { ...paths, root }, { validateModel: false });
     if (canonicalJson(await fingerprintExecutionRoot(root)) !== canonicalJson(execution)) fail('VALIDATION_EXECUTION_SOURCE_CHANGED');
     for (const [file, digest] of Object.entries(protectedFiles)) {

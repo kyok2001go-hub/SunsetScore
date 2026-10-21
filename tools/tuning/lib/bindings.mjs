@@ -13,6 +13,7 @@ export const KNOWN_BINDINGS = Object.freeze({
   evolution: 'SS.modelConfig.evolution',
   goldenWindow: 'SS.modelConfig.goldenWindow',
   skyState: 'SS.modelConfig.skyState',
+  illuminationModel: 'SS.modelConfig.scoring.illuminationModel',
   cloudField: 'SS.modelConfig.cloudField',
   wind: 'SS.modelConfig.wind',
   nowcast: 'SS.modelConfig.nowcast',

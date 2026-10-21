@@ -37,6 +37,8 @@ async function run(options) {
   }
   if (formal) await loadFormalContext({ ...options, formalContext: core.formal_context });
   const audited = await auditSources(options, options);
+  if (core.validation_policy_version === 4 && (core.diagnostic_plan_id !== audited.manifest.diagnostic_plan_id ||
+    core.diagnostic_id !== audited.manifest.diagnostic_id)) fail('VALIDATION_PLAN_SOURCE_CHANGED');
   const input = await readValidationInput(options, audited, { mode: core.mode, progress: options.progress,
     root: options.root, loadReplay: false, validationPolicyVersion: core.validation_policy_version });
   if (canonicalJson(sourceIdentity(audited)) !== canonicalJson(core.source) ||
@@ -61,10 +63,25 @@ async function run(options) {
   return withPlanLock(ledgerRoot, plan.plan_id, async () => {
     const attemptId = runId();
     let authorization;
-    const histories = formal ? await historySnapshots({ ...options, accessLedger: ledgerRoot }) : null;
+    const histories = formal || core.validation_policy_version === 4 ? await historySnapshots({ ...options, accessLedger: ledgerRoot }) : null;
     const shortLock = operation => histories ? withHistoryLocks(histories.roots, operation) : withLedgerLock(ledgerRoot, operation);
     await shortLock(async () => {
     const ledger = await readLedger(ledgerRoot);
+    if (core.validation_policy_version === 4) {
+      const current = await historySnapshots({ ...options, accessLedger: ledgerRoot });
+      if (current.history.some(h => h.rows.some(row => row.action === 'FIRST_ACCESS_RESERVED' &&
+          row.diagnostic_plan_id === core.diagnostic_plan_id && row.plan_id !== plan.plan_id))) {
+        fail('DEVELOPMENT_VALIDATION_ALREADY_REVIEWED');
+      }
+      const unique = new Map(Object.values(current.roots).map(root => [path.resolve(root).toLowerCase(), root]));
+      for (const root of unique.values()) if (!current.history.find(h => current.roots[h.key] === root)?.rows.some(row =>
+        row.action === 'FIRST_ACCESS_RESERVED' && row.plan_id === plan.plan_id)) {
+        await appendLedger(root, { action: 'FIRST_ACCESS_RESERVED', plan_id: plan.plan_id,
+          diagnostic_plan_id: core.diagnostic_plan_id, diagnostic_id: core.diagnostic_id,
+          candidate_set_id: core.candidate_set_id, members: core.validation_members,
+          result_usage: 'DEVELOPMENT_ONLY', purpose: 'POLICY4_ONE_DEVELOPMENT_REVIEW' });
+      }
+    }
     if (formal) {
       const current = await historySnapshots({ ...options, accessLedger: ledgerRoot });
       if (canonicalJson(current.history.map(x => x.key).sort()) !== canonicalJson(core.history_prefixes.map(x => x.key).sort()) ||
@@ -145,8 +162,14 @@ async function run(options) {
 }
 
 export async function runValidation(options) {
+  try{const productManifest=JSON.parse(await readSafe(path.join(options.plan,'manifest.json')));if(productManifest.validation_policy_version===5)return (await import('../product-evaluation/package.mjs')).runProductArtifact(options);}catch(e){if(e.code!=='ENOENT')throw e;}
   if (options.validationPolicyVersion !== undefined) fail('INVALID_ARGUMENTS');
   const core = (await readPlan(options.plan)).plan_core;
+  if (core.validation_policy_version === 4) {
+    options = await (await import('../optimization-diagnostics/validation-options.mjs')).developmentValidationOptions(options);
+    return withFormalLeases('development_validation', options,
+      options.output || path.resolve('dataset/validation'), () => run(options));
+  }
   if (core.validation_policy_version === 3) return withFormalLeases('validation', options,
     options.output || path.resolve('dataset/validation'), () => run(options));
   return withValidationLeases('validation', options,

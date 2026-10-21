@@ -37,10 +37,17 @@ export const POLICY_V2 = Object.freeze({ ...POLICY_V1, validation_policy_version
 export const POLICY_V3 = Object.freeze({ ...POLICY_V2, validation_schema_version: 2, validation_policy_version: 3,
   selection_adapter: 'OPTIMIZATION_V3_TO_VALIDATION_V3', required_optimization_policy_version: 3,
   formal_contract_revision: 1, formal_capable: true });
+export const POLICY_V4 = Object.freeze({ ...POLICY_V2, validation_schema_version: 2, validation_policy_version: 4,
+  selection_adapter: 'OPTIMIZATION_V4_TO_DEVELOPMENT_VALIDATION_V4', required_optimization_policy_version: 4,
+  modes: ['DEVELOPMENT_VALIDATION'], result_usage: 'DEVELOPMENT_ONLY', formal_capable: false });
+export const POLICY_V5=Object.freeze({...POLICY_V4,validation_policy_version:5,required_optimization_policy_version:5,
+  selection_adapter:'PRODUCT_EVALUATION_1_TO_DEVELOPMENT_VALIDATION_5',product_evaluation_policy_version:1,
+  qualification_contract:'FROZEN_PRODUCT_POLICY_1_NOT_LEGACY_FORMAL_GATES',test_effect_access:false,
+  result_files:['schema.json','policy.json','product_policy.json','plan.json','source_manifest.json','candidate_sample_predictions.json','candidate_product_metrics.json','legacy_gate_comparison.json','slice_metrics.json','bootstrap.json','decision.json','reports/summary.md']});
 
 export function validationPolicy(version = 1) {
-  if (![1, 2, 3].includes(version)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_POLICY' });
-  return version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
+  if (![1, 2, 3, 4, 5].includes(version)) fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'UNSUPPORTED_POLICY' });
+  return version === 5 ? POLICY_V5 : version === 4 ? POLICY_V4 : version === 3 ? POLICY_V3 : version === 2 ? POLICY_V2 : POLICY_V1;
 }
 
 export function effectiveSelectionPolicy(sourceRule, version = 1) {
@@ -109,6 +116,9 @@ export function auditSupportPlan(core) {
   const check = (ok, reason_code) => { if (!ok) fail('VALIDATION_VALIDATION_FAILED', { reason_code }); };
   const equal = (a, b, reason) => check(canonicalJson(a) === canonicalJson(b), reason);
   equal(core.policy, validationPolicy(version), 'PLAN_POLICY_MISMATCH');
+  if (version === 4) check(core.mode === 'DEVELOPMENT_VALIDATION' && core.result_usage === 'DEVELOPMENT_ONLY' &&
+    core.validation_schema_version === 2 && typeof core.diagnostic_plan_id === 'string' && typeof core.diagnostic_id === 'string' &&
+    core.validation_disclosure_status === 'DEVELOPMENT_EXPOSED', 'POLICY_4_DEVELOPMENT_REQUIRED');
   const cohort = supportCohort(core.gt_level_support_cohort);
   equal(cohort.map(({ snapshot_id, event_id, location_key, event_date_local }) =>
     ({ snapshot_id, event_id, location_key, event_date_local })),

@@ -61,7 +61,10 @@ export function buildSearchSpace({ mode, registry, readiness, baseConfig, linkag
     reject('PARAMETER_REGISTRY_SHA_MISMATCH');
   }
   const unitById = new Map(registry.units.map(unit => [unit.parameter_id, unit]));
-  const readinessById = new Map((readiness.parameter_readiness || []).map(row => [row.parameter_id, row]));
+  // Policy 4 freezes registry probes only. Full-TRAIN Sensitivity effects cannot select a fold's space.
+  const readinessById = new Map(([4,5].includes(policyVersion) ? registry.units.map(unit => ({ parameter_id: unit.parameter_id,
+    parameter_readiness: 'EXPLORATORY', observability_status: 'REGISTRY_ONLY', reason_code: 'HISTORICAL_EFFECTS_UNUSED' }))
+    : readiness.parameter_readiness || []).map(row => [row.parameter_id, row]));
   const units = [];
   const excluded = [];
   declared.forEach((parameterId, index) => {

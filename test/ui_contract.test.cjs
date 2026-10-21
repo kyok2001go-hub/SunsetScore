@@ -101,7 +101,8 @@ test('static resources, edge logs and server identifiers match the app version a
   assert.ok(versions.every((version) => version === SS.version.app + '-' + SS.version.assetRevision));
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
   assert.equal(pkg.version, SS.version.app);
-  assert.equal(SS.version.model, SS.version.app);
+  assert.equal(SS.version.model, '2.5.5.0');
+  assert.equal(SS.config.version, SS.version.model);
   assert.ok(html.includes('sunset-score-v' + SS.version.model));
   const { EDGE_APP_VERSION } = await import('../server/edge-log.js');
   assert.equal(EDGE_APP_VERSION, SS.version.app);

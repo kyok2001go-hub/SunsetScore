@@ -71,5 +71,5 @@ export function rejectCliFixture(value) {
 }
 export function artifactDatasetRoot(directory) {
   const absolute = path.resolve(directory).replaceAll('\\', '/');
-  return path.resolve(directory, /\/(?:rubrics|pilots|review_plans|evidence|plans|executions)\/exports\/[^/]+$/.test(absolute) ? '../../../..' : '../../..');
+  return path.resolve(directory, /\/(?:rubrics|pilots|review_plans|evidence|plans|product_plans|executions)\/exports\/[^/]+$/.test(absolute) ? '../../../..' : '../../..');
 }

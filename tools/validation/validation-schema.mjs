@@ -1,3 +1,4 @@
+import {validationPolicy} from './validation-policy.mjs';
 const field = (name, type = 'string', nullable = false) =>
   ({ name, type, nullable, range: null, enum: null, unit: null });
 const number = (name, nullable = true) => field(name, 'number', nullable);
@@ -81,11 +82,14 @@ export const SELECTED_FILES = Object.freeze([
 ]);
 
 export function validationResultFiles(version = 1) {
-  return version === 3 ? [...RESULT_FILES, 'gt_level_support.json', 'formal_context.json'] : version === 2 ? [...RESULT_FILES, 'gt_level_support.json'] : RESULT_FILES;
+  if(version===5)return [...validationPolicy(5).result_files];
+  return version === 3 ? [...RESULT_FILES, 'gt_level_support.json', 'formal_context.json'] : [2, 4].includes(version) ? [...RESULT_FILES, 'gt_level_support.json'] : RESULT_FILES;
 }
 
 export function validationSchema({ includeSelected = false, policyVersion = 1 } = {}) {
-  if (policyVersion >= 2) return { validation_schema_version: policyVersion === 3 ? 2 : 1, validation_policy_version: policyVersion,
+  if(policyVersion===5){if(includeSelected)throw Object.assign(new Error('POLICY_5_SELECTED_FORBIDDEN'),{code:'POLICY_5_SELECTED_FORBIDDEN'});return {validation_schema_version:2,validation_policy_version:5,files:validationResultFiles(5)};}
+  if (policyVersion === 4 && includeSelected) throw Object.assign(new Error('POLICY_4_SELECTED_FORBIDDEN'), { code: 'POLICY_4_SELECTED_FORBIDDEN' });
+  if (policyVersion >= 2) return { validation_schema_version: [3, 4].includes(policyVersion) ? 2 : 1, validation_policy_version: policyVersion,
     tables: CSV_TABLES, json_files: [...CORE_JSON_FILES, 'gt_level_support.json', ...(policyVersion === 3 ? ['formal_context.json'] : []), ...(includeSelected ? SELECTED_FILES : [])],
     result_files: [...validationResultFiles(policyVersion), ...(includeSelected ? SELECTED_FILES : [])],
     required_diagnostics: { plan: ['gt_level_support', 'gt_level_support_sha256', 'gt_level_support_cohort', 'upstream_train_support'],

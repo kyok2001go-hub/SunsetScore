@@ -1,5 +1,7 @@
 # 实验 Runtime 与执行恢复
 
+V2.5.4.8 的公开等级映射审计额外依赖 `index.html` 和 `admin/backfill.html`。新快照按精确文件白名单归档两者，Evaluator Hash 同时覆盖其字节，迁移后的独立 Product worker 可完整复核 UI 枚举/阈值证据；不会遍历其他 HTML 或私密配置。历史快照未包含这两份文件仍按原库存验证，不补写旧包。新增迁移 Runtime 映射审计测试覆盖该边界。
+
 协议 1 将 Engine Runtime、Evaluator Implementation、Node/平台/架构、依赖锁和源码库存分别绑定。快照保存原始字节，评分 Runtime Hash 沿用旧算法；Git 提交只作证据，脏工作区不会被标为 clean。当前用途固定为 DEVELOPMENT_ONLY。
 
 在应用根目录执行：

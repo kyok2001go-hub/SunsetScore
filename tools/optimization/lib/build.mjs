@@ -17,6 +17,8 @@ import { buildFreezeDocument, rankRecords, selectFinalists, validationSelectionR
 import { cohortProfile, computeOptimizationReadiness } from './readiness.mjs';
 import { csvFor, descriptorOf, filesMetadata, identity } from './package.mjs';
 import { assertFormalModelRows, formalContextIdentity, loadFormalContext, registerTrainAccess } from '../../formal/context.mjs';
+import { objectiveRank, paretoLayers } from './selection.mjs';
+import { TEST_FIXTURE } from '../../formal/contracts.mjs';
 
 export function optimizationInputIdentity({ source, searchSpaceSha256, policy }) {
   return {
@@ -143,6 +145,7 @@ function leaderboardRow(record, rank) {
 export async function buildOptimizationPackage(options) {
   const progress = options.progress || silentProgress;
   const policyVersion = options.optimizationPolicyVersion ?? 1;
+  if(policyVersion===5)fail('PRODUCT_POLICY_REQUIRES_FROZEN_PLAN_ADAPTER');
   const policy = optimizationPolicy(policyVersion);
   const input = options.input ?? await loadOptimizationInput({
     ...options, model: options.model, raw: options.raw, gt: options.gt,
@@ -150,15 +153,20 @@ export async function buildOptimizationPackage(options) {
     root: options.root, progress, optimizationPolicyVersion: policyVersion
   });
   const replayRunner = options.runReplay ?? ((replay, runOptions) => runReplay(replay, { ...runOptions, engineRoot: options.root }));
+  const fixtureDevelopment = policyVersion === 4 && options.testFixture === TEST_FIXTURE && options.input && options.developmentFixture;
+  const development = policyVersion === 4 ? fixtureDevelopment ||
+    await (await import('../../optimization-diagnostics/package.mjs')).loadDevelopmentSearch(options) : null;
+  const planReference = development && !fixtureDevelopment ?
+    await (await import('../../optimization-diagnostics/plan-binding.mjs')).optimizationPlanReference(options.optimizationPlan, development) : {};
   if (policyVersion === 3 ? input.sensitivity.linkage.tuning_policy_version !== 4 :
-      policyVersion === 2 ? input.sensitivity.linkage.tuning_policy_version !== 3 : input.sensitivity.linkage.tuning_policy_version === 3) {
+      [2, 4].includes(policyVersion) ? input.sensitivity.linkage.tuning_policy_version !== 3 : input.sensitivity.linkage.tuning_policy_version === 3) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
   }
   if (policyVersion >= 2 && canonicalJson(input.sensitivity.linkage.upstream_train_support?.gt_level_support) !==
       canonicalJson(gtLevelSupport(input.model.rows, 'TRAIN'))) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'UPSTREAM_TRAIN_SUPPORT_MISMATCH' });
   }
-  const source = sourceIdentity(input);
+  const source = { ...sourceIdentity(input), ...(development ? development.source : {}), ...(fixtureDevelopment ? { test_fixture_only: true } : {}) };
   const formalContext = policyVersion === 3 ? await loadFormalContext({ ...options, formalContext: input.sensitivity.formalContext }) : null;
   const formalFields = formalContext ? formalContextIdentity(formalContext) : {};
   if (formalContext) assertFormalModelRows(formalContext, input.model.rows);
@@ -197,7 +205,7 @@ export async function buildOptimizationPackage(options) {
   });
 
   progress.stage('执行受约束联合搜索');
-  const search = await runBeamSearch({
+  const search = development ? development.finalSearch : await runBeamSearch({
     searchSpace, policy, mode,
     rank: records => rankRecords(records, epsilon),
     onProgress: value => progress.update(value),
@@ -239,7 +247,16 @@ export async function buildOptimizationPackage(options) {
   progress.stage('汇总 Leaderboard 与 Finalist');
   const ranked = rankRecords(search.records, epsilon);
   const feasible = ranked.filter(record => record.status === 'FEASIBLE');
-  const finalists = selectFinalists(search.records, { maxCount: policy.finalist_count_max, epsilon, mode });
+  const finalists = policyVersion === 4 ? objectiveRank(search.records.filter(r => r.train_all_guards_pass)).slice(0, 5) :
+    selectFinalists(search.records, { maxCount: policy.finalist_count_max, epsilon, mode });
+  if (development) {
+    if (search.records.some(r => !r.candidate.candidate_id) ||
+        development.finalSearch.records[0]?.candidate.candidate_id !==
+        (await import('./candidate.mjs')).canonicalizeCandidate({ vector: {}, searchSpace, baseConfig: input.sensitivity.baseConfig, optimizationInputId }).candidate_id) {
+      fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'DIAGNOSTIC_INPUT_ID_MISMATCH' });
+    }
+    for (const record of search.records) auditRuns.push({ id: record.candidate.candidate_id, rows: record.rows || [], failures: record.failures || [] });
+  }
   const freezeAllowed = mode === 'FORMAL_OPTIMIZATION' && finalists.length > 0;
   const outcome = mode === 'FORMAL_OPTIMIZATION'
     ? (finalists.length ? 'CANDIDATES_PROMOTED' : 'NO_PROMOTABLE_CANDIDATE')
@@ -315,6 +332,7 @@ export async function buildOptimizationPackage(options) {
     gt_level_support_sha256: supportDoc.gt_level_support_sha256,
     upstream_train_support: input.sensitivity.linkage.upstream_train_support } : {};
   const plan = {
+    ...planReference,
     ...supportFields, ...formalFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
@@ -338,7 +356,7 @@ export async function buildOptimizationPackage(options) {
     }
   };
   const searchPoints = {
-    usage: formalContext ? formalContext.result_usage : mode === 'FORMAL_OPTIMIZATION' ? 'FORMAL' : 'EXPLORATORY_ONLY',
+    usage: policyVersion === 4 ? 'DEVELOPMENT_ONLY' : formalContext ? formalContext.result_usage : mode === 'FORMAL_OPTIMIZATION' ? 'FORMAL' : 'EXPLORATORY_ONLY',
     optimization_input_id: optimizationInputId,
     optimization_mode: mode,
     budget: search.budget,
@@ -362,7 +380,7 @@ export async function buildOptimizationPackage(options) {
   };
   const finalistDocument = {
     ...supportFields, ...formalFields,
-    usage: formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY',
+    usage: policyVersion === 4 ? 'DEVELOPMENT_ONLY' : formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY',
     optimization_mode: mode,
     optimization_outcome: outcome,
     candidate_freeze_allowed: freezeAllowed,
@@ -373,7 +391,7 @@ export async function buildOptimizationPackage(options) {
       order: index + 1,
       candidate_id: record.candidate.candidate_id,
       stage: record.stage,
-      selection_status: freezeAllowed ? 'FORMAL_FINALIST' : 'TOP_SEARCH_POINT',
+      selection_status: policyVersion === 4 ? 'TRAIN_QUALIFIED_DEVELOPMENT_CANDIDATE' : freezeAllowed ? 'FORMAL_FINALIST' : 'TOP_SEARCH_POINT',
       canonical_vector: record.candidate.canonical_vector,
       effective_config_sha256: record.candidate.effective_config_sha256,
       changed_unit_count: record.candidate.changed_unit_count,
@@ -415,7 +433,7 @@ export async function buildOptimizationPackage(options) {
     'guardrail_policy.json': canonicalJson(guardrailPolicyDocument(policyVersion)),
     'search_space.json': canonicalJson(publicSpace),
     'optimization_plan.json': canonicalJson(plan),
-    'verified_source_identities.json': canonicalJson(verifiedSourceIdentities(input)),
+    'verified_source_identities.json': canonicalJson({ ...verifiedSourceIdentities(input), identities: source }),
     'readiness.json': canonicalJson(readinessDocument),
     'candidate_trace.csv': csvFor('candidate_trace.csv', traceRows),
     'candidate_metrics.csv': csvFor('candidate_metrics.csv', metricRows),
@@ -440,7 +458,7 @@ export async function buildOptimizationPackage(options) {
     feasible_candidate_count: feasible.length,
     finalist_count: finalists.length
   };
-  const resultUsage = formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY';
+  const resultUsage = policyVersion === 4 ? 'DEVELOPMENT_ONLY' : formalContext ? formalContext.result_usage : freezeAllowed ? 'FORMAL' : 'EXPLORATORY_ONLY';
   const summary = {
     ...supportFields, ...formalFields,
     ...(supportDoc ? { rare_level_audit: supportDoc.rare_level_audit } : {}),
@@ -482,6 +500,14 @@ export async function buildOptimizationPackage(options) {
     }))
   };
   files['reports/summary.json'] = canonicalJson(summary);
+  if (development) {
+    files['search_selection_trace.json'] = canonicalJson(search.selection_trace);
+    files['pareto_front.json'] = canonicalJson(paretoLayers(search.records).map(layer => layer.map(r => r.candidate.candidate_id)));
+    files['candidate_quality.json'] = canonicalJson(search.records.map(r => ({ candidate_id: r.candidate.candidate_id,
+      quality: r.quality, basic_guards_pass: r.basic_guards_pass, train_all_guards_pass: r.train_all_guards_pass,
+      reason_codes: r.reason_codes, gates: r.gates })));
+    files['diagnostic_source.json'] = canonicalJson(development.evidence);
+  }
   if (supportDoc) files[SUPPORT_FILE] = canonicalJson(supportDoc);
 
   if (freezeAllowed) {
@@ -496,12 +522,15 @@ export async function buildOptimizationPackage(options) {
     source: { ...source, ...input.sensitivity.linkage },
     metadata, searchSpace, searchSpaceSha256, mode, counts, policyVersion
   });
-  Object.assign(descriptor, supportFields);
+  Object.assign(descriptor, supportFields, planReference);
   const id = identity(descriptor);
   summary.optimization_id = id.optimization_id;
   files['reports/summary.json'] = canonicalJson(summary);
 
   const manifest = {
+    ...planReference,
+    ...(fixtureDevelopment ? { test_fixture_only: true } : {}),
+    ...(development ? development.evidence : {}),
     ...supportFields, ...formalFields,
     optimization_schema_version: policy.optimization_schema_version,
     optimization_policy_version: policy.optimization_policy_version,
@@ -562,5 +591,5 @@ export async function buildOptimizationPackage(options) {
   };
   manifest.files = filesMetadata(files, descriptorFiles);
   files[MANIFEST_FILE] = canonicalJson(manifest);
-  return { input, source, searchSpace, search, readiness, files, manifest, counts, finalists, mode };
+  return { input, source, searchSpace, search, readiness, files, manifest, counts, finalists, mode, development };
 }

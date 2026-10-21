@@ -6,9 +6,9 @@ import { outside } from '../../tuning/lib/input.mjs';
 import { bundleArgs, executeBundleCli } from '../../experiment-runtime/lib/execute.mjs';
 
 const FLAGS = {
-  plan: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version'],
-  run: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version'],
-  validate: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'report-dir'],
+  plan: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version', 'optimization-version', 'diagnostic-plan', 'diagnostic-result', 'sources'],
+  run: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'output', 'report-dir', 'optimization-policy-version', 'optimization-version', 'diagnostic-plan', 'diagnostic-result', 'sources', 'plan'],
+  validate: ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'report-dir', 'diagnostic-plan', 'diagnostic-result', 'sources'],
   stats: ['report-dir']
 };
 
@@ -27,7 +27,7 @@ export function parseArgs(args, mode) {
     result.path = path.resolve(args[0]);
     start = 1;
   }
-  const allowed = [...FLAGS[mode], ...(mode !== 'stats' ? ['campaign', 'metric-evidence', 'access-ledger', 'history-ledgers'] : [])];
+  const allowed = [...FLAGS[mode], ...(mode !== 'stats' ? ['campaign', 'metric-evidence', 'access-ledger', 'history-ledgers', 'optimization-plan','product-plan','product-result'] : [])];
   for (let index = start; index < args.length; index++) {
     const flag = args[index];
     if (flag === '--quiet' && !seen.has('quiet')) {
@@ -48,10 +48,16 @@ export function parseArgs(args, mode) {
     index++;
     seen.add(key);
     if (key === 'report-dir') result.reportDir = path.resolve(value);
-    else if (key === 'optimization-policy-version') {
-      if (!['1', '2', '3'].includes(value)) fail('INVALID_ARGUMENTS');
+    else if (key === 'optimization-policy-version' || key === 'optimization-version') {
+      if (!['1', '2', '3', '4','5'].includes(value) || result.optimizationPolicyVersion) fail('INVALID_ARGUMENTS');
       result.optimizationPolicyVersion = Number(value);
     }
+    else if (key === 'diagnostic-plan') result.diagnosticPlan = path.resolve(value);
+    else if(key==='product-plan')result.productPlan=path.resolve(value);
+    else if(key==='product-result')result.productResult=path.resolve(value);
+    else if (key === 'diagnostic-result') result.diagnosticResult = path.resolve(value);
+    else if (key === 'optimization-plan') result.optimizationPlan = path.resolve(value);
+    else if (key === 'sources' || key === 'plan') result[key] = path.resolve(value);
     else if (key === 'metric-evidence') result.metricEvidence = path.resolve(value);
     else if (key === 'access-ledger') result.accessLedger = path.resolve(value);
     else if (key === 'history-ledgers') result.historyLedgers = path.resolve(value);
@@ -60,7 +66,7 @@ export function parseArgs(args, mode) {
     else fail('INVALID_ARGUMENTS');
   }
   const required = REQUIRED[mode];
-  if (required && required.some(key => !result[key])) fail('INVALID_ARGUMENTS');
+  if (required && required.some(key => !result[key])&&!(result.sources&&(result.optimizationPolicyVersion===5||mode==='run'&&result.plan))) fail('INVALID_ARGUMENTS');
   const sources = ['model', 'raw', 'gt', 'baseline', 'sensitivity'];
   if (mode === 'validate' && sources.some(key => result[key]) && !sources.every(key => result[key])) fail('INVALID_ARGUMENTS');
   return result;

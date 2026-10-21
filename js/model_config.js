@@ -31,7 +31,11 @@
       },
       radar: cfg.nowcast.radar.enabled,
       satellite: cfg.nowcast.satellite.enabled,
+      weights: cfg.weights,
+      highCloudCenter: cfg.highCloudCenter, highCloudWidth: cfg.highCloudWidth,
+      midCloudCenter: cfg.midCloudCenter, midCloudWidth: cfg.midCloudWidth,
       goldenWindow: cfg.goldenWindow,
+      illuminationModel: cfg.illuminationModel || { bankShare: 0.5, twilightSaturationMinutes: 35 },
       sampling: cfg.sampling.enabled,
       batchRetry: cfg.sampling.batchRetry,
       networkPolicy: {

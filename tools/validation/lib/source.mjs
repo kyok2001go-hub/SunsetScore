@@ -11,7 +11,8 @@ import { validationSupport } from '../validation-policy.mjs';
 import { assertFormalModelRows, inspectFormalContext, formalContextIdentity } from '../../formal/context.mjs';
 
 export const SOURCE_KEYS = Object.freeze(['raw', 'gt', 'model', 'baseline', 'sensitivity', 'optimization']);
-export const EXPERIMENT_PATH_KEYS = Object.freeze([...SOURCE_KEYS, 'campaign', 'metricEvidence', 'runtimeBundle', 'historyLedgers', 'accessLedger']);
+export const EXPERIMENT_PATH_KEYS = Object.freeze([...SOURCE_KEYS, 'campaign', 'metricEvidence', 'runtimeBundle', 'historyLedgers', 'accessLedger',
+  'diagnosticPlan', 'diagnosticResult', 'optimizationPlan', 'sources']);
 export const MODEL_ALLOW_FILES = Object.freeze([
   'manifest.json', 'schema.json', 'policy.json', 'splits/validation.csv'
 ]);
@@ -101,7 +102,7 @@ export async function readValidationInput(paths, audited, options = {}) {
   const searchSpace = { ...searchSpaceBase, optimization_input_id: audited.manifest.optimization_input_id };
   const formal = options.mode === 'FORMAL_VALIDATION';
   const finalists = audited.finalists.finalists.filter(item =>
-    item.selection_status === (formal ? 'FORMAL_FINALIST' : 'TOP_SEARCH_POINT'));
+    item.selection_status === (version === 4 ? 'TRAIN_QUALIFIED_DEVELOPMENT_CANDIDATE' : formal ? 'FORMAL_FINALIST' : 'TOP_SEARCH_POINT'));
   assert(finalists.length === audited.finalists.finalists.length && finalists.length <= 5,
     'CANDIDATE_SET_INVALID');
   const candidateIds = new Set();

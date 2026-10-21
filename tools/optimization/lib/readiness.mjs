@@ -99,6 +99,7 @@ export function computeOptimizationReadiness({ profile, replayUsableRate, sensit
   if (policyVersion === 3 && (sensitivityLinkage.tuning_policy_version !== 4 || sensitivityLinkage.tuning_schema_version !== 3 ||
       sensitivityLinkage.formal_contract_revision !== 1)) reasons.push('FORMAL_SENSITIVITY_CONTRACT_MISSING');
   if (concentration.status === 'FAIL') reasons.push('INSUFFICIENT_LABEL_BALANCE');
+  if (policyVersion === 4) reasons.push('DEVELOPMENT_ONLY_POLICY');
   const uniqueReasons = [...new Set(reasons)].sort(compare);
   const formal = uniqueReasons.length === 0;
   return {

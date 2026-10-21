@@ -1,8 +1,8 @@
-const { createRuntime, load, CORE_FILES, forecast, localSample } = require('./helpers.cjs');
+const { createRuntime, loadLegacy, CORE_FILES, forecast, localSample } = require('./helpers.cjs');
 const scenarios = require('./fixtures/scenarios.json');
 
 function scoreCases(diagnostics = false) {
-  const SS = load(createRuntime(), [...CORE_FILES, 'js/sampling.js']);
+  const SS = loadLegacy(createRuntime(), [...CORE_FILES, 'js/sampling.js']);
   const cases = {};
   for (const scenario of scenarios) {
     for (const mode of ['LOCAL_ONLY', 'STANDARD', 'FULL', 'FULL_SKY_33', 'MISSING_REMOTE']) {

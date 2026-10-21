@@ -43,7 +43,7 @@ export function packageManifest(files, planId, { legacy = false } = {}) {
   const supportFields = policyVersion >= 2 ? { gt_level_support: core.gt_level_support,
     gt_level_support_sha256: core.gt_level_support_sha256, upstream_train_support: core.upstream_train_support } : {};
   const formalFields = policyVersion === 3 ? formalContextIdentity(inspectFormalContext(core.formal_context)) : {};
-  const schemaVersion = policyVersion === 3 ? 2 : 1;
+  const schemaVersion = [3, 4].includes(policyVersion) ? 2 : 1;
   const descriptor = { validation_schema_version: schemaVersion, validation_policy_version: policyVersion,
     ...formalFields,
     ...supportFields,
@@ -111,6 +111,7 @@ export async function inspectValidation(directory) {
   const manifestBytes = await readSafe(path.join(directory, 'manifest.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   const policyVersion = manifest.validation_policy_version;
+  if(policyVersion===5)return (await import('../../product-evaluation/package.mjs')).inspectProductPackage(directory);
   validationPolicy(policyVersion);
   assert(canonicalJson(manifest) === manifestBytes.toString('utf8'), 'MANIFEST_NOT_CANONICAL');
   const preliminarySelection = JSON.parse((await readSafe(path.join(directory,

@@ -24,8 +24,25 @@
    * @param {object} motionForecast 云场动力学预报对象
    * @param {number} [sunsetAzimuthDeg] 日落方位角（度）
    */
-  function determineState(cloudField, motionForecast, sunsetAzimuthDeg) {
+  function determineState(cloudField, motionForecast, sunsetAzimuthDeg, observer) {
+    var observed = typeof observer === 'function' ? { observer_version: 1, decisions: {}, sector: null,
+      inputs: { current_timestamp: cloudField && cloudField.timestamp != null ? cloudField.timestamp : null,
+        future60_timestamp: motionForecast && motionForecast.predictions && motionForecast.predictions.m60 ? motionForecast.predictions.m60.timestamp : null,
+        sunset_azimuth: sunsetAzimuthDeg == null ? null : sunsetAzimuthDeg },
+      fallbacks: [], nodes: [], formula: null } : null;
+    var decisionIds = ['CLOUD_ARRIVING', 'arrival.risk_exists', 'arrival.dense', 'arrival.risk_threshold', 'arrival.time_truthy', 'arrival.time_lte90',
+      'CLEAR', 'clear.now', 'clear.future', 'OPENING', 'opening.drop', 'opening.current', 'opening.future',
+      'CLOSING', 'closing.growth', 'closing.current', 'closing.future', 'UNCERTAIN', 'STABLE_OVERCAST', 'STABLE_MODERATE', 'stable.min', 'stable.max'];
+    if (observed) decisionIds.forEach(function (id) { observed.decisions[id] = 'NOT_EVALUATED'; });
+    function check(id, value) { if (observed) observed.decisions[id] = value ? 'TRUE' : 'FALSE'; return value; }
+    function formula(branch, expression, raw, floor, terms) {
+      if (observed) { observed.branch_id = branch; observed.formula = { expression: expression, raw_factor: raw,
+        branch_floor: floor, after_branch_floor: floor == null ? raw : Math.max(floor, raw), terms: terms || {} }; }
+    }
     if (!cloudField || !cloudField.summary) {
+      if (observed) { observed.branch_id = 'MISSING_SUMMARY'; observed.state = 'UNCERTAIN'; observed.fallbacks.push('MISSING_CURRENT_SUMMARY_RETURN_1');
+        observed.formula = { raw_factor: 1, branch_floor: null, after_branch_floor: 1 }; observed.rounding_status = 'NOT_EXECUTED';
+        observed.internal_clamp_status = 'NOT_EXECUTED'; observed.returned_factor = 1; observer(observed); }
       return { state: 'UNCERTAIN', factor: 1.0, confidence: 0.5 };
     }
 
@@ -40,6 +57,16 @@
 
     var avgNow = wholeAvgNow;
     var avg60 = wholeAvg60;
+    if (observed) {
+      observed.inputs.whole_avg_now = wholeAvgNow; observed.inputs.whole_avg60 = wholeAvg60; observed.inputs.spatial_variance = variance;
+      observed.inputs.arrival_risk = risk ? { hasUpstreamDenseCloud: risk.hasUpstreamDenseCloud, risk60m: risk.risk60m,
+        estimatedArrivalMin: risk.estimatedArrivalMin == null ? null : risk.estimatedArrivalMin } : null;
+      observed.thresholds = { cloudArrivingRiskThreshold: cfg.cloudArrivingRiskThreshold || 0.35, clearCloudMax: cfg.clearCloudMax || 25,
+        openingDropRateMin: cfg.openingDropRateMin || 5, closingGrowthRateMin: cfg.closingGrowthRateMin || 5,
+        configured: { cloudArrivingRiskThreshold: cfg.cloudArrivingRiskThreshold, clearCloudMax: cfg.clearCloudMax,
+          openingDropRateMin: cfg.openingDropRateMin, closingGrowthRateMin: cfg.closingGrowthRateMin }, legacy_or_defaults_preserved: true };
+      if (!pred60 || !pred60.summary) observed.fallbacks.push('MISSING_M60_SUMMARY_USES_CURRENT_WHOLE_MEAN');
+    }
 
     /* 日落方位扇区加权计算（解决问题 4） */
     var sectorInfo = null;
@@ -68,6 +95,13 @@
         var valNow = (n.data && n.data.cloud_cover != null) ? n.data.cloud_cover : wholeAvgNow;
         var pNode = predNodeMap[n.key];
         var val60 = (pNode && pNode.data && pNode.data.cloud_cover != null) ? pNode.data.cloud_cover : valNow;
+        if (observed) observed.nodes.push({ key: n.key, azimuth: az, azimuth_fallback: n.azimuth == null,
+          current_total: valNow, future60_total: val60, current_total_fallback: !(n.data && n.data.cloud_cover != null),
+          future60_total_fallback: !(pNode && pNode.data && pNode.data.cloud_cover != null),
+          current_layers: n.data ? { high: n.data.cloud_cover_high == null ? null : n.data.cloud_cover_high,
+            mid: n.data.cloud_cover_mid == null ? null : n.data.cloud_cover_mid, low: n.data.cloud_cover_low == null ? null : n.data.cloud_cover_low } : null,
+          future60_layers: pNode && pNode.data ? { high: pNode.data.cloud_cover_high == null ? null : pNode.data.cloud_cover_high,
+            mid: pNode.data.cloud_cover_mid == null ? null : pNode.data.cloud_cover_mid, low: pNode.data.cloud_cover_low == null ? null : pNode.data.cloud_cover_low } : null });
 
         if (angDiff(az, sunsetAzimuthDeg) <= hwCorridor) {
           cNodesNow.push(valNow);
@@ -98,6 +132,14 @@
 
       avgNow = Math.round(wCfg.corridor * cAvgNow + wCfg.antiSunset * aAvgNow + wCfg.side * sAvgNow);
       avg60 = Math.round(wCfg.corridor * cAvg60 + wCfg.antiSunset * aAvg60 + wCfg.side * sAvg60);
+      if (observed) observed.sector = { weights: wCfg, corridor_half_width: hwCorridor, anti_half_width: hwAnti,
+        configured_corridor_half_width: cfg.corridorHalfWidthDeg == null ? null : cfg.corridorHalfWidthDeg,
+        configured_anti_half_width: cfg.antiSunsetHalfWidthDeg == null ? null : cfg.antiSunsetHalfWidthDeg,
+        counts: { corridor: cNodesNow.length, antiSunset: aNodesNow.length, side: sNodesNow.length },
+        current_means: { corridor: cAvgNow, antiSunset: aAvgNow, side: sAvgNow }, future60_means: { corridor: cAvg60, antiSunset: aAvg60, side: sAvg60 },
+        unrounded_avg_now: wCfg.corridor * cAvgNow + wCfg.antiSunset * aAvgNow + wCfg.side * sAvgNow,
+        unrounded_avg60: wCfg.corridor * cAvg60 + wCfg.antiSunset * aAvg60 + wCfg.side * sAvg60,
+        rounded_avg_now: avgNow, rounded_avg60: avg60 };
 
       sectorInfo = {
         corridorAvgNow: Math.round(cAvgNow),
@@ -108,46 +150,60 @@
     }
 
     var cloudDelta60 = avg60 - avgNow;
+    if (observed) {
+      if (!observed.sector) observed.fallbacks.push(typeof sunsetAzimuthDeg !== 'number' || !isFinite(sunsetAzimuthDeg) ? 'INVALID_OR_MISSING_AZIMUTH_WHOLE_SKY' : 'MISSING_CURRENT_NODES_WHOLE_SKY');
+      observed.inputs.avg_now = avgNow; observed.inputs.avg60 = avg60; observed.inputs.cloud_delta60 = cloudDelta60;
+    }
     var state = 'STABLE';
     var factor = 1.0;
 
     /* 1. 判定上游浓云逼近 (CLOUD_ARRIVING) */
-    if (risk && risk.hasUpstreamDenseCloud && (risk.risk60m >= (cfg.cloudArrivingRiskThreshold || 0.35) || (risk.estimatedArrivalMin && risk.estimatedArrivalMin <= 90))) {
+    if (check('CLOUD_ARRIVING', check('arrival.risk_exists', risk) && check('arrival.dense', risk.hasUpstreamDenseCloud) && (check('arrival.risk_threshold', risk.risk60m >= (cfg.cloudArrivingRiskThreshold || 0.35)) || (check('arrival.time_truthy', risk.estimatedArrivalMin) && check('arrival.time_lte90', risk.estimatedArrivalMin <= 90))))) {
       state = 'CLOUD_ARRIVING';
-      factor = Math.max(0.65, 0.90 - risk.risk60m * 0.30);
+      var configuredArrivalSlope = cfg.factorCoefficients && cfg.factorCoefficients.arrivalRiskSlope;
+      var arrivalRiskSlope = typeof configuredArrivalSlope === 'number' && isFinite(configuredArrivalSlope) ? configuredArrivalSlope : 0.30;
+      factor = Math.max(0.65, 0.90 - risk.risk60m * arrivalRiskSlope);
+      formula('CLOUD_ARRIVING', 'max(0.65,0.90-risk60m*arrivalRiskSlope)', 0.90 - risk.risk60m * arrivalRiskSlope, 0.65, { risk60m: risk.risk60m, coefficient: arrivalRiskSlope });
     }
     /* 2. 判定极佳晴朗 (CLEAR) */
-    else if (avgNow <= (cfg.clearCloudMax || 25) && avg60 <= (cfg.clearCloudMax || 25)) {
+    else if (check('CLEAR', check('clear.now', avgNow <= (cfg.clearCloudMax || 25)) && check('clear.future', avg60 <= (cfg.clearCloudMax || 25)))) {
       state = 'CLEAR';
       factor = 1.10;
+      formula('CLEAR', '1.10', factor, null);
     }
     /* 3. 判定消散打开 (OPENING) */
-    else if (cloudDelta60 <= -(cfg.openingDropRateMin || 5) || (avgNow > 50 && avg60 < 40)) {
+    else if (check('OPENING', check('opening.drop', cloudDelta60 <= -(cfg.openingDropRateMin || 5)) || (check('opening.current', avgNow > 50) && check('opening.future', avg60 < 40)))) {
       state = 'OPENING';
       var dropRatio = Math.min(1.0, Math.abs(cloudDelta60) / 40);
       factor = 1.05 + dropRatio * 0.10;
+      formula('OPENING', '1.05+dropRatio*0.10', factor, null, { dropRatio: dropRatio, coefficient: 0.10 });
     }
     /* 4. 判定加厚合拢 (CLOSING) */
-    else if (cloudDelta60 >= (cfg.closingGrowthRateMin || 5) || (avgNow < 50 && avg60 > 65)) {
+    else if (check('CLOSING', check('closing.growth', cloudDelta60 >= (cfg.closingGrowthRateMin || 5)) || (check('closing.current', avgNow < 50) && check('closing.future', avg60 > 65)))) {
       state = 'CLOSING';
       var growthRatio = Math.min(1.0, cloudDelta60 / 40);
       factor = Math.max(0.70, 0.95 - growthRatio * 0.25);
+      formula('CLOSING', 'max(0.70,0.95-growthRatio*0.25)', 0.95 - growthRatio * 0.25, 0.70, { growthRatio: growthRatio, coefficient: 0.25 });
     }
     /* 5. 判定多变不确定 (UNCERTAIN) */
-    else if (variance >= 35) {
+    else if (check('UNCERTAIN', variance >= 35)) {
       state = 'UNCERTAIN';
       factor = 0.95;
+      formula('UNCERTAIN', '0.95', factor, null);
     }
     /* 6. 稳定态 (STABLE) */
     else {
       state = 'STABLE';
-      if (avgNow > 75) factor = 0.85;
-      else if (avgNow >= 30 && avgNow <= 60) factor = 1.02; /* 适度云层最利于晚霞/景致 */
-      else factor = 0.98;
+      if (check('STABLE_OVERCAST', avgNow > 75)) { factor = 0.85; formula('STABLE_OVERCAST', '0.85', factor, null); }
+      else if (check('STABLE_MODERATE', check('stable.min', avgNow >= 30) && check('stable.max', avgNow <= 60))) { factor = 1.02; formula('STABLE_MODERATE', '1.02', factor, null); } /* 适度云层最利于晚霞/景致 */
+      else { factor = 0.98; formula('STABLE_OTHER', '0.98', factor, null); }
     }
 
     var range = cfg.factorRange || [0.65, 1.15];
+    if (observed) { observed.rounding_status = 'EXECUTED'; observed.before_rounding = factor; observed.rounded_factor = Number(factor.toFixed(3));
+      observed.internal_range = range; observed.internal_clamp_status = 'EXECUTED'; }
     factor = Math.max(range[0], Math.min(range[1], Number(factor.toFixed(3))));
+    if (observed) { observed.state = state; observed.returned_factor = factor; observer(observed); }
 
     var meta = STATE_META[state] || STATE_META.UNCERTAIN;
 

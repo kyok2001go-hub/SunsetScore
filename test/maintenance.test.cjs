@@ -69,6 +69,24 @@ async function writePackage(m, datasetRoot, relativeRoot, id, manifest) {
   return { directory, manifest: full, manifestSha256: m.hash(text) };
 }
 
+test('only nonformal Product Policy 5 history references may point back to frozen Optimization/Validation phases',async t=>{
+  const m=await api(),root=await tempDataset(t);
+  const plan=await writePackage(m,root,'product_evaluation/plans/exports','product_plan_history',{product_evaluation_schema_version:1,product_evaluation_policy_version:1,product_plan_id:'product_plan_history'});
+  const product=await writePackage(m,root,'product_evaluation/exports','product_history',{product_evaluation_schema_version:1,product_evaluation_policy_version:1,product_evaluation_id:'product_history',product_plan_id:'product_plan_history',product_plan_manifest_sha256:plan.manifestSha256});
+  const oldOpt=await writePackage(m,root,'optimization/exports','old_opt_history',{optimization_schema_version:1,optimization_policy_version:2,optimization_id:'old_opt_history'});
+  const oldVal=await writePackage(m,root,'validation/exports','old_val_history',{validation_schema_version:1,validation_policy_version:2,validation_id:'old_val_history'});
+  const fields={optimization_schema_version:2,optimization_policy_version:5,result_usage:'DEVELOPMENT_ONLY',formal_capable:false,
+    product_plan_id:'product_plan_history',product_plan_manifest_sha256:plan.manifestSha256,product_evaluation_id:'product_history',product_evaluation_manifest_sha256:product.manifestSha256,
+    legacy_source_ids:{old_opt:{id:'old_opt_history',manifest_sha256:oldOpt.manifestSha256,kind:'fixedOptimizations'},old_val:{id:'old_val_history',manifest_sha256:oldVal.manifestSha256,kind:'fixedValidations'}}};
+  await writePackage(m,root,'optimization/exports','new_product_opt',{...fields,optimization_id:'new_product_opt'});
+  let graph=await m.scanDataset({datasetRoot:root});assert.equal(graph.diagnostics.filter(d=>d.node_id==='new_product_opt').length,0,JSON.stringify(graph.diagnostics));
+  assert.equal(graph.edges.filter(e=>e.child_id==='new_product_opt'&&e.id_field.startsWith('legacy_source_ids.')).length,2);
+  await writePackage(m,root,'optimization/exports','old_rule_opt',{...fields,optimization_policy_version:4,optimization_id:'old_rule_opt'});
+  await writePackage(m,root,'optimization/exports','formal_product_opt',{...fields,formal_capable:true,optimization_id:'formal_product_opt'});
+  await writePackage(m,root,'optimization/exports','nonhistorical_product_opt',{...fields,legacy_source_ids:{},source_ids:{unexpected:{id:'old_val_history',manifest_sha256:oldVal.manifestSha256}},optimization_id:'nonhistorical_product_opt'});
+  graph=await m.scanDataset({datasetRoot:root});for(const id of ['old_rule_opt','formal_product_opt','nonhistorical_product_opt'])assert.ok(graph.diagnostics.some(d=>d.node_id===id&&d.code==='PHASE_ORDER_INVALID'),id);
+});
+
 /**
  * Mirrors the real layout: two Raw/GT branches, one shared Model, Evaluation V1/V2, and a
  * Tuning V2 package whose validation disclosure evidence points back at Evaluation V1.

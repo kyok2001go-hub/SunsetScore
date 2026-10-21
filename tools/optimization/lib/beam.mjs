@@ -1,6 +1,7 @@
 import { canonicalJson, compare } from '../../dataset/lib/common.mjs';
 import { candidateKey, canonicalizeCandidate } from './candidate.mjs';
 import { coarseProposals, coordinateExpansions, refinementProposals } from './generator.mjs';
+import { selectParents } from './selection.mjs';
 
 /**
  * Deterministic Constrained Beam Coordinate Search.
@@ -37,16 +38,24 @@ function charge(budget, stage) {
   else budget.used_ab += 1;
 }
 
-export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank, onProgress = () => {} }) {
+export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank, parentSelector, onProgress = () => {} }) {
+  if(policy.optimization_policy_version===5&&typeof parentSelector!=='function')throw Object.assign(new Error('PRODUCT_SELECTOR_REQUIRED'),{code:'PRODUCT_SELECTOR_REQUIRED'});
+  const stratified=[4,5].includes(policy.optimization_policy_version);
   const budget = makeBudget(policy);
   const seen = new Map();
   const records = [];
   const traces = [];
+  const selectionTrace = [];
   let traceOrder = 0;
   let budgetIndex = 0;
   let converged = false;
 
-  const sortedByRank = list => rank([...list]).map(record => record.candidate.candidate_id);
+  const sortedByRank = (list, stage, round) => {
+    if (!stratified) return rank([...list]).map(record => record.candidate.candidate_id);
+    const seats = (parentSelector||selectParents)(list, policy.algorithm.beam_width);
+    selectionTrace.push(...seats.map(({ record, ...seat }) => ({ stage, round, ...seat })));
+    return seats.map(seat => seat.candidate_id);
+  };
 
   async function processProposal(proposal, { round = null, parentId = null } = {}) {
     const stage = proposal.stage;
@@ -111,9 +120,9 @@ export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank,
   const seedRecords = records.filter(record => record.status === 'FEASIBLE');
 
   // Stage B: beam coordinate search over the joint space.
-  let beamIds = sortedByRank(seedRecords).slice(0, policy.algorithm.beam_width);
+  let beamIds = sortedByRank(seedRecords, 'BEAM', 0).slice(0, policy.algorithm.beam_width);
   for (let round = 1; round <= policy.algorithm.max_rounds; round++) {
-    const before = records.filter(record => record.status === 'FEASIBLE').length;
+    const before = stratified ? budget.used_ab : records.filter(record => record.status === 'FEASIBLE').length;
     for (const parentId of beamIds) {
       const parent = records.find(record => record.candidate.candidate_id === parentId);
       if (!parent) continue;
@@ -124,8 +133,8 @@ export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank,
       }
     }
     const feasible = records.filter(record => record.status === 'FEASIBLE');
-    beamIds = sortedByRank(feasible).slice(0, policy.algorithm.beam_width);
-    if (feasible.length === before) {
+    beamIds = sortedByRank(feasible, 'BEAM', round).slice(0, policy.algorithm.beam_width);
+    if ((stratified ? budget.used_ab : feasible.length) === before) {
       converged = true;
       break;
     }
@@ -133,7 +142,7 @@ export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank,
   }
 
   // Stage C: local refinement around the best points found so far.
-  let refineIds = sortedByRank(records.filter(record => record.status === 'FEASIBLE'))
+  let refineIds = sortedByRank(records.filter(record => record.status === 'FEASIBLE'), 'REFINEMENT', 0)
     .slice(0, policy.algorithm.beam_width);
   for (let round = 1; round <= policy.algorithm.refinement_rounds; round++) {
     for (const parentId of refineIds) {
@@ -145,7 +154,7 @@ export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank,
         await processProposal(proposal, { round, parentId });
       }
     }
-    refineIds = sortedByRank(records.filter(record => record.status === 'FEASIBLE'))
+    refineIds = sortedByRank(records.filter(record => record.status === 'FEASIBLE'), 'REFINEMENT', round)
       .slice(0, policy.algorithm.beam_width);
     if (budget.used_c >= budget.limit_c) break;
   }
@@ -153,12 +162,14 @@ export async function runBeamSearch({ searchSpace, policy, mode, evaluate, rank,
   return {
     records,
     traces,
+    ...(stratified ? { selection_trace: selectionTrace,
+      termination: budget.used_ab >= budget.limit_ab || budget.used_c >= budget.limit_c ? 'BUDGET_EXHAUSTED' : converged ? 'NO_NEW_VECTOR' : 'MAX_ROUNDS' } : {}),
     budget: {
       limit_ab: budget.limit_ab, limit_c: budget.limit_c,
       used_ab: budget.used_ab, used_c: budget.used_c,
       unique_candidates: budget.used_ab + budget.used_c
     },
-    converged,
+    converged: stratified ? false : converged,
     beam_ids: beamIds,
     refinement_ids: refineIds
   };

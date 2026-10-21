@@ -1,5 +1,7 @@
 # Phase 6 参数优化与候选冻结
 
+V2.5.4.8 新增显式 `--optimization-version 5`（Schema 2 / Policy 5），通过冻结 Product Plan/Result 条件启动产品损失目标搜索，永久 `formal_capable=false / DEVELOPMENT_ONLY`。旧 Policy 1–4 默认、文件及门禁保留。先执行产品重评，再按冻结决策选择固定配置复核或一次三折搜索；beam/refinement 同用产品 4/2/2 选择器，总提议最多 400，无资格点不补足名单。命令、来源及停止规则见 [产品评价工具](../product-evaluation/README.md)。
+
 V2.5.3 在 V2.5.2 Parameter Sensitivity 之上，对冻结的 Search Space 做受约束联合搜索，
 输出可重算的 Optimization 包，并在门禁全部满足时生成不可变 Candidate Freeze。
 
@@ -131,3 +133,40 @@ Phase 6 已在 `tools/maintenance` 中登记，`dataset:lineage` 与 `dataset:pr
 # Model Policy 4 来源兼容（2026-10-14）
 
 支持 Model Schema 2 / Policy 4 的 55/30/15 切分，沿用既有开发/正式 Optimization 策略和预算。Phase 5 的来源关联验收与 TRAIN-only 读取器均须来自新 Model 的同一链；正式链使用匹配的 Campaign Policy 2。新切分不改变参数搜索、Candidate Freeze、Replay 或正式独立性门槛；旧包仍按冻结 Policy 校验，旧 Runtime 不自动升级。
+# V2.5.4.5 开发策略4
+
+显式 `--optimization-version 4` 使用 Schema 2 / Policy 4，仅接受 `EXPLORATORY_SEARCH`，永久 `DEVELOPMENT_ONLY`。旧 Policy 1–3 默认行为和读取/重算不变。先完成 [诊断 Plan/Run](../optimization-diagnostics/README.md)，必须过程稳定且存在全 TRAIN 全门禁候选。此适配器复用诊断最终搜索，不把 MAE Top 5 改称合格候选。
+
+以下 PowerShell 命令在应用根目录执行，绑定同一个 sources 文件；将返回的完整 ID 填入对应变量：
+
+```powershell
+$sources = (Resolve-Path '../.tmp/optimization-v45/sources.json').Path
+$doc = Get-Content -LiteralPath $sources -Raw | ConvertFrom-Json
+$s = @{}
+foreach ($key in @('raw','gt','model','baseline','sensitivity','runtimeBundle')) {
+  $s[$key] = [IO.Path]::GetFullPath((Join-Path (Split-Path $sources) $doc.$key))
+}
+$diagPlan = 'dataset/optimization_diagnostics/plans/exports/<DiagnosticPlan完整ID>'
+$diagResult = 'dataset/optimization_diagnostics/exports/<Diagnostic结果完整ID>'
+$common = @('--raw',$s.raw,'--gt',$s.gt,'--model',$s.model,'--baseline',$s.baseline,'--sensitivity',$s.sensitivity,
+  '--sources',$sources,'--diagnostic-plan',$diagPlan,'--diagnostic-result',$diagResult)
+npm run optimization:plan -- --optimization-version 4 @common --output dataset/optimization
+$optPlan = 'dataset/optimization/plans/exports/<OptimizationPlan完整ID>'
+npm run optimization:run -- --plan $optPlan @common --output dataset/optimization
+$opt = 'dataset/optimization/exports/<Optimization完整ID>'
+npm run optimization:validate -- $opt @common --optimization-plan $optPlan
+```
+
+`--diagnostic-result` 可省略，此时在该 Diagnostic Plan 数据根中查找唯一对应结果；零个或多个均拒绝。变更参数、预算、策略、来源或候选须生成新 Plan。输出增加 `candidate_quality.json`、`search_selection_trace.json`、`pareto_front.json`、`diagnostic_source.json`，无正式 Freeze。发布在新进程重算完整证据和 Optimization 字节，源复核后原子发布。
+
+结果 Manifest 和 Descriptor 同时绑定冻结 Optimization Plan 的 ID/Hash，进入维护血缘。跨根输出时显式提供 `--optimization-plan`；开发验证也会复核该 Plan、Diagnostic Plan/Run 与 Runtime 的完整指纹。
+
+只在上述阶段通过后执行一次开发 VALIDATION：
+
+```powershell
+npm run validation:plan -- --validation-version 4 --mode development --acknowledge-exposed-validation @common --optimization $opt --optimization-plan $optPlan --access-ledger dataset/validation/access-ledger --history-ledgers ../.tmp/optimization-v45/history-ledgers.json --output dataset/validation
+$valPlan = 'dataset/validation/plans/<ValidationPlan完整ID>'
+npm run validation:run -- --plan $valPlan @common --optimization $opt --optimization-plan $optPlan --access-ledger dataset/validation/access-ledger --history-ledgers ../.tmp/optimization-v45/history-ledgers.json --output dataset/validation
+```
+
+失败/中断可用同一 Validation Plan 重试；同一 Diagnostic Plan 换输出目录或另建 Validation Plan 不能重复开启开发复核。访问同步登记到主、Model 根和声明的历史账本，包含 Event 与规范地点/日期身份。Policy 4 复用三层 Replay、Bootstrap 和既有门禁，永久标记已暴露开发用途，不生成 selected 文件。正式准入需未来具备正式契约的新策略与独立 Campaign。

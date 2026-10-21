@@ -281,18 +281,22 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
   const evaluationManifest = parseCanonical(await readSafe(path.join(baseline, 'manifest.json')), 'manifest.json');
   if ([1, 2, 3].includes(evaluationManifest.evaluation_schema_version) &&
       [1, 2, 3].includes(evaluationManifest.evaluation_policy_version)) {
-    await inspectEvaluation(baseline, { model, progress });
+    await inspectEvaluation(baseline, optimizationPolicyVersion === 4 ? { progress } : { model, progress });
   } else {
     await inspectForwardCompatibleEvaluation(baseline, evaluationManifest);
   }
   const sensitivityManifest = parseCanonical(await readSafe(path.join(sensitivity, 'manifest.json')), 'manifest.json');
-  if (sensitivityManifest.tuning_policy_version !== ({ 1: 2, 2: 3, 3: 4 })[optimizationPolicyVersion] ||
+  if (sensitivityManifest.tuning_policy_version !== ({ 1: 2, 2: 3, 3: 4, 4: 3 })[optimizationPolicyVersion] ||
       evaluationManifest.evaluation_policy_version !== (optimizationPolicyVersion === 3 ? 3 : 2)) {
     fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'TUNING_OPTIMIZATION_POLICY_COMBINATION_UNSUPPORTED' });
   }
   if ((sensitivityManifest.tuning_schema_version === 2 && [2, 3].includes(sensitivityManifest.tuning_policy_version)) ||
       (sensitivityManifest.tuning_schema_version === 3 && sensitivityManifest.tuning_policy_version === 4)) {
-    await inspectSensitivity(sensitivity, { ...formalOptions, model, raw, gt, baseline, progress, root });
+    // Diagnostic Policy 4 consumes frozen Registry/config/runtime, never historical experiment
+    // effects. Phase A already proves Model/Raw/GT linkage; hashes and explicit identities below
+    // bind the internally verified historical packages without re-running full-TRAIN experiments.
+    await inspectSensitivity(sensitivity, optimizationPolicyVersion === 4 ? { progress } :
+      { ...formalOptions, model, raw, gt, baseline, progress, root });
   } else {
     await inspectForwardCompatibleSensitivity(sensitivity, sensitivityManifest);
   }
@@ -337,6 +341,11 @@ export async function loadOptimizationInput({ model, raw, gt, baseline, sensitiv
   ];
   for (const [reason, ok] of checks) {
     if (!ok) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: reason });
+  }
+  if (optimizationPolicyVersion === 4 && (evaluation.model_dataset_manifest_sha256 !== modelFingerprints['manifest.json'] ||
+      evaluation.model_dataset_descriptor_sha256 !== header.manifest.descriptor_sha256 ||
+      linkage.source_dataset_id !== header.manifest.source_dataset_id || linkage.ground_truth_id !== header.manifest.ground_truth_id)) {
+    fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'DIAGNOSTIC_HISTORICAL_SOURCE_MISMATCH' });
   }
 
   progress.stage('校验冻结 Runtime 与 Base Config');
@@ -410,7 +419,7 @@ export function sourceIdentity(input) {
 
 export function verifiedSourceIdentities(input) {
   return {
-    optimization_schema_version: input.optimizationPolicyVersion === 3 ? 2 : 1,
+    optimization_schema_version: [3, 4].includes(input.optimizationPolicyVersion) ? 2 : 1,
     verification_phase: 'PHASE_A_SOURCE_LINKED',
     upstream_status: input.upstream.status,
     upstream_validation_scope: input.upstream.validation_scope,

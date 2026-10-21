@@ -1,5 +1,7 @@
 # Phase 7 可复现性治理补充（2026-10-12）
 
+V2.5.4.8 显式 `--validation-version 5 --mode development` 为 Product Evaluation Policy 1 的一次已暴露 VALIDATION 开发复核（Validation Schema 2 / Policy 5）。名单只来自固定配置路线，或过程支持后的全 TRAIN 合格点，事前冻结最多 5 个；账本绑定 Product Plan 与名单 Hash，换输出根不能重开名单。新指标/旧门禁/Bootstrap 并列报告，`PRODUCT_DEVELOPMENT_SUPPORTED` 不改写旧 classification，也不产生正式 selected 或 Phase 8。计划存于 `validation/product_plans/exports`，沿用完整 Replay 新进程重算和维护治理；旧 Policy 1–4 保持。详见 [产品评价工具](../product-evaluation/README.md)。
+
 真实 Run 在 staging 包内校验之后，必须启动新 Node 进程重新加载冻结输入、Replay 和统计，比较全部结果文件与 Manifest，再做最后来源、Plan、Evidence、执行源码复核并原子发布。重算不依赖 RUN_COMPLETED，也不复用第一次的预测或 Bootstrap。差异产生 VALIDATION_RECOMPUTE_MISMATCH，staging 保留诊断，exports 不产生结果。
 
 Run 和完整六源 Verify 共用 Plan 活动锁；账本只在检查/追加时短暂加锁。账本新增 PREPUBLISH_RECOMPUTE_*、VERIFY_RECOMPUTE_*、PUBLISH_RECOVERED，记录授权引用、尝试、来源和结果。PACKAGE_INTERNAL / MODEL_LINKED 为只读；SOURCE_LINKED_RECOMPUTED 会追加访问审计。旧包缺少历史 VERIFY 收据不使其包内失效，新复核须留下新审计。
@@ -90,3 +92,8 @@ npm run validation:stats -- <validation-export-directory>
 # Model Policy 4 来源兼容（2026-10-14）
 
 支持 Model Schema 2 / Policy 4 的 55/30/15 切分。Plan/Run 必须绑定同一新 Model 产生的六源，仍保留 VALIDATION-only 效果读取、TEST 隔离、发布前新进程重算和持久访问账本。开发 Policy 2 与正式 Policy 3 的门槛及 excellent 软警告不变；正式链的 Campaign Policy 2 须绑定 Model 2/4。新比例或新包身份不能恢复已经暴露的验证范围；新工具须使用包含当前实现的新 Runtime。
+# V2.5.4.5 开发适配器
+
+显式 `--validation-version 4 --mode development --acknowledge-exposed-validation` 接受 Optimization Schema 2 / Policy 4 的全 TRAIN 合格开发候选，生成 Validation Schema 2 / Policy 4。候选及证据 Hash 在读取 VALIDATION 前冻结。结果始终 `DEVELOPMENT_ONLY`，暴露状态固定 `DEVELOPMENT_EXPOSED`，没有 selected 文件或正式晋级资格。三层 Replay、Event 权重、指标、Slice、日期 Bootstrap 与原质量门禁复用现有实现；旧 Policy 1–3 保持原行为。
+
+完整可复制的来源绑定、Plan/Run 命令见 [Optimization 开发策略4](../optimization/README.md#v2545-开发策略4)。同一 Diagnostic Plan 只允许一份开发复核 Plan 开启效果计算；同 Plan 重试保留已有暴露并按确定性发布恢复，不能通过换账本/输出目录恢复独立性。TEST 效果始终封存。

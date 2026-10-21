@@ -49,6 +49,9 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
   const core = plan.plan_core;
   auditSupportPlan(core);
   const policyVersion = core.validation_policy_version ?? 1;
+  if (policyVersion === 4 && (testFixtureFormal || core.fixture_only || core.mode !== 'DEVELOPMENT_VALIDATION' || core.result_usage !== 'DEVELOPMENT_ONLY')) {
+    fail('VALIDATION_VALIDATION_FAILED', { reason_code: 'POLICY_4_DEVELOPMENT_ONLY' });
+  }
   const planIdentityResult = planIdentity(core);
   if (canonicalJson(planIdentityResult.payload) !== canonicalJson({
     plan_core: plan.plan_core, plan_core_sha256: plan.plan_core_sha256,
@@ -231,7 +234,7 @@ export async function buildValidationResult({ plan, input, audited, runReplay = 
   }
   const promotion = formal && resultUsage === 'FORMAL' && outcome.outcome === 'SELECTED';
   const formalFields = formal ? (await import('../../formal/context.mjs')).formalContextIdentity(core.formal_context) : {};
-  const selection = { validation_schema_version: formal ? 2 : 1, validation_policy_version: policyVersion,
+  const selection = { validation_schema_version: formal || policyVersion === 4 ? 2 : 1, validation_policy_version: policyVersion,
     ...formalFields,
     ...supportFields,
     mode: core.mode, outcome: outcome.outcome, selected_candidate_id: outcome.selected_candidate_id,

@@ -18,7 +18,7 @@ export function sourceManifestIdentity(key, manifest, manifestSha256) {
 
 export async function executeBundleCli(bundle, entry, args, { receiptOutput } = {}) {
   const relative = path.relative(APP_ROOT, entry).split(path.sep).join('/');
-  if (!/^tools\/(tuning|optimization|validation|evaluation|metric-semantics|campaign)\/[a-z-]+\.mjs$/.test(relative)) fail('RUNTIME_ENTRY_NOT_ALLOWED');
+  if (!/^tools\/(tuning|optimization|validation|evaluation|metric-semantics|campaign|score-diagnostics)\/[a-z-]+\.mjs$/.test(relative)) fail('RUNTIME_ENTRY_NOT_ALLOWED');
   const root = path.dirname(path.dirname(bundle));
   const sourceRoots = [];
   for (const name of ['raw', 'gt', 'model', 'baseline', 'sensitivity', 'optimization']) {
@@ -81,7 +81,7 @@ export async function executeBundleCli(bundle, entry, args, { receiptOutput } = 
     const result = JSON.parse(stdout.trim().split('\n').at(-1));
     await verifyBundle(bundle, { requireEnvironment: true });
     if (readOnlyValidation) return { ...result, runtime_bundle_id: checked.runtime_bundle_id };
-    const resultId = result.validation_id || result.optimization_id || result.sensitivity_id || result.evaluation_id || result.plan_id ||
+    const resultId = result.score_diagnostic_id || result.score_diagnostic_plan_id || result.validation_id || result.optimization_id || result.optimization_plan_id || result.sensitivity_id || result.evaluation_id || result.plan_id ||
       result.campaign_id || result.semantic_evidence_id || result.review_plan_id || result.pilot_id || result.rubric_id || result.evidence_id || null;
     const links = { runtime_bundle_id: checked.runtime_bundle_id,
       runtime_bundle_manifest_sha256: checked.manifest_sha256, source_ids: identities };
@@ -117,7 +117,7 @@ export function bundleArgs(args, command, family) {
   const pathFlags = new Set(['--model', '--raw', '--gt', '--baseline', '--sensitivity', '--optimization', '--output',
     '--plan', '--access-ledger', '--disclosure-evidence', '--validation-evidence', '--candidates',
     '--campaign', '--metric-evidence', '--rubric', '--pilot', '--index', '--annotations', '--conclusion',
-    '--specification', '--build-runtimes', '--history-ledgers', '--declaration']);
+    '--specification', '--build-runtimes', '--history-ledgers', '--declaration', '--diagnostic-plan', '--diagnostic-result', '--optimization-plan', '--sources']);
   for (let i = 0; i < forwarded.length; i++) if (pathFlags.has(forwarded[i])) forwarded[++i] = path.resolve(forwarded[i]);
   if (['validate', 'recover'].includes(command)) forwarded[family === 'campaign' || family === 'metric-semantics' ? 1 : 0] =
     path.resolve(forwarded[family === 'campaign' || family === 'metric-semantics' ? 1 : 0]);

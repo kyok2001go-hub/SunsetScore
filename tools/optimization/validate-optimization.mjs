@@ -13,6 +13,7 @@ import { buildFreezeDocument, compareRecords, validationSelectionRuleDocument } 
 import { SUPPORT_FILE, inspectSupportDocument, supportDigest } from '../gt-level-support.mjs';
 import { cohortProfile, computeOptimizationReadiness } from './lib/readiness.mjs';
 import { formalContextIdentity, inspectFormalContext } from '../formal/context.mjs';
+import { candidateQuality } from './lib/selection.mjs';
 
 export const parseJson = bytes => {
   const value = JSON.parse(bytes.toString('utf8'));
@@ -36,8 +37,16 @@ export async function inspectOptimization(directory, options = {}) {
     if (sources.some(key => options[key]) && !sources.every(key => options[key])) fail('INVALID_ARGUMENTS');
     const manifest = parseJson(await readSafe(path.join(directory, MANIFEST_FILE)));
     const policyVersion = manifest.optimization_policy_version;
+    if(policyVersion===5){const module=await import('../product-evaluation/package.mjs');return options.sources?module.validateProductArtifact({...options,input:directory}):module.inspectProductPackage(directory);}
     const policy = optimizationPolicy(policyVersion);
+    if (manifest.test_fixture_only === true && options.model) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FIXTURE_SOURCE_LINK_FORBIDDEN' });
     const schema = optimizationSchema(policy.optimization_schema_version, policyVersion);
+    if (policyVersion === 4 && !manifest.test_fixture_only) {
+      if (typeof manifest.optimization_plan_id !== 'string' || !/^[a-f0-9]{64}$/.test(manifest.optimization_plan_manifest_sha256)) {
+        fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'OPTIMIZATION_PLAN_BINDING_MISSING' });
+      }
+      options = { ...options, optimizationPlan: options.optimizationPlan || path.resolve(directory, '../../plans/exports', manifest.optimization_plan_id) };
+    }
     requireKeys(manifest, schema.json.manifest.required, 'manifest');
     if (manifest.optimization_schema_version !== policy.optimization_schema_version ||
         manifest.optimization_policy_version !== policy.optimization_policy_version) {
@@ -81,6 +90,12 @@ export async function inspectOptimization(directory, options = {}) {
     const searchPoints = parseJson(loaded['search_points.json']);
     const finalists = parseJson(loaded['finalists.json']);
     const verifiedSources = parseJson(loaded['verified_source_identities.json']);
+    if (policyVersion === 4 && !manifest.test_fixture_only) {
+      const plan = parseJson(loaded['optimization_plan.json']);
+      for (const key of ['optimization_plan_id', 'optimization_plan_manifest_sha256']) {
+        if (manifest[key] !== plan[key] || manifest[key] !== manifest.descriptor[key]) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'OPTIMIZATION_PLAN_BINDING_MISMATCH' });
+      }
+    }
     requireKeys(readiness, schema.json.readiness.required, 'readiness');
     requireKeys(summary, schema.json.summary.required, 'summary');
     const formalContext = policyVersion === 3 ? inspectFormalContext(parseJson(loaded['formal_context.json'])) : null;
@@ -123,11 +138,11 @@ export async function inspectOptimization(directory, options = {}) {
         manifest.cohort_event_count === new Set(doc.cohort.map(row => row.event_id)).size &&
         manifest.cohort_date_count === new Set(doc.cohort.map(row => row.event_date_local)).size,
       'SUPPORT_COHORT_COUNT_MISMATCH');
-      check(manifest.descriptor.optimization_schema_version === (formalContext ? 2 : 1) &&
+      check(manifest.descriptor.optimization_schema_version === ([3, 4].includes(policyVersion) ? 2 : 1) &&
         manifest.descriptor.optimization_policy_version === policyVersion, 'DESCRIPTOR_POLICY_MISMATCH');
       equal(manifest.validation_selection_rule, validationSelectionRuleDocument(policy), 'SELECTION_RULE_MISMATCH');
       check(formalContext ? manifest.optimization_mode === 'FORMAL_OPTIMIZATION' && manifest.result_usage === formalContext.result_usage &&
-        recomputed.optimization_readiness === 'READY' : manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.result_usage === 'EXPLORATORY_ONLY' &&
+        recomputed.optimization_readiness === 'READY' : manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.result_usage === (policyVersion === 4 ? 'DEVELOPMENT_ONLY' : 'EXPLORATORY_ONLY') &&
         manifest.candidate_freeze_allowed === false && manifest.validation_promotion_allowed === false,
       'PROXY_FORMAL_PROMOTION_FORBIDDEN');
       equal(summary.rare_level_audit, doc.rare_level_audit, 'RARE_AUDIT_MISMATCH');
@@ -255,6 +270,20 @@ export async function inspectOptimization(directory, options = {}) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'SEARCH_POINT_MISMATCH' });
     }
     const finalistIds = finalists.finalists.map(item => item.candidate_id);
+    const qualities = policyVersion === 4 ? parseJson(loaded['candidate_quality.json']) : [];
+    if (policyVersion === 4) {
+      const equal = (a, b) => { if (canonicalJson(a) !== canonicalJson(b)) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'CANDIDATE_QUALITY_MISMATCH' }); };
+      equal(qualities.map(q => q.candidate_id).sort(compare), [...metricSet].sort(compare));
+      for (const row of qualities) {
+        equal(row.gates, tables['candidate_guardrails.csv'].filter(g => g.candidate_id === row.candidate_id));
+        const quality = candidateQuality(row);
+        for (const key of ['quality', 'basic_guards_pass', 'train_all_guards_pass']) equal(row[key], quality[key]);
+      }
+      const evidence = parseJson(loaded['diagnostic_source.json']);
+      if (evidence.procedure_status !== 'PROCEDURE_SUPPORTED' || evidence.result_usage !== 'DEVELOPMENT_ONLY' ||
+        evidence.diagnostic_plan_id !== verifiedSources.identities.diagnostic_plan_id ||
+        evidence.diagnostic_plan_manifest_sha256 !== verifiedSources.identities.diagnostic_plan_manifest_sha256) fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'DIAGNOSTIC_SOURCE_MISMATCH' });
+    }
     for (const candidateId of finalistIds) {
       const metric = tables['candidate_metrics.csv'].find(row => row.candidate_id === candidateId);
       const valid = manifest.optimization_mode === 'FORMAL_OPTIMIZATION'
@@ -268,7 +297,8 @@ export async function inspectOptimization(directory, options = {}) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'FINALIST_COUNT_MISMATCH' });
     }
     const expectedFinalistIds = tables['leaderboard.csv']
-      .filter(row => manifest.optimization_mode === 'FORMAL_OPTIMIZATION' ? row.promotable === true : true)
+      .filter(row => policyVersion === 4 ? qualities.find(q => q.candidate_id === row.candidate_id)?.train_all_guards_pass === true :
+        manifest.optimization_mode === 'FORMAL_OPTIMIZATION' ? row.promotable === true : true)
       .slice(0, policy.finalist_count_max)
       .map(row => row.candidate_id);
     if (canonicalJson(finalistIds) !== canonicalJson(expectedFinalistIds)) {
@@ -333,7 +363,7 @@ export async function inspectOptimization(directory, options = {}) {
       }
     } else {
       if (manifest.optimization_mode === 'EXPLORATORY_SEARCH' && manifest.finalist_count > 0 &&
-          finalists.usage !== 'EXPLORATORY_ONLY') {
+          finalists.usage !== (policyVersion === 4 ? 'DEVELOPMENT_ONLY' : 'EXPLORATORY_ONLY')) {
         fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'EXPLORATORY_FINALIST_USAGE' });
       }
       if (manifest.candidate_freeze_allowed !== false) {
@@ -355,7 +385,7 @@ export async function inspectOptimization(directory, options = {}) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'OPTIMIZATION_OUTCOME_MISMATCH' });
     }
     if (exploratory && (manifest.candidate_freeze_allowed !== false ||
-        manifest.validation_promotion_allowed !== false || finalists.usage !== 'EXPLORATORY_ONLY' ||
+        manifest.validation_promotion_allowed !== false || finalists.usage !== (policyVersion === 4 ? 'DEVELOPMENT_ONLY' : 'EXPLORATORY_ONLY') ||
         tables['candidate_metrics.csv'].some(row => row.promotable === true))) {
       fail('OPTIMIZATION_VALIDATION_FAILED', { reason_code: 'EXPLORATORY_PROMOTION_FORBIDDEN' });
     }

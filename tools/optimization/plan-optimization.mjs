@@ -90,6 +90,10 @@ async function buildPlanOptimization(options) {
 }
 
 export async function planOptimization(options) {
+  if(options.optimizationPolicyVersion===5)return (await import('../product-evaluation/package.mjs')).planProductSearch(options);
+  if (options.optimizationPolicyVersion === 4) {
+    return (await import('../optimization-diagnostics/optimization-adapter.mjs')).planDevelopmentOptimization(options);
+  }
   return options.optimizationPolicyVersion === 3 ? withFormalLeases('optimization_plan', options,
     options.output || path.resolve('dataset/optimization'), () => buildPlanOptimization(options)) : buildPlanOptimization(options);
 }

@@ -66,7 +66,7 @@ test('golden-window switch and exact boundaries share one configuration', () => 
   assert.equal(active(120), true);
   SS.modelConfig.goldenWindow.enabled = false;
   assert.equal(active(0), false);
-  assert.equal(SS.modelConfig.goldenWindow.floor, 0.5);
+  assert.equal(SS.modelConfig.goldenWindow.floor, 0.507692307692);
   for (const key of ['weatherRegimeV17','nowcastV19','evolutionV20','goldenWindowV4']) assert.equal(SS.config[key], undefined);
   assert.equal(SS.modelConfig.scoring.weatherRegime.enabled, undefined);
   assert.equal(SS.modelConfig.evolution.enabled, undefined);

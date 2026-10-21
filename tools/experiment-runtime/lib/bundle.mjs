@@ -11,8 +11,9 @@ import { withOptimizationLock } from '../../optimization/lib/publish.mjs';
 const exec = promisify(execFile);
 // Explicit source families; no arbitrary config, payload, credentials or node_modules.
 const FAMILIES = ['tools', 'server'];
+export const MAPPING_EVIDENCE_FILES=Object.freeze(['index.html','admin/backfill.html']);
 export function allowedSource(name) {
-  return ['package.json', 'package-lock.json'].includes(name) ||
+  return ['package.json', 'package-lock.json',...MAPPING_EVIDENCE_FILES].includes(name) ||
     /^js\/[a-zA-Z0-9_-]+\.js$/.test(name) ||
     /^(tools|server)\/[a-zA-Z0-9_./-]+\.(mjs|js|cjs)$/.test(name) &&
       !name.split('/').some(part => part.startsWith('.') || part === '..');
@@ -39,6 +40,8 @@ export async function nodeProcess(script, args = [], { cwd = APP_ROOT, bundleSha
 }
 async function sourceNames(root) {
   const names = ['package.json', 'package-lock.json'];
+  // Optional for archived pre-product runtimes; exact public mapping evidence for new bundles.
+  for(const name of MAPPING_EVIDENCE_FILES){try{await readSafe(path.join(root,name));names.push(name);}catch(error){if(error.code!=='ENOENT')throw error;}}
   for (const family of FAMILIES) {
     names.push(...(await inventory(path.join(root, family))).map(name => `${family}/${name}`).filter(allowedSource));
   }

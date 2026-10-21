@@ -1,6 +1,7 @@
 /* ============================================================
- * SunsetScore V2.4.6 - 当前生产参数配置
- * 所有参数均为初始经验值 [TUNE]，未来可根据真实观测数据校准
+ * SunsetScore Model V2.5.5.0 - 已选参数发布配置
+ * 八项参数来自识别优先权重、中云及黄金窗口累计选择，其余沿用既有值。
+ * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -8,9 +9,9 @@
 
   root.SunsetScore.version = Object.freeze({
     app: '2.4.6',
-    model: '2.4.6',
+    model: '2.5.5.0',
     schema: 3,
-    assetRevision: 'replay1-hk1',
+    assetRevision: 'model2550',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3
@@ -29,9 +30,10 @@
     /* ---------- Sky Canvas（第 9 章） ---------- */
     highCloudCenter: 60,   /* [TUNE] 高云最佳中心 */
     highCloudWidth: 25,
-    midCloudCenter: 40,    /* [TUNE] 中云最佳中心 */
-    midCloudWidth: 25,
+    midCloudCenter: 54,    /* [TUNE] 中云最佳中心 */
+    midCloudWidth: 34,
     canvasWeights: { high: 0.55, mid: 0.35, low: 0.10 },
+    illuminationModel: { bankShare: 0.5, twilightSaturationMinutes: 35 },
     farCloudMinKm: 100,    /* 远方云场起始距离 */
 
     /* ---------- Spatial Cloud Field（升级方案 二~八 章） ---------- */
@@ -163,7 +165,7 @@
     hardGate: { horizonOpeningPct: 10, visibilityKm: 2, scoreCap: 15 },
 
     /* ---------- 最终公式（第 18 章） ---------- */
-    weights: { skyCanvas: 0.30, horizon: 0.20, illumination: 0.20, atmosphere: 0.20, weather: 0.10 },
+    weights: { skyCanvas: 0.20, horizon: 0.375, illumination: 0.40, atmosphere: 0.025, weather: 0 },
     atmosphereQuality: { base: 0.70, scale: 0.30 },
 
     /* ---------- 晚霞等级（第 19 章） ---------- */
@@ -338,6 +340,7 @@
 
     /* ---------- 全天天空状态机与演化因子（技术方案 第 6、8 章） ---------- */
     skyState: {
+      factorCoefficients: { arrivalRiskSlope: 0.30 },
       clearCloudMax: 25,
       openingDropRateMin: 5,        /* 每小时云量下降 5% 以上 */
       closingGrowthRateMin: 5,      /* 每小时云量上升 5% 以上 */
@@ -355,7 +358,7 @@
       enabled: true,
       beforeSunsetMinutes: 180,
       afterSunsetMinutes: 30,
-      floor: 0.50
+      floor: 0.507692307692
     },
 
     /* 每次网络操作包含响应体读取；查询取消会中止重试和后续降级请求。 */

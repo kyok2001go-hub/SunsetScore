@@ -47,16 +47,25 @@ function simplexProposals(entry, reference, precision) {
   return proposals;
 }
 
+function simplexVector(entry, reference, member, value, precision) {
+  const otherSum = entry.members.filter(name => name !== member).reduce((sum, name) => sum + reference[name], 0);
+  const values = entry.members.map(name => roundTo(name === member ? value : (1 - value) * reference[name] / otherSum, precision));
+  values[values.length - 1] = roundTo(1 - values.slice(0, -1).reduce((sum, n) => sum + n, 0), precision);
+  return Object.fromEntries(entry.members.map((name, i) => [name, values[i]]));
+}
+
 /**
  * Every single-unit coarse probe for one Unit, in frozen order. Stage A seeds use the baseline
  * as the reference; Stage B expansions use the parent Candidate so a joint vector keeps moving.
  */
-export function unitProposals({ entry, parentVector = null, precision }) {
+export function unitProposals({ entry, parentVector = null, precision, preserveParent = false }) {
   if (entry.unit_category === 'SIMPLEX') {
     return simplexProposals(entry, memberReference(entry, parentVector), precision)
       .map(item => ({
         member: item.member, factor: item.factor, value: item.value,
-        vector: { [entry.parameter_id]: { ...(parentVector?.[entry.parameter_id] || entry.baseline_value), [item.member]: item.value } },
+        vector: { ...(preserveParent ? parentVector || {} : {}), [entry.parameter_id]: preserveParent ?
+          simplexVector(entry, memberReference(entry, parentVector), item.member, item.value, precision) :
+          { ...(parentVector?.[entry.parameter_id] || entry.baseline_value), [item.member]: item.value } },
         change_json: changeJson(entry.parameter_id, item.member, item.value)
       }));
   }
@@ -73,7 +82,7 @@ export function coarseProposals(searchSpace) {
   const proposals = [];
   for (const parameterId of searchSpace.unit_order) {
     const entry = searchSpace.units.find(unit => unit.parameter_id === parameterId);
-    for (const item of unitProposals({ entry, precision })) {
+    for (const item of unitProposals({ entry, precision, preserveParent: [4,5].includes(searchSpace.search_space_version) })) {
       proposals.push({ stage: 'COARSE_SEED', parameter_id: parameterId, ...item });
     }
   }
@@ -89,7 +98,8 @@ export function coordinateExpansions({ searchSpace, parent }) {
   const proposals = [];
   for (const parameterId of searchSpace.unit_order) {
     const entry = searchSpace.units.find(unit => unit.parameter_id === parameterId);
-    for (const item of unitProposals({ entry, parentVector: parent.canonical_vector, precision })) {
+    for (const item of unitProposals({ entry, parentVector: parent.canonical_vector, precision,
+      preserveParent: [4,5].includes(searchSpace.search_space_version) })) {
       proposals.push({ stage: 'BEAM', parameter_id: parameterId, ...item });
     }
   }
@@ -122,7 +132,9 @@ export function refinementProposals({ searchSpace, parent, round, stepFactor = 0
           if (rounded === current) continue;
           proposals.push({
             stage: 'REFINEMENT', parameter_id: parameterId, member, factor: probeFactor, value: rounded,
-            vector: { ...parent.canonical_vector, [parameterId]: { ...(parent.canonical_vector[parameterId] || entry.baseline_value), [member]: rounded } },
+            vector: { ...parent.canonical_vector, [parameterId]: [4,5].includes(searchSpace.search_space_version) ?
+              simplexVector(entry, memberReference(entry, parent.canonical_vector), member, rounded, precision) :
+              { ...(parent.canonical_vector[parameterId] || entry.baseline_value), [member]: rounded } },
             change_json: changeJson(parameterId, member, rounded)
           });
         }

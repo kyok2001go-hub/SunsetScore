@@ -92,7 +92,8 @@ export function formalMissingReasons(options) {
     .concat(options.runtimeBundle || process.env.SUNSETSCORE_RUNTIME_BUNDLE_SHA256 ? [] : ['FORMAL_RUNTIME_MISSING']);
 }
 export async function withFormalLeases(phase, options, output, operation) {
-  const directories = ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'optimization', 'campaign', 'metricEvidence', 'runtimeBundle', 'plan', 'disclosureEvidence']
+  const directories = ['model', 'raw', 'gt', 'baseline', 'sensitivity', 'optimization', 'campaign', 'metricEvidence', 'runtimeBundle', 'plan', 'disclosureEvidence',
+    'diagnosticPlan', 'diagnosticResult', 'optimizationPlan']
     .filter(key => options[key]).map(key => ({ key, directory: options[key] }));
   const roots = [path.dirname(output), ...directories.map(({ key, directory }) => key === 'raw' ? path.resolve(directory, '../..') : artifactDatasetRoot(directory))];
   const registrySha256 = options.historyLedgers ? hash(await readSafe(options.historyLedgers)) : null;

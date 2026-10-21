@@ -64,7 +64,7 @@ export const PHASES = Object.freeze([
     phase: 6, key: 'optimization', label: 'Phase 6 Parameter Optimization', relativeRoot: 'optimization/exports',
     idField: 'optimization_id', schemaField: 'optimization_schema_version',
     policyField: 'optimization_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3]])
+    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3], [2, 4], [2, 5]])
   }),
   Object.freeze({
     phase: 7, key: 'validation_evidence', label: 'Phase 7 Disclosure Evidence',
@@ -82,7 +82,7 @@ export const PHASES = Object.freeze([
     phase: 9, key: 'validation', label: 'Phase 7 Validation Result',
     relativeRoot: 'validation/exports', idField: 'validation_id',
     schemaField: 'validation_schema_version', policyField: 'validation_policy_version',
-    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3]])
+    supportedVersions: Object.freeze([[1, 1], [1, 2], [2, 3], [2, 4], [2, 5]])
   }),
   Object.freeze({ phase: 10, key: 'experiment_runtime', label: 'Experiment Runtime',
     relativeRoot: 'experiment_runtime/exports', idField: 'runtime_bundle_id',
@@ -97,13 +97,26 @@ export const PHASES = Object.freeze([
     relativeRoot: 'experiment_runtime/executions/exports', idField: 'execution_receipt_id',
     schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }),
   ...[
+    [19, 'optimization_diagnostic_plan', 'optimization_diagnostics/plans/exports', 'diagnostic_plan_id'],
+    [20, 'optimization_diagnostic', 'optimization_diagnostics/exports', 'diagnostic_id'],
+    [21, 'optimization_search_plan', 'optimization/plans/exports', 'optimization_plan_id'],
+    [22, 'score_diagnostic_plan', 'score_diagnostics/plans/exports', 'score_diagnostic_plan_id'],
+    [23, 'score_diagnostic', 'score_diagnostics/exports', 'score_diagnostic_id'],
+    [24,'product_evaluation_plan','product_evaluation/plans/exports','product_plan_id'],
+    [25,'product_evaluation','product_evaluation/exports','product_evaluation_id'],
+    [26,'product_validation_plan','validation/product_plans/exports','product_validation_plan_id'],
     [14, 'metric_rubric', 'metric_semantics/rubrics/exports', 'rubric_id'],
     [15, 'metric_pilot', 'metric_semantics/pilots/exports', 'pilot_id'],
     [16, 'metric_review_plan', 'metric_semantics/review_plans/exports', 'review_plan_id'],
     [17, 'semantic_evidence', 'metric_semantics/exports', 'semantic_evidence_id'],
     [18, 'campaign', 'campaign/exports', 'campaign_id']
   ].map(([phase, key, relativeRoot, idField]) => Object.freeze({ phase, key, label: key, relativeRoot, idField,
-    schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }))
+    ...(key === 'product_evaluation_plan'||key==='product_evaluation'
+      ? {schemaField:'product_evaluation_schema_version',policyField:'product_evaluation_policy_version',supportedVersions:Object.freeze([[1,1]])}
+      : key==='product_validation_plan'?{schemaField:'validation_schema_version',policyField:'validation_policy_version',supportedVersions:Object.freeze([[2,5]])}
+      : key === 'score_diagnostic_plan' || key === 'score_diagnostic'
+      ? { schemaField: 'score_diagnostic_schema_version', policyField: 'score_diagnostic_policy_version', supportedVersions: Object.freeze([[1, 1], [2, 2]]) }
+      : { schemaField: 'governance_schema_version', policyField: null, supportedVersions: Object.freeze([[1, null]]) }) }))
 ]);
 
 export function phaseByKey(key) {
@@ -152,6 +165,17 @@ export function dependenciesOf(phase, manifest) {
     dependencies.push({ idField, id, expectedManifestSha256: declaredHash ?? null, kind });
   };
   switch (phase.key) {
+    case 'product_evaluation_plan':
+    case 'product_evaluation':
+    case 'product_validation_plan':
+    case 'score_diagnostic_plan':
+    case 'score_diagnostic':
+    case 'optimization_diagnostic_plan':
+    case 'optimization_diagnostic':
+    case 'optimization_search_plan':
+      for (const [key, item] of Object.entries(manifest.source_ids || {})) dependencies.push({
+        idField: `source_ids.${key}.id`, id: item.id, expectedManifestSha256: item.manifest_sha256, kind: 'SOURCE' });
+      break;
     case 'metric_rubric':
     case 'metric_pilot':
     case 'metric_review_plan':
@@ -208,6 +232,7 @@ export function dependenciesOf(phase, manifest) {
       add('validation_disclosure_evidence_id', 'validation_disclosure_evidence_sha256', 'EVIDENCE');
       break;
     case 'optimization':
+      if(manifest.optimization_policy_version===5)for(const [key,item] of Object.entries(manifest.source_ids||{}))dependencies.push({idField:`source_ids.${key}.id`,id:item.id,expectedManifestSha256:item.manifest_sha256,kind:'SOURCE'});
       add('model_dataset_id', 'model_dataset_manifest_sha256', 'SOURCE');
       add('evaluation_id', 'evaluation_manifest_sha256', 'SOURCE');
       add('sensitivity_id', 'sensitivity_manifest_sha256', 'SOURCE');
@@ -243,6 +268,25 @@ export function dependenciesOf(phase, manifest) {
       break;
   }
   if (phase.key !== 'experiment_runtime') {
+    add('product_plan_id','product_plan_manifest_sha256','SOURCE');
+    add('product_evaluation_id','product_evaluation_manifest_sha256','SOURCE');
+    add('product_validation_plan_id','product_validation_plan_manifest_sha256','SOURCE');
+    add('optimization_id','optimization_manifest_sha256','SOURCE');
+    for(const [key,item] of Object.entries(manifest.legacy_source_ids||{})){
+      const historicalProduct=phase.key==='optimization'&&manifest.optimization_schema_version===2&&manifest.optimization_policy_version===5&&
+        manifest.formal_capable===false&&manifest.result_usage==='DEVELOPMENT_ONLY'&&typeof manifest.product_plan_id==='string'&&typeof manifest.product_evaluation_id==='string'&&
+        ['fixedOptimizations','fixedValidations'].includes(item.kind)&&typeof item.manifest_sha256==='string';
+      dependencies.push({idField:`legacy_source_ids.${key}.id`,id:item.id,expectedManifestSha256:item.manifest_sha256,kind:'SOURCE',
+        ...(historicalProduct?{product_history_parent_phase:item.kind==='fixedOptimizations'?'optimization':'validation'}:{})});
+    }
+    add('parent_score_diagnostic_id', 'parent_score_diagnostic_manifest_sha256', 'SOURCE');
+    add('parent_score_diagnostic_plan_id', 'parent_score_diagnostic_plan_manifest_sha256', 'SOURCE');
+    add('parent_runtime_bundle_id', 'parent_runtime_bundle_manifest_sha256', 'SOURCE');
+    add('score_diagnostic_plan_id', 'score_diagnostic_plan_manifest_sha256', 'SOURCE');
+    add('source_runtime_bundle_id', 'source_runtime_bundle_manifest_sha256', 'SOURCE');
+    add('diagnostic_plan_id', 'diagnostic_plan_manifest_sha256', 'SOURCE');
+    add('diagnostic_id', 'diagnostic_manifest_sha256', 'SOURCE');
+    add('optimization_plan_id', 'optimization_plan_manifest_sha256', 'SOURCE');
     add('campaign_id', 'campaign_manifest_sha256', 'EVIDENCE');
     add('semantic_evidence_id', 'semantic_evidence_manifest_sha256', 'EVIDENCE');
     if (!dependencies.some(x => x.idField === 'runtime_bundle_id')) add('runtime_bundle_id', 'runtime_bundle_manifest_sha256', 'SOURCE');

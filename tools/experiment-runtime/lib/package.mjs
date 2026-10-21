@@ -6,15 +6,24 @@ import { withOptimizationLock } from '../../optimization/lib/publish.mjs';
 export const GOVERNANCE_KINDS = Object.freeze({ replay_quality_plan: 'replay_quality_plan_id',
   replay_quality_report: 'replay_quality_report_id', runtime_execution: 'execution_receipt_id',
   metric_rubric: 'rubric_id', metric_pilot: 'pilot_id', metric_review_plan: 'review_plan_id',
-  semantic_evidence: 'semantic_evidence_id', campaign: 'campaign_id' });
+  semantic_evidence: 'semantic_evidence_id', campaign: 'campaign_id',
+  optimization_diagnostic_plan: 'diagnostic_plan_id', optimization_diagnostic: 'diagnostic_id', optimization_search_plan: 'optimization_plan_id',
+  score_diagnostic_plan: 'score_diagnostic_plan_id', score_diagnostic: 'score_diagnostic_id',
+  product_evaluation_plan:'product_plan_id',product_evaluation:'product_evaluation_id',product_validation_plan:'product_validation_plan_id',
+  optimization:'optimization_id',validation:'validation_id' });
+
+const safeFile = name => /^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:json|md)$/.test(name);
+const payloadBytes = (name, value) => {
+  if (!safeFile(name) || name.endsWith('.md') && typeof value !== 'string') fail('UNSAFE_PATH');
+  return name.endsWith('.md') ? value : canonicalJson(value);
+};
 
 /** Verify embedded, self-contained sources using the same canonical package identity as disk. */
 export function inspectGovernanceSnapshot({ manifest, files }) {
   const kind = manifest?.descriptor?.package_kind, idField = GOVERNANCE_KINDS[kind];
   if (!idField || manifest.id_field !== idField) fail('GOVERNANCE_PACKAGE_INVALID');
   const entries = Object.fromEntries(Object.entries(files || {}).map(([name, value]) => {
-    if (!/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.json$/.test(name)) fail('UNSAFE_PATH');
-    const bytes = canonicalJson(value); return [name, { sha256: hash(bytes), bytes: Buffer.byteLength(bytes) }];
+    const bytes = payloadBytes(name, value); return [name, { sha256: hash(bytes), bytes: Buffer.byteLength(bytes) }];
   }));
   if (canonicalJson(entries) !== canonicalJson(manifest.files)) fail('GOVERNANCE_FILE_MISMATCH');
   const { governance_schema_version, package_kind, files: declared, ...links } = manifest.descriptor;
@@ -45,17 +54,16 @@ export async function inspectGovernancePackage(directory) {
   if (canonicalJson(await inventory(directory)) !== canonicalJson(['manifest.json', ...Object.keys(manifest.files)].sort(compare))) fail('GOVERNANCE_INVENTORY_MISMATCH');
   const files = {};
   for (const [name, entry] of Object.entries(manifest.files)) {
-    if (!/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.json$/.test(name)) fail('UNSAFE_PATH');
+    if (!safeFile(name)) fail('UNSAFE_PATH');
     const content = await readSafe(path.join(directory, name));
-    if (hash(content) !== entry.sha256 || content.length !== entry.bytes ||
-        canonicalJson(JSON.parse(content)) !== content.toString('utf8')) fail('GOVERNANCE_FILE_MISMATCH');
-    files[name] = JSON.parse(content);
+    if (hash(content) !== entry.sha256 || content.length !== entry.bytes) fail('GOVERNANCE_FILE_MISMATCH');
+    files[name] = name.endsWith('.md') ? content.toString('utf8') : JSON.parse(content);
+    if (payloadBytes(name, files[name]) !== content.toString('utf8')) fail('GOVERNANCE_FILE_MISMATCH');
   }
   return inspectGovernanceSnapshot({ manifest, files });
 }
 export async function publishGovernancePackage({ output, kind, idField, payloads, links = {}, sourceCheck = async () => {}, validateStaging = async () => {} }) {
-  for (const name of Object.keys(payloads)) if (!/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.json$/.test(name)) fail('UNSAFE_PATH');
-  const files = Object.fromEntries(Object.entries(payloads).map(([name, value]) => [name, canonicalJson(value)]));
+  const files = Object.fromEntries(Object.entries(payloads).map(([name, value]) => [name, payloadBytes(name, value)]));
   const entries = Object.fromEntries(Object.entries(files).map(([name, value]) => [name, { sha256: hash(value), bytes: Buffer.byteLength(value) }]));
   const descriptor = { governance_schema_version: 1, package_kind: kind, ...links, files: entries };
   const digest = hash(canonicalJson(descriptor)), id = `${kind}_v1_${digest.slice(0, 16)}`;
