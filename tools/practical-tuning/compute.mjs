@@ -1,13 +1,22 @@
 import { runReplay } from '../replay/replay-runner.mjs';
 import { buildModelConfig } from '../tuning/lib/base-config.mjs';
-import { scoreToOrdinal } from '../evaluation/metrics.mjs';
+import { gradeScore, gradeThresholdsFromLevels, isLegacyGradeThresholds, LEGACY_GRADE_THRESHOLDS } from '../evaluation/metrics.mjs';
 import { productMetrics, weightedRows } from '../product-evaluation/metrics.mjs';
 import { digest, installWeights, MEMBERS, POLICY, q } from './policy.mjs';
 import { fail, errorCode } from '../dataset/lib/common.mjs';
+// Each configuration is graded with its own levels (V2.5.5.2 onward: 22/47/66/90); a configuration
+// without levels keeps the legacy 20/40/60/90.
+export function gradeThresholdsOf(config) {
+  return config && config.levels ? gradeThresholdsFromLevels(config.levels) : LEGACY_GRADE_THRESHOLDS;
+}
+// Kinds that reuse a historical parent recompute ordinals with the legacy boundaries.
+export function assertLegacyGradeConfig(config, code) {
+  if (!isLegacyGradeThresholds(gradeThresholdsOf(config))) fail(code, { reason_code: 'VERSIONED_GRADE_LINES_NOT_SUPPORTED_BY_THIS_KIND' });
+}
 export function replayCalculator(engineHash, runner = runReplay) {
   const cache = new Map(), configs = new WeakMap(); let hits = 0, misses = 0;
   const compiled = config => {
-    if (!configs.has(config)) configs.set(config, { sha256: digest(config), model: buildModelConfig(structuredClone(config)) });
+    if (!configs.has(config)) configs.set(config, { sha256: digest(config), model: buildModelConfig(structuredClone(config)), thresholds: gradeThresholdsOf(config) });
     return configs.get(config);
   };
   const assertConfig = config => { const c = compiled(config); if (digest(config) !== c.sha256 || digest(c.model.scoring) !== c.sha256) fail('REPLAY_MUTATED_CONFIG'); };
@@ -17,10 +26,10 @@ export function replayCalculator(engineHash, runner = runReplay) {
       const key = `${row.input_sha256 ?? digest(row.replay)}|${c.sha256}|${engineHash}|${trace}`;
       if (cache.has(key)) { hits++; return cache.get(key); }
       misses++;
-      const result = await runner(row.replay, { modelConfig: c.model, trace });
+      const result = await runner(row.replay, { modelConfig: c.model, trace, versionedGradeLines: true });
       const score = result.actual?.score;
       if (!Number.isInteger(score) || score < 0 || score > 100) fail('INVALID_REPLAY_SCORE');
-      const value = { score, ordinal: scoreToOrdinal(score), ...(trace ? { trace: result.trace } : {}) };
+      const value = { score, ordinal: gradeScore(score, c.thresholds), ...(trace ? { trace: result.trace } : {}) };
       cache.set(key, value); return value;
     } };
 }
@@ -53,8 +62,9 @@ export async function evaluateConfig(rows, config, calculator) {
   for (const row of rows) scores.push((await calculator.calculate(row, config)).score);
   if (scores.length !== rows.length) fail('CANDIDATE_INCOMPLETE');
   calculator.assertConfig(config);
-  const predicted = rows.map((r, i) => ({ ...r, predicted_score: scores[i], predicted_ordinal: scoreToOrdinal(scores[i]) }));
-  return { scores, metrics: productMetrics(predicted), predictions_sha256: digest(rows.map((r, i) => [r.snapshot_id, scores[i], scoreToOrdinal(scores[i])])) };
+  const thresholds = gradeThresholdsOf(config);
+  const predicted = rows.map((r, i) => ({ ...r, predicted_score: scores[i], predicted_ordinal: gradeScore(scores[i], thresholds) }));
+  return { scores, metrics: productMetrics(predicted), predictions_sha256: digest(rows.map((r, i) => [r.snapshot_id, scores[i], gradeScore(scores[i], thresholds)])) };
 }
 export async function wiringCheck(rows, control, calculator, maxProbes = POLICY.budget - 1) {
   const base = await evaluateWeights(rows, control, control.weights, calculator);
@@ -94,8 +104,8 @@ export function constantComparisons(rows) {
   return { fixed1: all[1], fixed2: all[2], pool_optimal: [...all].sort((a, b) => a.metrics.product_loss - b.metrics.product_loss || a.ordinal - b.ordinal)[0],
     selected_on: 'REUSED_DEVELOPMENT_POOL_INFORMATION_ONLY', all };
 }
-export function sliceComparisons(rows, scores) {
-  const predicted = rows.map((r, i) => ({ ...r, predicted_ordinal: scoreToOrdinal(scores[i]) }));
+export function sliceComparisons(rows, scores, thresholds = LEGACY_GRADE_THRESHOLDS) {
+  const predicted = rows.map((r, i) => ({ ...r, predicted_ordinal: gradeScore(scores[i], thresholds) }));
   return ['event_date_local', 'city', 'lead_time_bucket', 'scheduled_slot'].flatMap(dimension =>
     [...new Set(rows.map(r => r[dimension] ?? null))].sort().map(value => {
       const subset = predicted.filter(r => (r[dimension] ?? null) === value);

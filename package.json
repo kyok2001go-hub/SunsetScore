@@ -14,6 +14,7 @@
     "replay:benchmark": "node tools/replay/benchmark-replay.mjs",
     "replay:phase0": "node tools/replay/phase0-check.mjs",
     "model:release": "node tools/model-release/release.mjs",
+    "model:holdout": "node tools/model-release/holdout.mjs",
     "dataset:export": "node tools/dataset/export-dataset.mjs",
     "dataset:exclude-replay-failures": "node tools/dataset/exclude-replay-failures.mjs",
     "dataset:validate": "node tools/dataset/validate-dataset.mjs",

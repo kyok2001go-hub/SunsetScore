@@ -5,7 +5,7 @@ import { readSafe, safePath, within, fail, hash, inventory, canonicalJson, error
 import { scoreToOrdinal } from '../evaluation/metrics.mjs';
 import { digest, POLICY, q } from './policy.mjs';
 import { APP_ROOT, loadPool, codeIdentity, checkInputs } from './data.mjs';
-import { replayCalculator, evaluateConfig, constantComparisons } from './compute.mjs';
+import { replayCalculator, evaluateConfig, constantComparisons, assertLegacyGradeConfig } from './compute.mjs';
 import { inspectPractical, acquireRunLock, atomicJson, csv } from './workflow.mjs';
 import { reproduceMidCloudBaselines } from './mid-cloud-workflow.mjs';
 import { highCloudWorker } from './high-cloud-workflow.mjs';
@@ -32,6 +32,7 @@ async function loadMechanismParent(directory) {
   if (m.practical_tuning_schema_version !== 3 || m.practical_tuning_policy_version !== 3) fail('MECHANISM_PARENT_MUST_BE_MID_CLOUD_RUN_V3');
   const parent = await inspectPractical(root), original = await json(path.join(root, 'original_control_config.json'));
   const baseline = await json(path.join(root, 'selected_effective_config.json')), request = await json(path.join(root, 'verification_request.json'));
+  assertLegacyGradeConfig(baseline, 'PRACTICAL_PARENT_GRADE_LINES_UNSUPPORTED');
   if (parent.result.selection_mode !== 'CUMULATIVE_RECOGNITION_FIRST') fail('MECHANISM_PARENT_MUST_BE_RECOGNITION_FIRST');
   const pool = await json(path.join(root, 'pool_manifest.json')), exclusions = await json(path.join(root, 'exclusions.json'));
   return { root, original, baseline, request, pool, exclusions, spec: parent.spec,

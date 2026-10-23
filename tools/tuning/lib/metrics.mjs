@@ -1,10 +1,12 @@
-import { computeLinearQuantile, computeHeadlineMetrics, scoreToOrdinal, formatMetric } from '../../evaluation/metrics.mjs';
+import { computeLinearQuantile, computeHeadlineMetrics, scoreToOrdinal, formatMetric, assertLegacyGradeRows } from '../../evaluation/metrics.mjs';
 import { unique, compare } from '../../dataset/lib/common.mjs';
 import { tuningPolicy } from '../tuning-policy.mjs';
 
 const HEADLINE_KEYS = ['mae', 'bias', 'exact_accuracy', 'within_1_accuracy', 'severe_error_rate', 'overprediction_rate', 'underprediction_rate', 'qwk'];
 
 export function weightedRows(rows, scoreKey) {
+  // Recorded online scores are graded by the boundaries of the model version that produced them.
+  if (scoreKey === 'predicted_score') assertLegacyGradeRows(rows, 'TUNING_GRADE_THRESHOLDS_UNSUPPORTED');
   return rows.map(row => ({
     snapshot_id: row.snapshot_id,
     gt_ordinal: row.gt_ordinal,

@@ -142,27 +142,27 @@ export const UNITS = Object.freeze([
     probe_offsets: WIDE_OFFSETS,
     wiring_evidence: {
       read_at: [
-        { file: 'js/prediction_service.js', line: 335, token: 'goldenWindow.floor' },
-        { file: 'js/evolution.js', line: 298, token: 'goldenWindow', binding: 'goldenWindow' }
+        { file: 'js/evolution.js', line: 40, token: 'goldenWindow.floor', binding: 'goldenWindow' },
+        { file: 'js/evolution.js', line: 311, token: 'goldenWindow', binding: 'goldenWindow' }
       ]
     }
   }),
   oat({
     parameter_id: 'evolution_sigma0', canonical_path: 'evolution.sigma0', range: [0.5, 40],
-    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 68, token: 'sigma0' }] }
+    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 81, token: 'sigma0' }] }
   }),
   oat({
     parameter_id: 'evolution_sigma_per_min', canonical_path: 'evolution.sigmaPerMin', range: [0.001, 2],
-    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 68, token: 'sigmaPerMin' }] }
+    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 81, token: 'sigmaPerMin' }] }
   }),
   oat({
     parameter_id: 'evolution_background_weight', canonical_path: 'evolution.backgroundWeight', range: [0, 1],
     probe_offsets: WIDE_OFFSETS,
-    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 225, token: 'backgroundWeight' }] }
+    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 238, token: 'backgroundWeight' }] }
   }),
   oat({
     parameter_id: 'evolution_open_coverage_threshold', canonical_path: 'evolution.openCoverageThreshold', range: [0, 100], integer: true,
-    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 123, token: 'openCoverageThreshold' }] }
+    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 136, token: 'openCoverageThreshold' }] }
   }),
   oat({
     parameter_id: 'regime_score_clear', canonical_path: 'regimeScore.CLEAR', range: [0, 100], integer: true,
@@ -262,7 +262,7 @@ export const UNITS = Object.freeze([
       read_at: [{ file: 'js/sky_state.js', line: 202, token: 'factorRange' }],
       truncation_sites: [
         { file: 'js/prediction_service.js', line: 282, token: '0.65, 1.15' },
-          { file: 'tools/replay/replay-runner.mjs', line: 249, token: '0.65, 1.15' }
+          { file: 'tools/replay/replay-runner.mjs', line: 276, token: '0.65, 1.15' }
       ]
     }
   }),
@@ -282,7 +282,7 @@ export const ABLATIONS = Object.freeze([
     ablation: 'NO_GOLDEN_WINDOW', ablation_layer: 'RUNNER', optimizable: false,
     mechanism: 'CONFIG_SWITCH', override: { goldenWindow: { enabled: false } },
     canonical_path: 'goldenWindow.enabled',
-    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 333, token: 'cfg.enabled' }] }
+    wiring_evidence: { read_at: [{ file: 'js/evolution.js', line: 347, token: 'cfg.enabled' }] }
   },
   {
     ablation: 'NO_SKY_EVOLUTION', ablation_layer: 'RUNNER', optimizable: false,

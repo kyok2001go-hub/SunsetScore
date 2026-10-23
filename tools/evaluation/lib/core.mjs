@@ -4,6 +4,7 @@ import { evaluationSchema } from '../evaluation-schema.mjs';
 import { evaluationPolicy } from '../evaluation-policy.mjs';
 import {
   scoreToOrdinal,
+  assertLegacyGradeRows,
   computeLeadTimeBucket,
   computeHeadlineMetrics,
   computeConfusionMatrix,
@@ -53,6 +54,9 @@ export function evaluate(modelManifest, modelManifestSha256, trainRows, validati
   const clonedTrain = trainRows.map(cloneRow).sort(order);
   const clonedVal = validationRows.map(cloneRow).sort(order);
   const allRows = [...clonedTrain, ...clonedVal].sort(order);
+
+  // Evaluation Policies 1-3 grade with the legacy 20/40/60/90 boundaries.
+  assertLegacyGradeRows(allRows, 'EVALUATION_GRADE_THRESHOLDS_UNSUPPORTED');
 
   // Derive fields on all rows
   for (const r of allRows) {

@@ -4,11 +4,14 @@ import { digest } from './policy.mjs';
 // Explicit, byte-pinned default-compatible implementations. Every caller must also
 // reproduce all original sample scores, ordinals, metrics and saved traces.
 // V2.5.5.1 changes only js/config.js (skyState.factorRange and version identity) on top of V2.5.5.0.
+// V2.5.5.2 changes js/config.js and js/evolution.js (golden-window reference, open thresholds, grade lines); with the
+// reference absent from an explicit historical config the golden-window factor is computed exactly as before.
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
-  "js/config.js": "0b02767059e93cd3a9ee6b5461d4fd6ae1b9b98b7fa8ee197e9e90e1e94e38c1",
+  "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
-  "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d"
+  "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+  "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
 });
 const ORIGINS = Object.freeze([
 {
@@ -17,7 +20,8 @@ const ORIGINS = Object.freeze([
     "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
     "js/config.js": "cabf185bb0946fc9ad968bd1c24fa8b93d8c2567f2c9d7d87f93b34cb2491ecf",
     "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
-    "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d"
+    "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
   }
 },
 {
@@ -26,7 +30,8 @@ const ORIGINS = Object.freeze([
     "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
     "js/config.js": "6b762d0fa8cfd6d106b593ba5edd9af5d6caf99f7b5d6f0b544d1339d53abb77",
     "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
-    "js/model_config.js": "a406bc1005d21b2371383cd51e1f4e9d3a75e0e638b8c4bf311284d48d918868"
+    "js/model_config.js": "a406bc1005d21b2371383cd51e1f4e9d3a75e0e638b8c4bf311284d48d918868",
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
   }
 },
   {
@@ -35,7 +40,8 @@ const ORIGINS = Object.freeze([
       "js/engine.js": "8e7cb69d24688aa1fb4cbe6549d0ee2aebb41056a5875c32cbbc4e9505635a9d",
       "js/config.js": "7b7ea9e324ca50eadbcd881448a858615646953aa18cc2e7e329c1662bbcac14",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
-      "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204"
+      "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204",
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
     }
   },
   {
@@ -44,7 +50,8 @@ const ORIGINS = Object.freeze([
       "js/engine.js": "8e7cb69d24688aa1fb4cbe6549d0ee2aebb41056a5875c32cbbc4e9505635a9d",
       "js/config.js": "76725e9e0a1408efff22f4e805a11e40ec5912f5adf7e6a642941ea71f75ad46",
       "js/sky_state.js": "03410f3126c19a12d90ecf4701e60293ed3ff4153dbc51bdbff17a2dcd158bdb",
-      "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204"
+      "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204",
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
     }
   },
   {
@@ -53,7 +60,18 @@ const ORIGINS = Object.freeze([
       "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
       "js/config.js": "2f76204d03baa9b003d148a92cc371b21f6b49b011ac7d52497369ce10cb2419",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
-      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d"
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    }
+  },
+  {
+    "engine": "f67d4fbca65e7d882b6fe1ea890f3ce5aeb03ce9e41cbb242f4e731e1790cedd",
+    "files": {
+      "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
+      "js/config.js": "0b02767059e93cd3a9ee6b5461d4fd6ae1b9b98b7fa8ee197e9e90e1e94e38c1",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
     }
   }
 ]);

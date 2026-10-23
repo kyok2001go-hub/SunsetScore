@@ -6,15 +6,72 @@ export const LABEL_TO_ORDINAL = Object.freeze(
   Object.fromEntries(GT_LABELS.map((label, idx) => [label, idx]))
 );
 
-export function scoreToOrdinal(score) {
+// Grade boundaries (minimum score of ordinals 1..4). Every model version up to 2.5.5.1 used
+// 20/40/60/90; later versions read them from their own js/config.js levels, mirrored below so
+// offline tools can grade a recorded score by the model_version that produced it.
+export const LEGACY_GRADE_THRESHOLDS = Object.freeze([20, 40, 60, 90]);
+export const VERSIONED_GRADE_THRESHOLDS = Object.freeze({
+  '2.5.5.2': Object.freeze([22, 47, 66, 90])
+});
+const FIRST_VERSIONED_MODEL = [2, 5, 5, 2];
+
+function validThresholds(thresholds) {
+  return Array.isArray(thresholds) && thresholds.length === 4 &&
+    thresholds.every((t, i) => Number.isInteger(t) && t > 0 && t <= 100 && (i === 0 || t > thresholds[i - 1]));
+}
+
+export function isLegacyGradeThresholds(thresholds) {
+  return validThresholds(thresholds) && thresholds.every((t, i) => t === LEGACY_GRADE_THRESHOLDS[i]);
+}
+
+export function gradeThresholdsFromLevels(levels) {
+  const mins = Array.isArray(levels) ? levels.map(level => level && level.min) : null;
+  // levels run from the best grade down to the catch-all 0.
+  if (!mins || mins.length !== 5 || mins[4] !== 0) fail('INVALID_GRADE_LEVELS');
+  const thresholds = mins.slice(0, 4).reverse();
+  if (!validThresholds(thresholds)) fail('INVALID_GRADE_LEVELS');
+  return Object.freeze(thresholds);
+}
+
+export function gradeThresholdsForModelVersion(version) {
+  const text = version == null ? '' : String(version);
+  if (!/^\d+(\.\d+)*$/.test(text)) return LEGACY_GRADE_THRESHOLDS;
+  const parts = text.split('.').map(Number);
+  for (let i = 0; i < FIRST_VERSIONED_MODEL.length; i++) {
+    const part = parts[i] ?? 0;
+    if (part !== FIRST_VERSIONED_MODEL[i]) {
+      if (part < FIRST_VERSIONED_MODEL[i]) return LEGACY_GRADE_THRESHOLDS;
+      break;
+    }
+  }
+  const thresholds = VERSIONED_GRADE_THRESHOLDS[text];
+  if (!thresholds) fail('UNKNOWN_MODEL_VERSION_GRADE_THRESHOLDS', { reason_code: text });
+  return thresholds;
+}
+
+// Policies frozen before V2.5.5.2 define ordinals with the legacy boundaries; they must not
+// silently grade rows from a model version whose online boundaries differ.
+export function assertLegacyGradeRows(rows, code) {
+  for (const row of rows) {
+    if (!isLegacyGradeThresholds(gradeThresholdsForModelVersion(row && row.model_version))) {
+      fail(code, { reason_code: 'VERSIONED_GRADE_THRESHOLDS_REQUIRE_NEW_POLICY' });
+    }
+  }
+}
+
+// Grades a score with explicit boundaries (from gradeThresholdsForModelVersion / gradeThresholdsFromLevels).
+export function gradeScore(score, thresholds) {
   if (typeof score !== 'number' || !Number.isInteger(score) || score < 0 || score > 100) {
     fail('INVALID_SCORE', { reason_code: 'SCORE_OUT_OF_RANGE' });
   }
-  if (score <= 19) return 0;
-  if (score <= 39) return 1;
-  if (score <= 59) return 2;
-  if (score <= 89) return 3;
-  return 4;
+  if (!validThresholds(thresholds)) fail('INVALID_GRADE_THRESHOLDS');
+  return thresholds.filter(min => score >= min).length;
+}
+
+// Legacy 20/40/60/90 grading used by every policy frozen before V2.5.5.2. Single-argument on purpose:
+// callers pass it straight to Array.prototype.map.
+export function scoreToOrdinal(score) {
+  return gradeScore(score, LEGACY_GRADE_THRESHOLDS);
 }
 
 export function ordinalToLabel(ordinal) {

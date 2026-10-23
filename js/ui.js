@@ -41,12 +41,14 @@
     var button = $('search-btn'); if (button) button.disabled = true;
   }
   function endPrediction() { var button = $('search-btn'); if (button) button.disabled = false; }
+  /* 颜色与等级一一对应，分界读取 scoring.levels（极佳→很差） */
+  var LEVEL_COLORS = ['#ff7a45', '#ffa940', '#d3adf7', '#a9a9c0', '#6b7280'];
   function ringColor(score) {
-    if (score >= 90) return '#ff7a45';
-    if (score >= 60) return '#ffa940';
-    if (score >= 40) return '#d3adf7';
-    if (score >= 20) return '#a9a9c0';
-    return '#6b7280';
+    var levels = SS.modelConfig.scoring.levels;
+    for (var i = 0; i < levels.length; i++) {
+      if (score >= levels[i].min) return LEVEL_COLORS[i];
+    }
+    return LEVEL_COLORS[LEVEL_COLORS.length - 1];
   }
   function openScoreHelp() {
     var modal = $('score-help-modal');

@@ -2,7 +2,7 @@ import { fail, errorCode, compare } from '../dataset/lib/common.mjs';
 import { registryUnit } from '../tuning/parameter-registry.mjs';
 import { digest, POLICY, q, tradeoffs } from './policy.mjs';
 import { productMetrics, weightedRows } from '../product-evaluation/metrics.mjs';
-import { scoreToOrdinal } from '../evaluation/metrics.mjs';
+import { scoreToOrdinal, gradeScore } from '../evaluation/metrics.mjs';
 
 const { members, grid_step, ...sharedPolicy } = POLICY;
 export const HIGH_CLOUD_POLICY = Object.freeze({ ...sharedPolicy, practical_tuning_schema_version: 2, practical_tuning_policy_version: 2,
@@ -112,8 +112,9 @@ export async function searchHighCloud({ baseline, original, engine_sha256, origi
     errors: records.filter(r => r.status === 'ERROR').length, duplicates: audit.filter(r => r.status === 'DUPLICATE').length,
     invalid: audit.filter(r => r.status === 'INVALID').length, termination: budgetHit ? 'BUDGET_REACHED' : 'COARSE_AND_TWO_LOCAL_ROUNDS_COMPLETE', exhaustive_parameter_space: false } };
 }
-export function highCloudMetrics(rows, scores) {
-  const predicted = rows.map((r, i) => ({ ...r, predicted_ordinal: scoreToOrdinal(scores[i]) }));
+// thresholds defaults to the legacy 20/40/60/90; a release passes the boundaries of its own configuration.
+export function highCloudMetrics(rows, scores, thresholds) {
+  const predicted = rows.map((r, i) => ({ ...r, predicted_ordinal: thresholds ? gradeScore(scores[i], thresholds) : scoreToOrdinal(scores[i]) }));
   const metrics = productMetrics(predicted), weighted = weightedRows(predicted), subset = weighted.filter(r => r.predicted_ordinal === 4 && r.gt_ordinal === 2);
   const weight = rs => rs.reduce((s, r) => s + r.weight, 0), four = weighted.filter(r => r.predicted_ordinal === 4);
   return { ...metrics, predicted4_actual2: { snapshot_count: subset.length, event_count: new Set(subset.map(r => r.event_id)).size,

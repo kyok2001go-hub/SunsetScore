@@ -7,7 +7,7 @@ import { readSafe, safePath, within, fail, hash, inventory, canonicalJson, error
 import { scoreToOrdinal } from '../evaluation/metrics.mjs';
 import { digest, POLICY, q } from './policy.mjs';
 import { APP_ROOT, loadPool, codeIdentity, checkInputs } from './data.mjs';
-import { replayCalculator, preflight, evaluateConfig, constantComparisons } from './compute.mjs';
+import { replayCalculator, preflight, evaluateConfig, constantComparisons, assertLegacyGradeConfig } from './compute.mjs';
 import { inspectPractical, acquireRunLock, atomicJson, csv } from './workflow.mjs';
 import * as high from './high-cloud.mjs';
 
@@ -42,6 +42,7 @@ async function loadHighCloudParent(directory) {
   const parent = await inspectPractical(root);
   if (parent.result.selection_mode !== 'RECOGNITION_FIRST') fail('HIGH_CLOUD_PARENT_MUST_BE_RECOGNITION_FIRST');
   const original = await json(path.join(root, 'rollback_config.json')), baseline = await json(path.join(root, 'selected_effective_config.json'));
+  assertLegacyGradeConfig(baseline, 'PRACTICAL_PARENT_GRADE_LINES_UNSUPPORTED');
   const request = await json(path.join(root, 'verification_request.json'));
   const pool = await json(path.join(root, 'pool_manifest.json')), exclusions = await json(path.join(root, 'exclusions.json'));
   if (baseline.highCloudCenter !== 60 || baseline.highCloudWidth !== 25) fail('HIGH_CLOUD_BASELINE_PARAMETERS_DIFFER', { detail: parametersOf(baseline) });

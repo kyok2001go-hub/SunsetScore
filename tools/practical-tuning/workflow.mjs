@@ -4,10 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { canonicalJson, hash, readSafe, safePath, within, fail, errorCode, inventory } from '../dataset/lib/common.mjs';
 import { loadFrozenBaseConfig } from '../tuning/lib/base-config.mjs';
-import { scoreToOrdinal } from '../evaluation/metrics.mjs';
+import { gradeScore } from '../evaluation/metrics.mjs';
 import { POLICY, digest, normalizeWeights, installWeights, withoutWeights, rank, selectPhase7, MEMBERS, RECOGNITION_POLICY, rankRecognition } from './policy.mjs';
 import { APP_ROOT, loadPool, codeIdentity, checkInputs } from './data.mjs';
-import { replayCalculator, preflight, wiringCheck, evaluateWeights, constantComparisons, sliceComparisons } from './compute.mjs';
+import { replayCalculator, preflight, wiringCheck, evaluateWeights, constantComparisons, sliceComparisons, gradeThresholdsOf } from './compute.mjs';
 import { searchWeights } from './search.mjs';
 const exec = promisify(execFile);
 const json = async file => JSON.parse(await readSafe(file));
@@ -106,7 +106,7 @@ export async function practicalRun(options, progress = () => {}) {
     const { stdout } = await exec(process.execPath, [path.join(APP_ROOT, 'tools/practical-tuning/worker.mjs'), path.join(work, 'verification_request.json')],
       { cwd: APP_ROOT, windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
     const proof = JSON.parse(stdout.trim()); if (proof.status !== 'PASS') fail('FINAL_RECOMPUTE_MISMATCH');
-    const constants = constantComparisons(checked.rows), slices = sliceComparisons(checked.rows, selected.scores);
+    const thresholds = gradeThresholdsOf(control), constants = constantComparisons(checked.rows), slices = sliceComparisons(checked.rows, selected.scores, thresholds);
     const ranked = options.recognitionFirst ? rankRecognition(search.records, controlRecord) : rank(search.records), nearest = ranked.find(r => r.candidate_id === result.nearest_non_control);
     const files = { 'pool_manifest.json': pool, 'exclusions.json': checked.exclusions, 'control_config.json': control,
       'top_candidates.json': ranked.slice(0, 5).map(compact), 'selected_candidate.json': compact(selected),
@@ -130,8 +130,8 @@ export async function practicalRun(options, progress = () => {}) {
     await writeFile(path.join(work, 'selected_predictions.csv'), csv(checked.rows.map((r, i) => ({ snapshot_id: r.snapshot_id,
       event_id: r.event_id, city: r.city, event_date_local: r.event_date_local, historical_splits: r.historical_splits.join('|'),
       gt_ordinal: r.gt_ordinal, gt_confidence: r.gt_confidence, event_normalized_weight: r.event_normalized_weight,
-      control_score: controlRecord.scores[i], control_ordinal: scoreToOrdinal(controlRecord.scores[i]),
-      selected_score: selected.scores[i], selected_ordinal: scoreToOrdinal(selected.scores[i]) }))));
+      control_score: controlRecord.scores[i], control_ordinal: gradeScore(controlRecord.scores[i], thresholds),
+      selected_score: selected.scores[i], selected_ordinal: gradeScore(selected.scores[i], thresholds) }))));
     let reportText = report(spec, pool, search, result, selected, nearest, constants, slices);
     if (options.recognitionFirst) reportText = '# 识别优先局部调优\n\n选择顺序：≥2召回最多下降2个百分点，≥3召回不下降，再最小化产品损失。缺失召回不视为通过；无改善则保留Control。仅本次100点以内局部搜索，不改变天气动态权重规则。\n\n' + reportText.replace('仅穷举 0.20 粗网格和三轮局部细搜', '仅执行Control、平衡/召回种子、非零权重中点及0.05/0.025局部搜索');
     await writeFile(path.join(work, 'report.md'), reportText.replace(/\r?\n/g, '\r\n'), 'utf8');

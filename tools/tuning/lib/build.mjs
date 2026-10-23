@@ -1,4 +1,5 @@
-import { canonicalJson } from '../../dataset/lib/common.mjs';
+import { canonicalJson, fail } from '../../dataset/lib/common.mjs';
+import { gradeThresholdsFromLevels, isLegacyGradeThresholds } from '../../evaluation/metrics.mjs';
 import { prepareContext } from './pipeline.mjs';
 import { planExperiments, runExperiments } from './experiment.mjs';
 import {
@@ -21,6 +22,11 @@ function ablationAffected(rows) {
 export async function buildSensitivityPackage(options) {
   const progress = options.progress || silentProgress;
   const ctx = await prepareContext(options);
+  // Sensitivity ordinals follow the formal mapping contract (revision 1: 20/40/60/90); a base
+  // configuration with other grade lines (V2.5.5.2 onward) needs a new contract revision first.
+  if (!isLegacyGradeThresholds(gradeThresholdsFromLevels(ctx.loaded.config.levels))) {
+    fail('TUNING_VALIDATION_FAILED', { reason_code: 'BASE_CONFIG_GRADE_LINES_UNSUPPORTED' });
+  }
   progress.stage('生成敏感度实验计划');
   const plan = planExperiments({ units: ctx.units, ablations: ctx.ablations, config: ctx.loaded.config });
   progress.stage(`执行 ${plan.length} 个实验`);

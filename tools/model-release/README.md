@@ -1,6 +1,46 @@
-# V2.5.5.1 关闭天空演化发布验收
+# V2.5.5.2 黄金窗口与等级分数线发布验收
 
-当前 app/model/config.version 为 2.5.5.1，assetRevision=app2551，npm package 仍为 2.5.5。相对 V2.5.5.0 唯一的评分改动是 `skyState.factorRange` 由 [0.65, 1.15] 改为 [1, 1]，天空演化因子恒为 1；状态机照常判定，仅作描述。
+当前 app/model/config.version 为 2.5.5.2，assetRevision=app2552，npm package 仍为 2.5.5。相对 V2.5.5.1 的评分改动：
+
+- 黄金窗口开放阈值 `evolution.openCoverageThreshold` 20→35，`evolution.satelliteOpenThreshold` 25→40；
+- 黄金窗口因子以 1 为中心：`goldenWindow.reference` 为 0.826654，因子 = (floor + (1−floor)·P_open) / reference，限幅为 [floor, 1] / reference；
+- 等级分数线 `levels` 改为 90/66/47/22/0。
+
+```powershell
+npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.2发布证据'
+```
+
+- **配置核对：** 仍以 V6 selected 配置为来源，只允许九处差异：版本，三个已证明默认等价的字段，`skyState.factorRange`，以及本期的四个键。
+- **前一版本复现：** 用发布配置撤回本期四处改动，重建 V2.5.5.1 配置；DEV 655 条按 20/40/60/90 判级，签名必须等于 SC-SKY-OFF 的 `c7c40b45…`，产品损失 1.034929907064。
+- **本期结果：** 655 条按配置自身的分界（22/47/66/90）判级，签名、产品损失与相对 V2.5.5.1 的变化条数必须等于 `V2552_REFERENCE`（`2404453e…`，损失 0.990135853225，388 条分数、186 条等级变化）。该参照首次由本工具产生，并与黄金窗口离线诊断逐条交叉核对：只有 5 条因 GW 因子取三位小数相差 ±1 分。
+- **等级分界：** 发布配置的 `levels` 必须与 `tools/evaluation/metrics.mjs` 中为 2.5.5.2 登记的分界一致。
+- **结论范围：** 只证明发布配置与已测配置一致，属于复用开发数据，不是独立 TEST。
+
+需求与发布 / 回退步骤见 [V2.5.5.2 PRD](../../../ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md)。以下为 V2.5.5.1 与 V2.5.5.0 的原说明，保留作历史记录。
+
+## H1 前向留出核验（`holdout.mjs`）
+
+比较发布线上的 2.5.5.0 / 2.5.5.1 / 2.5.5.2。三个配置都由当前生产配置重建：2.5.5.1 撤回 V2.5.5.2 的四处改动，2.5.5.0 再恢复天空演化区间 [0.65, 1.15]，并核对它与 V6 selected 只差已证明默认等价的字段。各版本按自身等级线判级。
+
+```powershell
+npm run model:holdout -- status --raw <Raw 包> --gt <GT 包> --model <Model 包>
+npm run model:holdout -- check  --raw <Raw 包> --gt <GT 包> --model <Model 包> --output <仓库外目录>
+```
+
+- **`status`：** 只统计标签，不计算任何预测，可以反复运行。报告与 DEV 是否独立（日期须在 2026-10-13 及以后，Snapshot 与 Event 不得出现在 V6 开发池中），以及是否达到门槛：15 天、100 个 Event、GT≥2 Event 25、GT≥3 Event 10。
+- **`check`：** 不独立或未达门槛时直接失败。通过后用当前引擎重算三个版本，输出：
+  - `holdout_result.json`：各版本的产品损失、≥2 / ≥3 召回与精确、最近一条的 AUC≥2 / AUC≥3；两组比较的点差值、按日期整块抽样（2000 次）的 95% 区间与变好的概率；是否触发回退规则；
+  - `holdout_predictions.csv`、`holdout_inputs.json`、`report.md`。
+- **只能用一次：** 每个策略版本只允许一次 `check`，记录写入 `dataset/holdout/usage.jsonl`。
+- **回退规则：**
+  - 2.5.5.1 对 2.5.5.0：AUC≥3 不更高，或产品损失更高；
+  - 2.5.5.2 对 2.5.5.1：产品损失更高，或 ≥2 召回下降超过 0.05。
+
+  工具只给出"建议回退 / 不触发"，最终由项目负责人决定。
+
+## V2.5.5.1 关闭天空演化发布验收（历史）
+
+V2.5.5.1 的 app/model/config.version 为 2.5.5.1，assetRevision=app2551，npm package 仍为 2.5.5。相对 V2.5.5.0 唯一的评分改动是 `skyState.factorRange` 由 [0.65, 1.15] 改为 [1, 1]，天空演化因子恒为 1；状态机照常判定，仅作描述。
 
 ```powershell
 npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.1发布证据'

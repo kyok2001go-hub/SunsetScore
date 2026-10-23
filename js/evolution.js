@@ -7,7 +7,8 @@
  *   2. QWeather 雨停置信度曲线：按 coverageEndMs 对各时距降权，覆盖外回归中性
  *   3. 卫星云覆盖演化（无降雨场景）：futureCoverage / cloudArrivalRisk
  *   4. 五态 Sky Evolution State 状态机 + 置信度
- *   5. Golden Window V3：Score × (floor + (1−floor) × P_open(日落时刻))
+ *   5. Golden Window V3：Score × (floor + (1−floor) × P_open(日落时刻)) / reference
+ *      （V2.5.5.2 起 reference 使因子以 1 为中心；缺省为 1，即旧行为）
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -25,6 +26,18 @@
 
   function safeProbability(value, fallback) {
     return SS.domain ? SS.domain.safeProbability(value, fallback) : clamp(valid(value) ? value : fallback, 0, 1);
+  }
+
+  /* 黄金窗口参考值：缺省或非法时为 1（V2.5.5.1 及更早的未归一行为） */
+  function goldenWindowReference() {
+    var reference = SS.modelConfig.goldenWindow.reference;
+    return valid(reference) && reference > 0 ? reference : 1;
+  }
+
+  /* 黄金窗口因子的合法区间 [floor, 1] / reference，生产与 Replay 共用 */
+  function goldenWindowFactorRange() {
+    var reference = goldenWindowReference();
+    return [SS.modelConfig.goldenWindow.floor / reference, 1 / reference];
   }
 
   function fallbackGoldenWindow() {
@@ -296,8 +309,9 @@
       evo.sunsetOpenProbability = pSunset;
       evo.sunsetMinutesAway = Math.round(tSunset);
       var floor = SS.modelConfig.goldenWindow.floor;
-      var gwFactor = floor + (1 - floor) * pSunset;
-      evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, floor, 1.0) * 1000) / 1000;
+      var gwRange = goldenWindowFactorRange();
+      var gwFactor = (floor + (1 - floor) * pSunset) / goldenWindowReference();
+      evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, gwRange[0], gwRange[1]) * 1000) / 1000;
     }
 
     var degradedSources = [];
@@ -371,8 +385,10 @@
     calculateEvolutionProbability: fuseEvolution,
     calculateGoldenWindowFactor: function (probability) {
       var floor = SS.modelConfig.goldenWindow.floor;
-      return clamp(floor + (1 - floor) * safeProbability(probability, 0.5), floor, 1.0);
+      var range = goldenWindowFactorRange();
+      return clamp((floor + (1 - floor) * safeProbability(probability, 0.5)) / goldenWindowReference(), range[0], range[1]);
     },
+    goldenWindowFactorRange: goldenWindowFactorRange,
     fallbackGoldenWindow: fallbackGoldenWindow,
     isGoldenWindowActive: isGoldenWindowActive,
     constrainGoldenWindow: constrainGoldenWindow,

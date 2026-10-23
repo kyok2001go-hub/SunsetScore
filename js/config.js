@@ -1,7 +1,8 @@
 /* ============================================================
- * SunsetScore Model V2.5.5.1 - 关闭天空演化
- * 在 V2.5.5.0 已选八项参数基础上，只把天空演化因子固定为 1（skyState.factorRange），其余沿用既有值。
- * 依据：ref_docs/PRD/V2.5.5.1--关闭天空演化发布方案.md
+ * SunsetScore Model V2.5.5.2 - 黄金窗口与等级分数线校准
+ * 在 V2.5.5.1（天空演化因子固定为 1）基础上：黄金窗口开放阈值 20→35（卫星 25→40），
+ * 黄金窗口因子以 1 为中心（goldenWindow.reference），等级分数线改为 22/47/66/90。其余沿用既有值。
+ * 依据：ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -9,10 +10,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.1',
-    model: '2.5.5.1',
+    app: '2.5.5.2',
+    model: '2.5.5.2',
     schema: 3,
-    assetRevision: 'app2551',
+    assetRevision: 'app2552',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3
@@ -171,10 +172,12 @@
 
     /* ---------- 晚霞等级（第 19 章） ---------- */
     levels: [
+      /* V2.5.5.2：分数线 22/47/66/90（原 20/40/60/90），与新黄金窗口一起标定。
+         离线工具按 model_version 读取分界，见 tools/evaluation/metrics.mjs。 */
       { min: 90, label: '极佳' },
-      { min: 60, label: '很好' },
-      { min: 40, label: '一般' },
-      { min: 20, label: '较差' },
+      { min: 66, label: '很好' },
+      { min: 47, label: '一般' },
+      { min: 22, label: '较差' },
       { min: 0, label: '很差' }
     ],
 
@@ -292,7 +295,8 @@
       corridor: { azimuthHalfWidth: 30, maxDistanceKm: 250 },
       /* 开放概率模型（方案 6.3 章）：FutureCoverage = C0·e^(−kt)，
          P_open = logistic(阈值 − FC(t), σ(t))，σ(t)=σ0+γ·t 随时间增大 */
-      openCoverageThreshold: 20,  /* [TUNE] 覆盖率低于该值认为走廊开放 */
+      /* V2.5.5.2：20→35，只惩罚偏高云量，不再压低中等云量的晚霞 */
+      openCoverageThreshold: 35,  /* [TUNE] 覆盖率低于该值认为走廊开放 */
       sigma0: 8,                  /* [TUNE] 基础不确定度（%） */
       sigmaPerMin: 0.15,          /* [TUNE] 不确定度随预测时距线性增长 */
       probClamp: [0.02, 0.98],
@@ -309,7 +313,7 @@
       },
       /* 卫星云覆盖风险阈值：覆盖率超过该值视为云层遮挡太阳区域（方案 8.3） */
       cloudCoverRiskThreshold: 60,
-      satelliteOpenThreshold: 25   /* [TUNE] 卫星覆盖率低于该值认为开放 */
+      satelliteOpenThreshold: 40   /* [TUNE] 卫星覆盖率低于该值认为开放（V2.5.5.2：25→40） */
     },
 
     /* ---------- 全天空 360° 云场引擎（技术方案 第 4 章） ---------- */
@@ -360,7 +364,10 @@
       enabled: true,
       beforeSunsetMinutes: 180,
       afterSunsetMinutes: 30,
-      floor: 0.507692307692
+      floor: 0.507692307692,
+      /* V2.5.5.2：因子 = (floor + (1−floor)·P_open) / reference，使无信息时约为 1、可大于 1。
+         取值为 DEV 655 条在开放阈值 35 下启用行的因子均值；缺省为 1（旧行为）。 */
+      reference: 0.826654
     },
 
     /* 每次网络操作包含响应体读取；查询取消会中止重试和后续降级请求。 */

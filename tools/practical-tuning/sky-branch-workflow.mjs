@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readSafe, safePath, hash, fail } from '../dataset/lib/common.mjs';
 import { runReplay } from '../replay/replay-runner.mjs';
-import { replayCalculator, preflight, evaluateConfig } from './compute.mjs';
+import { replayCalculator, preflight, evaluateConfig, assertLegacyGradeConfig } from './compute.mjs';
 import { digest, POLICY } from './policy.mjs';
 import { inspectPractical } from './workflow.mjs';
 import { createTargetedWorkflow } from './mechanism-workflow.mjs';
@@ -16,6 +16,7 @@ export async function loadSkyParent(directory) {
   const root = await safePath(directory), bytes = await readSafe(path.join(root, 'manifest.json')), m = JSON.parse(bytes);
   if (m.practical_tuning_schema_version !== 4 || m.practical_tuning_policy_version !== 4) fail('SKY_PARENT_MUST_BE_MECHANISM_RUN_V4');
   const p = await inspectPractical(root), original = await json(path.join(root, 'original_control_config.json')), baseline = await json(path.join(root, 'selected_effective_config.json'));
+  assertLegacyGradeConfig(baseline, 'PRACTICAL_PARENT_GRADE_LINES_UNSUPPORTED');
   return { root, original, baseline, spec: p.spec, request: await json(path.join(root, 'verification_request.json')), pool: await json(path.join(root, 'pool_manifest.json')),
     exclusions: await json(path.join(root, 'exclusions.json')), reference: { run_id: m.run_id, manifest_sha256: hash(bytes), candidate_id: p.result.selected_candidate,
       original_config_sha256: digest(original), current_config_sha256: digest(baseline), engine_sha256: p.spec.code.engine_sha256,

@@ -332,7 +332,8 @@
     });
     result.nowcast = fusion;
     result.sky_evolution = evo;
-    var gwFactor = evo ? SS.domain.clamp(evo.gwFactor, SS.modelConfig.goldenWindow.floor, 1, 1) : 1;
+    var gwRange = SS.evolution.goldenWindowFactorRange();
+    var gwFactor = evo ? SS.domain.clamp(evo.gwFactor, gwRange[0], gwRange[1], 1) : 1;
     result.score = Math.round(SS.domain.clamp(result.score * factor * gwFactor, 0, 100));
     result.level = levelOf(result.score);
     if (evo && evo.degradedSources && evo.degradedSources.length) {

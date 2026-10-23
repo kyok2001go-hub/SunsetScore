@@ -95,7 +95,9 @@ test('Pinned default-engine compatibility requires exact allowed old/new files a
     'js/sky_state.js':'03410f3126c19a12d90ecf4701e60293ed3ff4153dbc51bdbff17a2dcd158bdb',
     'js/config.js':'76725e9e0a1408efff22f4e805a11e40ec5912f5adf7e6a642941ea71f75ad46',
     'js/engine.js':'8e7cb69d24688aa1fb4cbe6549d0ee2aebb41056a5875c32cbbc4e9505635a9d',
-    'js/model_config.js':'ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204'};
+    'js/model_config.js':'ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204',
+    // Every engine before V2.5.5.2 ran this evolution.js.
+    'js/evolution.js':'690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc'};
   const old={...current,files,engine_sha256:m.digest(Object.fromEntries(m.REPLAY_RUNTIME_FILES.map(f=>[f,files[f]])))};
   assert.throws(()=>m.assertCompatibleEngine(current,old),/PRACTICAL_CODE_MISMATCH/);
   const proof=m.assertCompatibleEngine(current,old,{allowDefaultCompatibility:true});

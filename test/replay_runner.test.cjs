@@ -229,3 +229,21 @@ test('authorized Replay download validates schema and effective config hash', as
     replay_sha256: createHash('sha256').update(tamperedPlain).digest('hex') };
   await assert.rejects(validateDownloadedReplay(tamperedRow, tamperedCompressed), /CONFIG_MISMATCH/);
 });
+
+test('V2.5.5.2 Replay without a captured golden-window reference keeps the uncentred factor', async () => {
+  const { runReplay } = await import('../tools/replay/replay-runner.mjs');
+  const fixture = await capture({ values: { cloud: 48, low: 18, mid: 44, high: 62 }, nowUtcMs: Date.parse('2026-08-26T09:30:00Z') });
+  const current = await runReplay(fixture.replay, { reference: fixture.reference });
+  assert.equal(current.pass, true, JSON.stringify(current));
+  assert.equal(fixture.replay.effective_config.goldenWindow.reference, 0.826654);
+  assert.notEqual(current.actual.gw_factor, 1);
+  const old = structuredClone(fixture.replay);
+  delete old.effective_config.goldenWindow.reference;
+  delete old.effective_config.scoring.goldenWindow.reference;
+  const legacy = (await runReplay(old)).actual;
+  assert.ok(Math.abs(legacy.gw_factor - current.actual.gw_factor * 0.826654) <= 0.0015, legacy.gw_factor + ' vs ' + current.actual.gw_factor);
+  // Explicit-configuration replays must opt in before grading with non-legacy grade lines.
+  const SS = load(createRuntime(), FILES);
+  await assert.rejects(runReplay(fixture.replay, { modelConfig: SS.modelConfig }), /REPLAY_VERSIONED_GRADE_LINES_REQUIRE_OPT_IN/);
+  assert.equal((await runReplay(fixture.replay, { modelConfig: SS.modelConfig, versionedGradeLines: true })).actual.score, current.actual.score);
+});

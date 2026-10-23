@@ -3,7 +3,7 @@ import path from 'node:path';
 import { readSafe, safePath, hash, fail } from '../dataset/lib/common.mjs';
 import { scoreToOrdinal } from '../evaluation/metrics.mjs';
 import { digest, POLICY } from './policy.mjs';
-import { preflight, evaluateConfig } from './compute.mjs';
+import { preflight, evaluateConfig, assertLegacyGradeConfig } from './compute.mjs';
 import { inspectPractical } from './workflow.mjs';
 import { createCloudWorkflow } from './high-cloud-workflow.mjs';
 import * as mid from './mid-cloud.mjs';
@@ -18,6 +18,7 @@ export async function loadMidCloudParent(directory) {
   if (parent.result.selection_mode !== 'CUMULATIVE_RECOGNITION_FIRST') fail('MID_CLOUD_PARENT_MUST_BE_RECOGNITION_FIRST');
   // V2 rollback is B1. Preserve the original B0 anchor across successive runs.
   const original = await json(path.join(root, 'original_control_config.json')), baseline = await json(path.join(root, 'selected_effective_config.json'));
+  assertLegacyGradeConfig(baseline, 'PRACTICAL_PARENT_GRADE_LINES_UNSUPPORTED');
   if (baseline.highCloudCenter !== 60 || baseline.highCloudWidth !== 25 || baseline.midCloudCenter !== 40 || baseline.midCloudWidth !== 25) fail('MID_CLOUD_BASELINE_PARAMETERS_DIFFER');
   const request = await json(path.join(root, 'verification_request.json')), pool = await json(path.join(root, 'pool_manifest.json')), exclusions = await json(path.join(root, 'exclusions.json'));
   return { root, original, baseline, pool, exclusions, request, spec: parent.spec,

@@ -92,6 +92,19 @@ function levelOf(SS, score) {
   return levels.find((item) => score >= item.min)?.label || levels[levels.length - 1].label;
 }
 
+function ordinalOf(SS, score) {
+  const levels = SS.modelConfig.scoring.levels;
+  const index = levels.findIndex((item) => score >= item.min);
+  return levels.length - 1 - (index < 0 ? levels.length - 1 : index);
+}
+
+const LEGACY_LEVEL_MINS = '[90,60,40,20,0]';
+function replayError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
 const COMPONENT_FIELDS = Object.freeze([
   ['sky_canvas', 'comp_sky_canvas'],
   ['horizon', 'comp_horizon'],
@@ -182,6 +195,18 @@ export async function runReplay(replay, options = {}) {
     const captured = deepMerge(replay.effective_config, options.configOverride || {});
     const scoring = deepMerge(current.scoring, captured.scoring || {});
     installed = { ...current, ...captured, scoring };
+    // Replays captured before V2.5.5.2 have no golden-window reference; they ran uncentred (reference 1),
+    // so the current repository value must not be filled in.
+    if (!(captured.goldenWindow && 'reference' in captured.goldenWindow)) {
+      installed.goldenWindow = { ...installed.goldenWindow, reference: 1 };
+      scoring.goldenWindow = { ...scoring.goldenWindow, reference: 1 };
+    }
+  }
+  // Offline tools grade explicit-configuration replays with the legacy 20/40/60/90 boundaries unless
+  // they declare that they read the boundaries from the configuration itself.
+  const levelMins = JSON.stringify((installed.scoring?.levels || []).map((item) => item.min));
+  if (options.modelConfig && options.versionedGradeLines !== true && levelMins !== LEGACY_LEVEL_MINS) {
+    throw replayError('REPLAY_VERSIONED_GRADE_LINES_REQUIRE_OPT_IN');
   }
   SS.modelConfig = installed;
   try {
@@ -246,7 +271,8 @@ export async function runReplay(replay, options = {}) {
           precip: { available: replay.minute_precip.available, status: replay.minute_precip.available ? 'OK' : 'UNAVAILABLE' }
         }
       });
-      gwFactor = evo ? SS.domain.clamp(evo.gwFactor, SS.modelConfig.goldenWindow.floor, 1, 1) : 1;
+      const gwRange = SS.evolution.goldenWindowFactorRange();
+      gwFactor = evo ? SS.domain.clamp(evo.gwFactor, gwRange[0], gwRange[1], 1) : 1;
       result.score = Math.round(SS.domain.clamp(result.score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1) * gwFactor, 0, 100));
       if (options.trace === true) fusionTrace = { sky: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
         fused: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1) * gwFactor,
@@ -283,7 +309,7 @@ export async function runReplay(replay, options = {}) {
             current_field_timestamp: currentField.timestamp, future_horizon: 'M60_FROM_CURRENT_MOTION; NOT_SUNSET_FIELD' },
           fusion: { returned_factor: skyState.factor, external_range: [0.65, 1.15],
             applied_factor: SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), score_engine: result.base_score,
-            score_after_sky: fusionTrace.sky, F_gw: gwFactor, final_score: result.score, final_ordinal: result.score >= 90 ? 4 : result.score >= 60 ? 3 : result.score >= 40 ? 2 : result.score >= 20 ? 1 : 0 } } } : {}),
+            score_after_sky: fusionTrace.sky, F_gw: gwFactor, final_score: result.score, final_ordinal: ordinalOf(SS, result.score) } } } : {}),
         nowcast: { status: 'NOT_EXECUTED', reason_code: 'REPLAY_PATH_HAS_NO_SEPARATE_NOWCAST_ADJUSTMENT' },
         golden_window_active: fusionTrace.golden_window_active,
         golden_window_observation: fusionTrace.golden_window_observation ?? { status: 'NOT_EXECUTED', reason_code: 'OUTSIDE_GOLDEN_WINDOW' },

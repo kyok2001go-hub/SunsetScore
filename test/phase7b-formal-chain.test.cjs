@@ -10,7 +10,30 @@ test('registered formal constructors publish an immutable disk chain; fixture ev
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'sunset-phase7b-chain-'));
   t.after(async () => { assert.ok(temp.startsWith(path.join(os.tmpdir(), 'sunset-phase7b-chain-'))); await fs.rm(temp, { recursive: true, force: true }); });
   const { freezeRuntime } = await import('../tools/experiment-runtime/lib/bundle.mjs');
-  const frozen = await freezeRuntime({ output: path.join(temp, 'experiment_runtime'), protocolVersion: 2 });
+  // The formal mapping contract (revision 1) grades with 20/40/60/90 and the chain refuses other grade lines.
+  // From V2.5.5.2 production uses other lines, so the chain is exercised on a copy of this runtime restored to the
+  // V2.5.5.1 scoring configuration (grade lines, golden-window open thresholds, uncentred factor) whose fixture
+  // outcomes this test pins.
+  const legacySource = path.join(temp, 'legacy_grade_source'), app = path.resolve(__dirname, '..');
+  for (const name of ['package.json', 'package-lock.json', 'index.html', 'admin/backfill.html', 'js', 'tools', 'server']) {
+    await fs.cp(path.join(app, name), path.join(legacySource, name), { recursive: true });
+  }
+  const configFile = path.join(legacySource, 'js/config.js');
+  let legacyConfig = await fs.readFile(configFile, 'utf8');
+  for (const [label, min] of [['极佳', 90], ['很好', 60], ['一般', 40], ['较差', 20], ['很差', 0]]) {
+    const pattern = new RegExp("\\{ min: \\d+, label: '" + label + "' \\}");
+    assert.match(legacyConfig, pattern);
+    legacyConfig = legacyConfig.replace(pattern, "{ min: " + min + ", label: '" + label + "' }");
+  }
+  assert.match(legacyConfig, /app: '[\d.]+',(\s*)model: '[\d.]+'/);
+  legacyConfig = legacyConfig.replace(/app: '[\d.]+',(\s*)model: '[\d.]+'/, "app: '2.5.5.1',$1model: '2.5.5.1'");
+  for (const [pattern, value] of [[/openCoverageThreshold: \d+,/, 'openCoverageThreshold: 20,'],
+    [/satelliteOpenThreshold: \d+ /, 'satelliteOpenThreshold: 25 '], [/reference: [\d.]+/, 'reference: 1']]) {
+    assert.match(legacyConfig, pattern);
+    legacyConfig = legacyConfig.replace(pattern, value);
+  }
+  await fs.writeFile(configFile, legacyConfig);
+  const frozen = await freezeRuntime({ sourceRoot: legacySource, output: path.join(temp, 'experiment_runtime'), protocolVersion: 2 });
   const root = path.join(frozen.directory, 'source');
   const { executeBundleCli, bundleArgs } = await import('../tools/experiment-runtime/lib/execute.mjs');
   const metricEntry = path.resolve(__dirname, '../tools/metric-semantics/metric.mjs');

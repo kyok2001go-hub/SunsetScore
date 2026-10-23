@@ -20,9 +20,9 @@ const CHECKS = [
   },
   {
     id: 'GOLDEN_WINDOW_FACTOR_CLAMP',
-    note: 'gwFactor 限幅必须使用 goldenWindow.floor 与上界 1',
-    production: /SS\.domain\.clamp\(evo\.gwFactor, SS\.modelConfig\.goldenWindow\.floor, 1, 1\)/,
-    runner: /SS\.domain\.clamp\(evo\.gwFactor, SS\.modelConfig\.goldenWindow\.floor, 1, 1\)/
+    note: 'gwFactor 限幅必须使用共享区间 [floor, 1] / reference（reference 缺省为 1）',
+    production: /SS\.domain\.clamp\(evo\.gwFactor, gwRange\[0\], gwRange\[1\], 1\)/,
+    runner: /SS\.domain\.clamp\(evo\.gwFactor, gwRange\[0\], gwRange\[1\], 1\)/
   },
   {
     id: 'SCORE_COMPOSITION_ACTIVE_BRANCH',
