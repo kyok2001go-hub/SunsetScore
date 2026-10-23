@@ -1,6 +1,7 @@
 /* ============================================================
- * SunsetScore Model V2.5.5.0 - 已选参数发布配置
- * 八项参数来自识别优先权重、中云及黄金窗口累计选择，其余沿用既有值。
+ * SunsetScore Model V2.5.5.1 - 关闭天空演化
+ * 在 V2.5.5.0 已选八项参数基础上，只把天空演化因子固定为 1（skyState.factorRange），其余沿用既有值。
+ * 依据：ref_docs/PRD/V2.5.5.1--关闭天空演化发布方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -8,10 +9,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.0',
-    model: '2.5.5.0',
+    app: '2.5.5.1',
+    model: '2.5.5.1',
     schema: 3,
-    assetRevision: 'app2550',
+    assetRevision: 'app2551',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3
@@ -349,8 +350,9 @@
       sectorWeights: { corridor: 0.60, antiSunset: 0.25, side: 0.15 },
       corridorHalfWidthDeg: 45,
       antiSunsetHalfWidthDeg: 35,
-      /* SkyEvolutionFactor 限幅区间 [0.65, 1.15] */
-      factorRange: [0.65, 1.15]
+      /* V2.5.5.1：限幅区间固定为 [1, 1]，天空演化因子恒为 1（状态仍照常判定，仅作描述）。
+         原区间 [0.65, 1.15]；回退到 V2.5.5.0 即恢复。 */
+      factorRange: [1, 1]
     },
 
     /* ---------- 日落事件层与 Golden Window V4（技术方案 第 7、8 章） ---------- */

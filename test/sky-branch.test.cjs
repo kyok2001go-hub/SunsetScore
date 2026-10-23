@@ -13,11 +13,20 @@ async function api() { return modules ||= Promise.all(['practical-tuning/sky-bra
   'practical-tuning/high-cloud','practical-tuning/migrations','replay/replay-runner'].map(n=>import(`../tools/${n}.mjs`))).then(ms=>Object.assign({},...ms)); }
 function state(now, future, variance=0, risk=null, cfg={}) {
   const SS=load(createRuntime(),['js/config.js','js/model_config.js','js/sky_state.js']);
-  Object.assign(SS.modelConfig.skyState,cfg); let observation;
+  // These tests cover the state machine itself, so they pin the historical range; V2.5.5.1 production uses [1, 1].
+  Object.assign(SS.modelConfig.skyState,{factorRange:[0.65,1.15]},cfg); let observation;
   const field={timestamp:1000,summary:{avgCloudCover:now,spatialVariance:variance}},motion={arrivalRisk:risk,predictions:{m60:{timestamp:3601000,summary:{avgCloudCover:future}}}};
   const off=SS.skyState.determineState(field,motion),on=SS.skyState.determineState(field,motion,undefined,t=>{observation=t;});
   assert.deepEqual(JSON.parse(JSON.stringify(off)),JSON.parse(JSON.stringify(on)));return {result:on,trace:observation,SS,field,motion};
 }
+test('V2.5.5.1 production default keeps the state description but fixes the sky factor at 1',()=>{
+  const SS=load(createRuntime(),['js/config.js','js/model_config.js','js/sky_state.js']);
+  assert.deepEqual(JSON.parse(JSON.stringify(SS.modelConfig.skyState.factorRange)),[1,1]);
+  for(const [now,future,risk] of [[0,0,null],[70,20,null],[40,80,null],[50,50,{hasUpstreamDenseCloud:true,risk60m:.9,estimatedArrivalMin:20}]]){
+    const r=SS.skyState.determineState({timestamp:1000,summary:{avgCloudCover:now,spatialVariance:0}},{arrivalRisk:risk,predictions:{m60:{timestamp:3601000,summary:{avgCloudCover:future}}}});
+    assert.equal(r.factor,1);assert.ok(r.state&&r.label);
+  }
+});
 test('Shared sky observer records priority, all stable subbranches and true short-circuit NOT_EVALUATED',()=>{
   const risk={hasUpstreamDenseCloud:true,risk60m:.5,estimatedArrivalMin:30};
   const arriving=state(0,0,50,risk);assert.equal(arriving.result.factor,.75);assert.equal(arriving.trace.decisions.CLEAR,'NOT_EVALUATED');
@@ -105,7 +114,7 @@ test('Sky Phase7 preserves C when probes only worsen loss and never calls unchan
 });
 test('Production capture and Replay apply the same shared sky factor with coefficient zero and fixed external clamp',async()=>{
   const m=await api(),SS=load(createRuntime(),FILES),fc=forecast({cloud:80,low:30,mid:40,high:20});fc.timezone='Asia/Shanghai';fc.utc_offset_seconds=28800;
-  SS.modelConfig.skyState.factorCoefficients.arrivalRiskSlope=0;
+  SS.modelConfig.skyState.factorCoefficients.arrivalRiskSlope=0;SS.modelConfig.skyState.factorRange=[0.65,1.15];
   SS.data.fetchForecastWithRetry=async()=>fc;SS.data.fetchAirQuality=async()=>null;
   SS.data.gather=async nodes=>({samples:nodes.map(point=>({point,forecast:fc})),successCount:nodes.length});
   const motion={arrivalRisk:{hasUpstreamDenseCloud:true,risk60m:.8,estimatedArrivalMin:20},predictions:{m60:{summary:{avgCloudCover:80,spatialVariance:0},nodes:[]}}};

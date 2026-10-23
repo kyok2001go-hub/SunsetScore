@@ -1,4 +1,18 @@
-# V2.5.5.0 已选参数发布验收
+# V2.5.5.1 关闭天空演化发布验收
+
+当前 app/model/config.version 为 2.5.5.1，assetRevision=app2551，npm package 仍为 2.5.5。相对 V2.5.5.0 唯一的评分改动是 `skyState.factorRange` 由 [0.65, 1.15] 改为 [1, 1]，天空演化因子恒为 1；状态机照常判定，仅作描述。
+
+```powershell
+npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.1发布证据'
+```
+
+- **配置核对：** 仍以 V6 `practical_tuning_v6_7afed8a39cb7ddfc8d4c` 的 selected 配置为来源。运行配置相对它只允许五处差异：版本，三个已证明默认等价的字段，以及 `skyState.factorRange`。
+- **结果核对：** DEV 655 条共享 Replay 要求每条的天空演化因子为 1，且整体预测签名等于 V2.5.6 对同一配置（AB-SKY / SC-SKY-OFF）记录的签名 `c7c40b45…`。同时核对相对 V2.5.5.0 有 600 条分数、147 条等级变化，产品损失 1.034929907064。
+- **结论范围：** 只证明发布配置与已测配置一致，属于复用开发数据，不是独立 TEST。
+
+需求与发布 / 回退步骤见 [V2.5.5.1 PRD](../../../ref_docs/PRD/V2.5.5.1--关闭天空演化发布方案.md)。以下为 V2.5.5.0 的原说明，保留作历史记录。
+
+## V2.5.5.0 已选参数发布验收（历史）
 
 当前 app/model/config.version 均为 2.5.5.0，assetRevision=app2550；npm package/lock 使用合法 SemVer 2.5.5。评分参数不变。原 V2.5.5.0发布证据/ 对应已部署的 app 2.4.6／model 2.5.5.0，请保留原制品、线上与回退记录，新一轮验证使用单独目录。
 

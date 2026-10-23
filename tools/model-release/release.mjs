@@ -13,7 +13,13 @@ import {runReplay} from '../replay/replay-runner.mjs';
 import {scoreToOrdinal} from '../evaluation/metrics.mjs';
 export const SOURCE_RUN='practical_tuning_v6_7afed8a39cb7ddfc8d4c';
 export const SOURCE_CONFIG_SHA='bd2a552acbd4ef9ab304208cbdc0d3cac8036c273a1d39e6732fe057e92f0766';
-export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horizon':.375,'weights.illumination':.4,'weights.atmosphere':.025,'weights.weather':0,midCloudCenter:54,midCloudWidth:34,'goldenWindow.floor':.507692307692});
+export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horizon':.375,'weights.illumination':.4,'weights.atmosphere':.025,'weights.weather':0,midCloudCenter:54,midCloudWidth:34,'goldenWindow.floor':.507692307692,
+  // V2.5.5.1: the only behavioural change on top of V2.5.5.0.
+  'skyState.factorRange':[1,1]});
+export const RELEASE_VERSION=Object.freeze({app:'2.5.5.1',model:'2.5.5.1',assetRevision:'app2551'});
+// V2.5.6 measured the same configuration (AB-SKY / SC-SKY-OFF) on the same 655 members; the release must reproduce it exactly.
+export const SKY_OFF_REFERENCE=Object.freeze({source:'V2.5.6 signal run practical_tuning_v7_d3a8721fad7cd295b517, ablation AB-SKY',
+  prediction_signature_sha256:'c7c40b4563efc5a40321356fbf601cf2f59644c7b0213d154afb849c5ecbad38',product_loss:1.034929907064,score_changed_vs_V2550:600,grade_changed_vs_V2550:147});
 const json=async p=>JSON.parse(await readFile(p,'utf8'));
 const at=(o,p)=>p.split('.').reduce((v,k)=>v?.[k],o);
 export function differences(a,b,prefix='') {
@@ -29,10 +35,11 @@ export async function loadProduction(root=APP_ROOT) {
   return {SS,model:m,scoring:JSON.parse(JSON.stringify(c)),version:JSON.parse(JSON.stringify(SS.version)),runtime_config_key:SS.modelConfigKey()};
 }
 export function compareSelected(source,runtime) {
-  const d=differences(source,runtime),allowed={version:['2.4.6','2.5.5.0'],'illuminationModel.bankShare':[null,.5],'illuminationModel.twilightSaturationMinutes':[null,35],'skyState.factorCoefficients.arrivalRiskSlope':[null,.3]};
-  if(d.length!==4||d.some(v=>!allowed[v.path]||digest([v.source,v.runtime])!==digest(allowed[v.path])))fail('UNEXPECTED_RELEASE_CONFIG_DIFFERENCE');
-  for(const [p,v]of Object.entries(RELEASE_VALUES))if(at(runtime,p)!==v)fail('RELEASE_PARAMETER_MISMATCH');
-  return d.map(v=>({...v,reason:v.path==='version'?'EXPLICIT_MODEL_IDENTITY_CHANGE':'ALREADY_PROVED_DEFAULT_EQUIVALENT_FIELD'}));
+  const d=differences(source,runtime),allowed={version:['2.4.6',RELEASE_VERSION.model],'illuminationModel.bankShare':[null,.5],'illuminationModel.twilightSaturationMinutes':[null,35],
+    'skyState.factorCoefficients.arrivalRiskSlope':[null,.3],'skyState.factorRange':[[0.65,1.15],[1,1]]};
+  if(d.length!==5||d.some(v=>!allowed[v.path]||digest([v.source,v.runtime])!==digest(allowed[v.path])))fail('UNEXPECTED_RELEASE_CONFIG_DIFFERENCE');
+  for(const [p,v]of Object.entries(RELEASE_VALUES))if(digest(at(runtime,p))!==digest(v))fail('RELEASE_PARAMETER_MISMATCH');
+  return d.map(v=>({...v,reason:v.path==='version'?'EXPLICIT_MODEL_IDENTITY_CHANGE':v.path==='skyState.factorRange'?'V2551_SKY_EVOLUTION_DISABLED':'ALREADY_PROVED_DEFAULT_EQUIVALENT_FIELD'}));
 }
 // Use the real capture serializer to obtain its configuration scope. This local
 // probe is not a weather query or a Snapshot and is never submitted anywhere.
@@ -72,28 +79,34 @@ export async function prepareRelease(output,{progress=()=>{}}={}) {
   const inspected=await inspectPractical(source),selectedBytes=await readFile(path.join(source,'selected_effective_config.json'));
   if(hash(selectedBytes)!==SOURCE_CONFIG_SHA||inspected.result.selected_candidate!=='practical_candidate_v6_34df8f13f05d6275e49d')fail('RELEASE_SOURCE_IDENTITY_MISMATCH');
   const selected=JSON.parse(selectedBytes),request=await json(path.join(source,'verification_request.json')),production=await loadProduction();
-  if(production.version.model!=='2.5.5.0'||production.version.app!=='2.5.5.0'||production.version.assetRevision!=='app2550'||production.scoring.version!=='2.5.5.0')fail('RELEASE_VERSION_MISMATCH');
+  if(production.version.model!==RELEASE_VERSION.model||production.version.app!==RELEASE_VERSION.app||production.version.assetRevision!==RELEASE_VERSION.assetRevision||production.scoring.version!==RELEASE_VERSION.model)fail('RELEASE_VERSION_MISMATCH');
   const configDiff=compareSelected(selected,production.scoring),effective=await captureEffective(production.SS),loaded=await loadPool(inspected.spec.sources,progress);
   if(digest(loaded.fingerprints)!==digest(inspected.spec.identity.inputs)||loaded.exclusions.length)fail('RELEASE_INPUT_MISMATCH');
   const byId=new Map(loaded.rows.map(r=>[r.snapshot_id,r])),rows=weightedRows(request.pool.included.map(r=>{const live=byId.get(r.snapshot_id);if(!live||['event_id','gt_ordinal','gt_confidence','input_sha256'].some(k=>r[k]!==live[k]))fail('RELEASE_MEMBER_MISMATCH');return live;}));
   if(rows.length!==655||byId.size!==655||rows.some((r,i)=>r.event_normalized_weight!==request.pool.included[i].event_normalized_weight))fail('RELEASE_POOL_MISMATCH');
   const scores=[],records=[];
   for(const [i,row]of rows.entries()){
-    const result=await runReplay(row.replay,{modelConfig:production.model}),score=result.actual.score,ordinal=scoreToOrdinal(score),expected=request.selected.scores[i];
-    if(score!==expected||ordinal!==scoreToOrdinal(expected))fail('RELEASE_PREDICTION_DIFFERS');
-    scores.push(score);records.push({snapshot_id:row.snapshot_id,event_id:row.event_id,gt_ordinal:row.gt_ordinal,event_weight:row.event_normalized_weight,source_score:expected,release_score:score,source_ordinal:scoreToOrdinal(expected),release_ordinal:ordinal});
-    if((i+1)%100===0||i+1===rows.length)progress(`发布一致性 ${i+1}/${rows.length}：整数分数与等级完全相同`);
+    // source_* is the deployed V2.5.5.0 (V6 selected); the release must equal the recorded SC-SKY-OFF signature as a whole.
+    const result=await runReplay(row.replay,{modelConfig:production.model}),score=result.actual.score,ordinal=scoreToOrdinal(score),previous=request.selected.scores[i];
+    if(result.actual.sky_evolution_factor!==1)fail('RELEASE_SKY_FACTOR_NOT_DISABLED');
+    scores.push(score);records.push({snapshot_id:row.snapshot_id,event_id:row.event_id,gt_ordinal:row.gt_ordinal,event_weight:row.event_normalized_weight,source_score:previous,release_score:score,source_ordinal:scoreToOrdinal(previous),release_ordinal:ordinal});
+    if((i+1)%100===0||i+1===rows.length)progress(`发布一致性 ${i+1}/${rows.length}：天空演化因子恒为 1`);
   }
-  const metrics=highCloudMetrics(rows,scores);if(digest(metrics)!==digest(request.selected.metrics))fail('RELEASE_METRICS_DIFFERS');
+  const signature=digest(rows.map((r,i)=>[r.snapshot_id,scores[i],scoreToOrdinal(scores[i])]));
+  if(signature!==SKY_OFF_REFERENCE.prediction_signature_sha256)fail('RELEASE_PREDICTION_DIFFERS_FROM_SKY_OFF_REFERENCE');
+  const changed=records.filter(r=>r.source_score!==r.release_score).length,gradeChanged=records.filter(r=>r.source_ordinal!==r.release_ordinal).length;
+  if(changed!==SKY_OFF_REFERENCE.score_changed_vs_V2550||gradeChanged!==SKY_OFF_REFERENCE.grade_changed_vs_V2550)fail('RELEASE_CHANGE_COUNT_MISMATCH');
+  const metrics=highCloudMetrics(rows,scores);if(Math.abs(metrics.product_loss-SKY_OFF_REFERENCE.product_loss)>1e-9)fail('RELEASE_METRICS_DIFFERS');
   await checkInputs(loaded);if((await codeIdentity()).sha256!==code.sha256)fail('CODE_CHANGED_DURING_RELEASE');
   await mkdir(output,{recursive:true});const put=async(n,v)=>writeFile(path.join(output,n),canonicalJson(v)+'\n');
   const legacy=await json(path.join(source,'original_control_config.json'));
-  const diff={parameter_changes:Object.entries(RELEASE_VALUES).map(([p,v])=>({path:p,experiment_B0:at(legacy,p),release:v})),candidate_runtime_differences:configDiff,
+  const diff={parameter_changes:Object.entries(RELEASE_VALUES).map(([p,v])=>({path:p,experiment_B0:at(legacy,p),V2550:at(selected,p),release:v})),candidate_runtime_differences:configDiff,
     unchanged:{highCloudCenter:60,highCloudWidth:25,minimumWeatherWeight:.05,illuminationModel:{bankShare:.5,twilightSaturationMinutes:35},arrivalRiskSlope:.3},new_default_is_not_old_default:true};
   const comparison={status:'PASS',scope:'RELEASE_CONSISTENCY_ON_REUSED_DEVELOPMENT_DATA; NOT_INDEPENDENT_TEST',snapshot_count:655,event_count:metrics.event_count,date_count:metrics.date_count,
-    source_metrics:request.selected.metrics,release_metrics:metrics,exact_score_and_ordinal_equal:true,metrics_equal:true,full_search_repeated:false,
+    V2550_metrics:request.selected.metrics,release_metrics:metrics,sky_off_reference:SKY_OFF_REFERENCE,release_equals_sky_off_reference:true,
+    score_changed_vs_V2550:changed,grade_changed_vs_V2550:gradeChanged,full_search_repeated:false,
     source_config_file_sha256:SOURCE_CONFIG_SHA,runtime_scoring_config_sha256:hash(canonicalJson(production.scoring)),replay_effective_config_sha256:effective.config_hash,
-    prediction_signature_sha256:digest(rows.map((r,i)=>[r.snapshot_id,scores[i],scoreToOrdinal(scores[i])])),source_prediction_signature_sha256:request.selected.predictions_sha256};
+    prediction_signature_sha256:signature,V2550_prediction_signature_sha256:request.selected.predictions_sha256};
   await copyFile(path.join(source,'selected_effective_config.json'),path.join(output,'source_selected_effective_config.json'));
   await put('parameter_diff.json',diff);await put('release_comparison.json',comparison);await put('runtime_scoring_config.json',production.scoring);await put('replay_effective_config.json',effective);
   const headers=Object.keys(records[0]);await writeFile(path.join(output,'release_predictions.csv'),headers.join(',')+'\r\n'+records.map(r=>headers.map(k=>String(r[k])).join(',')).join('\r\n')+'\r\n');

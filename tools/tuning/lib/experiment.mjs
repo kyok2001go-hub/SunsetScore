@@ -92,6 +92,10 @@ export function planExperiments({ units, ablations, config }) {
     });
   }
   for (const ablation of ablations) {
+    // V2.5.5.1 pins skyState.factorRange to [1, 1] by default, so the registered sky ablation would test nothing.
+    // An ablation whose override equals the base value is omitted instead of failing ABLATION_CHANGED_NOTHING;
+    // whenever it does change the base (all earlier configurations) the plan is unchanged.
+    if (config && !diffConfigPaths(config, configForExperiment({ experiment_kind: 'ABLATION', ablation: ablation.ablation }, null, ablation, config).config).length) continue;
     plan.push({
       experiment_kind: 'ABLATION', parameter_id: null, group_id: null, canonical_path: ablation.canonical_path,
       probe_member: null, probe_value: null, probe_index: null,

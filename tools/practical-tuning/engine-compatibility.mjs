@@ -3,9 +3,10 @@ import { REPLAY_RUNTIME_FILES } from '../replay/replay-runner.mjs';
 import { digest } from './policy.mjs';
 // Explicit, byte-pinned default-compatible implementations. Every caller must also
 // reproduce all original sample scores, ordinals, metrics and saved traces.
+// V2.5.5.1 changes only js/config.js (skyState.factorRange and version identity) on top of V2.5.5.0.
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
-  "js/config.js": "2f76204d03baa9b003d148a92cc371b21f6b49b011ac7d52497369ce10cb2419",
+  "js/config.js": "0b02767059e93cd3a9ee6b5461d4fd6ae1b9b98b7fa8ee197e9e90e1e94e38c1",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d"
 });
@@ -44,6 +45,15 @@ const ORIGINS = Object.freeze([
       "js/config.js": "76725e9e0a1408efff22f4e805a11e40ec5912f5adf7e6a642941ea71f75ad46",
       "js/sky_state.js": "03410f3126c19a12d90ecf4701e60293ed3ff4153dbc51bdbff17a2dcd158bdb",
       "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204"
+    }
+  },
+  {
+    "engine": "7caf202bf41202ad08556b98a284aca65bfab3bef1d42d040eb980e7d4defc7b",
+    "files": {
+      "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
+      "js/config.js": "2f76204d03baa9b003d148a92cc371b21f6b49b011ac7d52497369ce10cb2419",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d"
     }
   }
 ]);
