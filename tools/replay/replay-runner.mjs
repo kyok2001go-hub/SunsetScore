@@ -256,7 +256,7 @@ export async function runReplay(replay, options = {}) {
     result.baseline_level = baseline.level;
     result.sky_evolution_factor = skyState.factor;
     let gwFactor = 1;
-    let fusionTrace;
+    let fusionTrace, gwObservation = null;
     const time = { nowUtcMs: nowMs, sunsetUtcMs: sunsetMs, minutesToSunset: (sunsetMs - nowMs) / 60000 };
     if (SS.evolution.isGoldenWindowActive({ time })) {
       const radar = restoreVisual(replay.radar);
@@ -285,6 +285,13 @@ export async function runReplay(replay, options = {}) {
           floor: SS.modelConfig.goldenWindow.floor,
           state: evo.state ?? null, confidence: evo.confidence ?? null
         } : { status: 'EXECUTED_NO_RESULT', applied_factor: 1, reason_code: 'EVOLUTION_RETURNED_NULL' } };
+      // V2.5.5.3 P0: read-only copy of the golden-window inputs and path (placed after the registry-anchored lines).
+      if (options.diagnosticObserver === true) gwObservation = { active: true, minutes_to_sunset: time.minutesToSunset,
+        sunset_cloud_cover: sunsetField?.summary?.avgCloudCover ?? null, forecast_trend: forecastTrend(SS, localForecast, nowMs, sunsetMs),
+        radar_available: !!radar, radar_coverage_now: lastCoverage(radar), satellite_available: !!satellite, satellite_coverage_now: lastCoverage(satellite),
+        raining_now: precip ? precip.rainingNow === true : null, evolution_coverage_now: evo?.coverageNow ?? null,
+        probability_source: evo?.sunsetProbabilitySource ?? null, sunset_open_probability: evo?.sunsetOpenProbability ?? null,
+        returned_factor: evo?.gwFactor ?? null, applied_factor: gwFactor };
     } else {
       result.score = Math.round(SS.domain.clamp(result.score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), 0, 100));
       if (options.trace === true) fusionTrace = { sky: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
@@ -310,6 +317,8 @@ export async function runReplay(replay, options = {}) {
           fusion: { returned_factor: skyState.factor, external_range: [0.65, 1.15],
             applied_factor: SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), score_engine: result.base_score,
             score_after_sky: fusionTrace.sky, F_gw: gwFactor, final_score: result.score, final_ordinal: ordinalOf(SS, result.score) } } } : {}),
+        ...(options.diagnosticObserver === true ? { diagnostic_observer: diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar,
+          goldenWindow: gwObservation ?? { active: false, minutes_to_sunset: time.minutesToSunset } }) } : {}),
         nowcast: { status: 'NOT_EXECUTED', reason_code: 'REPLAY_PATH_HAS_NO_SEPARATE_NOWCAST_ADJUSTMENT' },
         golden_window_active: fusionTrace.golden_window_active,
         golden_window_observation: fusionTrace.golden_window_observation ?? { status: 'NOT_EXECUTED', reason_code: 'OUTSIDE_GOLDEN_WINDOW' },
@@ -357,6 +366,27 @@ async function main() {
   const report = await runReplay(await readReplay(options.replayFile), { configOverride, reference, engineRoot: options.engineRoot });
   console.log(JSON.stringify(report, null, 2));
   if (report.pass === false) process.exitCode = 1;
+}
+
+// Offline P0 diagnostics (V2.5.5.3): read-only copies of values the execution above already consumed; no formula is
+// repeated. Kept at the end of the file so registry line anchors earlier in this file do not move.
+function cloudValues(data) {
+  return data ? { low: data.cloud_cover_low ?? null, mid: data.cloud_cover_mid ?? null,
+    high: data.cloud_cover_high ?? null, total: data.cloud_cover ?? null } : { low: null, mid: null, high: null, total: null };
+}
+function lastCoverage(visual) {
+  const series = visual && visual.coverageSeries;
+  return series && series.length ? series[series.length - 1].pct : null;
+}
+function diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar, goldenWindow }) {
+  const node = n => ({ direction: n.direction ?? null, azimuth: n.azimuth ?? null, distance_km: n.distanceKm ?? null,
+    has_data: n.hasData !== false, ...cloudValues(n.hasData === false ? null : n.data) });
+  return { observer_version: 1,
+    sunset_field: { center: sunsetField && sunsetField.center ? cloudValues(sunsetField.center.data) : null,
+      nodes: sunsetField ? sunsetField.nodes.map(node) : [], avg_cloud_cover: sunsetField?.summary?.avgCloudCover ?? null },
+    corridor: engineSamples.map(s => ({ azimuth_offset: s.point.azimuthOffset ?? null, distance_km: s.point.distanceKm,
+      ...cloudValues(SS.cloudField.extractInterpolatedAt(s.forecast, sunsetMs)) })),
+    twilight_minutes: solar.twilightMinutes ?? null, golden_window: goldenWindow };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

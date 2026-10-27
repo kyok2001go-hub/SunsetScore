@@ -1,5 +1,22 @@
 # 轻量 component_weights 调优（V2.5.4.9）
 
+## P0 机制诊断与信号复核（V2.5.5.3，Schema/Policy 9）
+
+```powershell
+npm run tuning:practical -- --search-space p0-diagnostics --model <DEV model目录> --raw <DEV raw目录> --gt <DEV gt目录> --output dataset/practical_tuning
+npm run tuning:practical-stats -- --input <本轮Run目录>
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+只读诊断，不搜索、不产生候选、不改配置。需求见 [V2.5.5.3 PRD](../../../ref_docs/PRD/V2.5.5.3--P0机制诊断与信号复核方案.md)。编号 7、8 已被未合并的 V2.5.6 / V2.5.7 分支 Run（practical_tuning_v7_* / v8_*）使用，本模式直接用 9。
+
+- **输入约束：** 只接受 DEV 包（Raw ea82b68bfe49 / GT 49c9adac6188 / Model f02dbabc357c，655 条），任何当地日期 ≥ 2026-10-13 的行（H1）直接拒绝。
+- **基准：** C = `releaseConfigs()['2.5.5.2']`（22/47/66/90），R = 2.5.5.1。运行前必须与 `release.mjs` 中固定的 V2.5.5.2 与 V2.5.5.1 预测签名逐条一致。
+- **观察器：** `runReplay(..., { trace: true, diagnosticObserver: true })` 额外返回日落时刻 33 节点云场、引擎实际走廊样本、GW 输入与路径、暮光时长，只复制已消费的值、不改 `js/`；运行时证明观察器开/关分数一致，并逐行核对 GW 重建与 horizon 聚合。
+- **冻结计划：** `P0_POLICY`（`p0-features.mjs`）含特征定义、主/两套备选阈值、分箱与形状规则、探针、逻辑回归参数、Bootstrap 种子和 §9 映射；其 Hash 进入 Run 身份，修改须升级 Policy。
+- **内容：** D1 机制分组误差与丢分定位、D2 黄金窗口路径/云层组合/反事实探针（GWP-0–3，只作诊断）、D3 单变量筛查/分箱曲线/大气冗余与增量（L2 逻辑回归，留一日期 OOF），以及 `p0_decision.json` 的优先级建议。
+- **复算：** 发布前新进程完整重算 payload，要求字节一致；`verify` 同样重算。
+
 ## Illumination评分拆解与定向优化（V2.5.4.14，Schema/Policy 6）
 
 ```powershell
