@@ -13,6 +13,7 @@ import { APP_ROOT, loadPool, codeIdentity, checkInputs } from './data.mjs';
 import { replayCalculator, preflight, gradeThresholdsOf } from './compute.mjs';
 import { highCloudMetrics } from './high-cloud.mjs';
 import { digest } from './policy.mjs';
+import { assertCompatibleEngine } from './engine-compatibility.mjs';
 import { acquireRunLock, atomicJson, csv } from './workflow.mjs';
 import { P0_POLICY, sunsetFeatures } from './p0-features.mjs';
 import { d1, d2, d3, decide, withGroups, probeScores, SIGNALS, COMPONENTS } from './p0-diagnostics.mjs';
@@ -276,14 +277,19 @@ export async function inspectP0(directory) {
 // Fresh-process recompute: the full payload must be byte-identical under the recorded plan.
 export async function verifyP0Request(request) {
   const { spec } = request, code = await codeIdentity();
-  if (spec.identity.engine_sha256 !== code.engine_sha256 || spec.code.node_version !== code.node_version) fail('PRACTICAL_CODE_MISMATCH');
+  if (spec.identity.engine_sha256 !== spec.code.engine_sha256 || spec.code.node_version !== code.node_version) fail('PRACTICAL_CODE_MISMATCH');
+  // V2.5.5.4: a byte-pinned default-compatible engine is accepted (P0 uses explicit release configs without the new key).
+  const engine = assertCompatibleEngine(code, spec.code, { allowDefaultCompatibility: true });
   if (digest(spec.identity.policy) !== digest(P0_POLICY)) fail('PRACTICAL_POLICY_MISMATCH');
   const loaded = await loadPool(spec.sources);
   if (digest(loaded.fingerprints) !== digest(spec.identity.inputs)) fail('PRACTICAL_INPUT_MISMATCH');
   const payload = await computeP0(loaded, code);
+  // The payload records the engine hash it ran on; everything else must be byte-identical.
+  if (engine.mode !== 'IDENTICAL_ENGINE') payload.parity.engine_sha256 = spec.identity.engine_sha256;
   if (digest(payload) !== request.payload_sha256) fail('FINAL_RECOMPUTE_MISMATCH');
   await checkInputs(loaded);
   return { status: 'PASS', scope: 'FRESH_PROCESS_FULL_PAYLOAD_RECOMPUTE', engine_replayed: true, payload_sha256: request.payload_sha256,
+    ...(engine.mode !== 'IDENTICAL_ENGINE' ? { engine_compatibility: engine } : {}),
     ...(code.sha256 !== spec.code.sha256 ? { tool_compatibility: 'SAME_ENGINE_SAME_POLICY_DIFFERENT_TOOL_FILES', original_tool_sha256: spec.code.sha256, current_tool_sha256: code.sha256 } : {}) };
 }
 export async function verifyP0(directory) {

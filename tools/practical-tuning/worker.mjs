@@ -4,6 +4,9 @@ import { codeIdentity, loadPool, checkInputs } from './data.mjs';
 import { replayCalculator, preflight, evaluateWeights } from './compute.mjs';
 import { digest, installWeights, POLICY, RECOGNITION_POLICY } from './policy.mjs';
 export async function verifyRequest(request, { compatibleV1Tools = false, compatibleTools = false } = {}) {
+  if (request.spec.practical_tuning_schema_version === 12 && request.spec.practical_tuning_policy_version === 12) return (await import('./gw-split-workflow.mjs')).verifyGwRequest(request);
+  if (request.spec.practical_tuning_schema_version === 11 && request.spec.practical_tuning_policy_version === 11) return (await import('./aod-shape-workflow.mjs')).verifyAodRequest(request);
+  if (request.spec.practical_tuning_schema_version === 10 && request.spec.practical_tuning_policy_version === 10) return (await import('./horizon-fix-workflow.mjs')).verifyHorizonFixRequest(request);
   if (request.spec.practical_tuning_schema_version === 9 && request.spec.practical_tuning_policy_version === 9) return (await import('./p0-workflow.mjs')).verifyP0Request(request);
   if (request.spec.practical_tuning_schema_version === 6 && request.spec.practical_tuning_policy_version === 6) return (await import('./illumination-workflow.mjs')).verifyIlluminationRequest(request, { compatibleTools });
   if (request.spec.practical_tuning_schema_version === 5 && request.spec.practical_tuning_policy_version === 5) return (await import('./sky-branch-workflow.mjs')).verifySkyRequest(request, { compatibleTools });

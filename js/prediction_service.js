@@ -326,6 +326,7 @@
       motionForecast: result.cloud_motion,
       sunsetCloudCover: context.sky.sunsetField && context.sky.sunsetField.summary
         ? context.sky.sunsetField.summary.avgCloudCover : null,
+      corridorSamples: context.engineSamples || null,
       nowMs: context.time.nowUtcMs,
       sunsetMs: context.time.sunsetUtcMs,
       sourcesStatus: fusion ? fusion.sourcesStatus : null
@@ -493,6 +494,7 @@
 
     progress(options, '正在进行评分与演化推演…');
     var corridorSamples = trimSamples(spatial.corridorSamples, nowUtcMs, solar.sunset.valueOf());
+    context.engineSamples = corridorSamples; /* V2.5.5.6：供黄金窗口云雨拆分计算太阳侧遮挡 */
     var engineInput = {
       location: location,
       utcOffsetSeconds: offsetSeconds,

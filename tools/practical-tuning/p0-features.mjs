@@ -68,11 +68,19 @@ export function sectorAggregate(corridor, scoring, valueOf) {
     { value: sector(sectors.bank), weight: sf.sectorWeights.bank }]);
 }
 
+// V2.5.5.4: the engine's effective offsets (js/engine.js offsetFor). With spatialField.centerAzimuthOffset set, the offset-less
+// 0 km sample takes that offset (both scopes: these features describe horizon). Without the key the corridor is returned as is.
+export function effectiveCorridor(corridor, scoring) {
+  const fix = scoring?.spatialField?.centerAzimuthOffset;
+  if (!finite(fix)) return corridor;
+  return corridor.map(s => s.distance_km === 0 && s.azimuth_offset == null ? { ...s, azimuth_offset: fix } : s);
+}
+
 // Features F01–F17 for one Snapshot (PRD §5). `trace` is the replay trace with diagnostic_observer.
 export function sunsetFeatures(trace, scoring, policy = P0_POLICY) {
   const o = trace?.diagnostic_observer;
   if (!o || o.observer_version !== 1) fail('P0_OBSERVER_MISSING');
-  const share = policy.blocking_mid_share, corridor = o.corridor, ray = corridor.filter(s => s.azimuth_offset === 0 && s.distance_km > 0);
+  const share = policy.blocking_mid_share, corridor = effectiveCorridor(o.corridor, scoring), ray = corridor.filter(s => s.azimuth_offset === 0 && s.distance_km > 0);
   const opening = sectorAggregate(corridor, scoring, s => finite(s.low) ? clamp(1 - s.low / 100, 0, 1) * 100 : null);
   const offsets = [...new Set(corridor.map(s => s.azimuth_offset))].sort((a, b) => a - b);
   const rayMax = offset => { const v = corridor.filter(s => s.azimuth_offset === offset && s.distance_km > 0).map(s => blocking(s, share)).filter(finite);

@@ -141,7 +141,7 @@
     var cfg = SS.modelConfig.scoring;
     var illuminationTrace = input.illuminationTrace === true && typeof input.offlineTrace === 'function'
       ? { schema_version: 1, nodes: input.samples.map(function (s, index) { return { index: index,
-        distance_km: s.point.distanceKm, azimuth_offset: s.point.azimuthOffset,
+        distance_km: s.point.distanceKm, azimuth_offset: s.point.azimuthOffset, effective_azimuth_offset: offsetFor(s.point, cfg.spatialField, 'trace'),
         has_forecast: !!s.forecast, sunset_values: null, cloud_scores: null, spatial_mixture: null,
         source_cloud_series: s.forecast && s.forecast.hourly ? { time: s.forecast.hourly.time,
           utc_offset_seconds: s.forecast.utc_offset_seconds, high: s.forecast.hourly.cloud_cover_high || null,
@@ -207,10 +207,10 @@
       var sc = scoresAt(s);
       if (!sc || sc.opening == null) return;
       /* 同一方位上先按 V1.5 距离权重表聚合，再乘以角权重 cos(offset)^power */
-      var sector = getSector(s.point.azimuthOffset);
+      var sector = getSector(offsetFor(s.point, sf, 'horizon'));
       bySector[sector].push({
         d: s.point.distanceKm,
-        offset: s.point.azimuthOffset,
+        offset: offsetFor(s.point, sf, 'horizon'),
         o: sc.opening
       });
     });
@@ -307,7 +307,7 @@
       var md = valueAt(s, 'mid');
       if (!valid(hm) || !valid(md)) return;
       var hmSum = hm + md;
-      if (s.point.azimuthOffset === 0) centerVals.push(hmSum);
+      if (offsetFor(s.point, sf, 'structure') === 0) centerVals.push(hmSum);
       else sideVals.push(hmSum);
     });
     var centerCloudRaw = centerVals.length ? avg(centerVals) : null;
@@ -317,7 +317,7 @@
 
     /* CenterCloud：走廊节点高中云评分的角权重均值 */
     var centerScore = weightedMean(input.samples
-      .filter(function (s) { return s.point.azimuthOffset === 0; })
+      .filter(function (s) { return offsetFor(s.point, sf, 'structure') === 0; })
       .map(function (s) {
         var sc = scoresAt(s);
         if (!sc || sc.high == null || sc.mid == null) return null;
@@ -391,7 +391,7 @@
     /* 走廊节点远/近程云量差：正 = 前景开阔+远方云幕，负 = 云层逼近 */
     var nearVals = [], farValsG = [];
     input.samples.forEach(function (s) {
-      if (s.point.azimuthOffset !== 0) return;
+      if (offsetFor(s.point, sf, 'structure') !== 0) return;
       var cp = cloudPotentialAt(s);
       if (cp == null) return;
       if (s.point.distanceKm <= 100) nearVals.push(cp);
@@ -456,7 +456,7 @@
       aod = input.air.hourly.aerosol_optical_depth ? input.air.hourly.aerosol_optical_depth[airIdx] : null;
       pm25 = input.air.hourly.pm2_5 ? input.air.hourly.pm2_5[airIdx] : null;
     }
-    var aodScore = valid(aod) ? gauss(aod, cfg.aodCenter, cfg.aodWidth) : null;
+    var aodScore = valid(aod) ? (cfg.aodResponse === 'HALF_GAUSSIAN' && aod <= cfg.aodCenter ? 100 : gauss(aod, cfg.aodCenter, cfg.aodWidth)) : null; /* V2.5.5.5：HALF_GAUSSIAN 时不高于 aodCenter 不扣分；缺键为原高斯 */
     var pmScore = valid(pm25) ? clamp(100 - (pm25 - 5) * (100 / 70), 0, 100) : null;
     var humScore = valid(lv.rh) ? gauss(lv.rh, cfg.humidityCenter, cfg.humidityWidth) : null;
 
@@ -1028,4 +1028,14 @@
       };
     }
   };
+
+  /* V2.5.5.4：走廊中心节点复用 33 点网格的中心样本，缺少 azimuthOffset。配置 spatialField.centerAzimuthOffset 为有限数时，
+     按该值补齐 0 km 节点的有效偏移；centerAzimuthOffsetScope 为 'HORIZON' 时只用于 horizon 分区（评估用）。
+     缺键时返回原值，旧配置（含历史 Snapshot 的 effective_config）逐位不变。放在文件末尾，避免调优注册表行号锚点偏移。 */
+  function offsetFor(point, sf, site) {
+    var fix = sf && sf.centerAzimuthOffset;
+    if (typeof fix !== 'number' || !isFinite(fix) || point.distanceKm !== 0 || point.azimuthOffset != null) return point.azimuthOffset;
+    if (site === 'structure' && sf.centerAzimuthOffsetScope === 'HORIZON') return point.azimuthOffset;
+    return fix;
+  }
 })(typeof window !== 'undefined' ? window : globalThis);

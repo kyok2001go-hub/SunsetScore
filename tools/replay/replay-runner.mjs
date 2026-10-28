@@ -263,7 +263,7 @@ export async function runReplay(replay, options = {}) {
       const satellite = restoreVisual(replay.satellite);
       const evo = SS.evolution.evaluate({
         forecastTrend: forecastTrend(SS, localForecast, nowMs, sunsetMs), precip, radar, satellite,
-        motionForecast: motion, sunsetCloudCover: sunsetField?.summary?.avgCloudCover,
+        motionForecast: motion, sunsetCloudCover: sunsetField?.summary?.avgCloudCover, corridorSamples: engineSamples,
         nowMs, sunsetMs,
         sourcesStatus: {
           radar: { available: replay.radar.available, status: replay.radar.source_status },
@@ -291,7 +291,7 @@ export async function runReplay(replay, options = {}) {
         radar_available: !!radar, radar_coverage_now: lastCoverage(radar), satellite_available: !!satellite, satellite_coverage_now: lastCoverage(satellite),
         raining_now: precip ? precip.rainingNow === true : null, evolution_coverage_now: evo?.coverageNow ?? null,
         probability_source: evo?.sunsetProbabilitySource ?? null, sunset_open_probability: evo?.sunsetOpenProbability ?? null,
-        returned_factor: evo?.gwFactor ?? null, applied_factor: gwFactor };
+        returned_factor: evo?.gwFactor ?? null, applied_factor: gwFactor, cloud_signal_mode: evo?.cloudSignalMode ?? null, cloud_signal_value: evo?.cloudSignalValue ?? null };
     } else {
       result.score = Math.round(SS.domain.clamp(result.score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), 0, 100));
       if (options.trace === true) fusionTrace = { sky: result.base_score * SS.domain.clamp(skyState.factor, 0.65, 1.15, 1),
@@ -317,7 +317,7 @@ export async function runReplay(replay, options = {}) {
           fusion: { returned_factor: skyState.factor, external_range: [0.65, 1.15],
             applied_factor: SS.domain.clamp(skyState.factor, 0.65, 1.15, 1), score_engine: result.base_score,
             score_after_sky: fusionTrace.sky, F_gw: gwFactor, final_score: result.score, final_ordinal: ordinalOf(SS, result.score) } } } : {}),
-        ...(options.diagnosticObserver === true ? { diagnostic_observer: diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar,
+        ...(options.diagnosticObserver === true ? { diagnostic_observer: diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar, engine: result,
           goldenWindow: gwObservation ?? { active: false, minutes_to_sunset: time.minutesToSunset } }) } : {}),
         nowcast: { status: 'NOT_EXECUTED', reason_code: 'REPLAY_PATH_HAS_NO_SEPARATE_NOWCAST_ADJUSTMENT' },
         golden_window_active: fusionTrace.golden_window_active,
@@ -378,7 +378,7 @@ function lastCoverage(visual) {
   const series = visual && visual.coverageSeries;
   return series && series.length ? series[series.length - 1].pct : null;
 }
-function diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar, goldenWindow }) {
+function diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar, engine, goldenWindow }) {
   const node = n => ({ direction: n.direction ?? null, azimuth: n.azimuth ?? null, distance_km: n.distanceKm ?? null,
     has_data: n.hasData !== false, ...cloudValues(n.hasData === false ? null : n.data) });
   return { observer_version: 1,
@@ -386,7 +386,11 @@ function diagnosticObservation(SS, { sunsetField, engineSamples, sunsetMs, solar
       nodes: sunsetField ? sunsetField.nodes.map(node) : [], avg_cloud_cover: sunsetField?.summary?.avgCloudCover ?? null },
     corridor: engineSamples.map(s => ({ azimuth_offset: s.point.azimuthOffset ?? null, distance_km: s.point.distanceKm,
       ...cloudValues(SS.cloudField.extractInterpolatedAt(s.forecast, sunsetMs)) })),
-    twilight_minutes: solar.twilightMinutes ?? null, golden_window: goldenWindow };
+    twilight_minutes: solar.twilightMinutes ?? null, golden_window: goldenWindow,
+    // V2.5.5.4: rounded engine spatial outputs, to measure the corridor-centre fix (copies only; the score is untouched).
+    engine_structure: { sector_openings: engine.sector_openings ?? null, bank_score: engine.cloud_structure?.bankScore ?? null,
+      center_cloud: engine.cloud_structure?.centerCloud ?? null, contrast: engine.cloud_structure?.contrast ?? null,
+      gradient_value: engine.spatial_gradient?.value ?? null, gradient_type: engine.spatial_gradient?.type ?? null } };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

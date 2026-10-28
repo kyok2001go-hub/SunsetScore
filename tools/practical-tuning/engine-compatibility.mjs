@@ -6,12 +6,16 @@ import { digest } from './policy.mjs';
 // V2.5.5.1 changes only js/config.js (skyState.factorRange and version identity) on top of V2.5.5.0.
 // V2.5.5.2 changes js/config.js and js/evolution.js (golden-window reference, open thresholds, grade lines); with the
 // reference absent from an explicit historical config the golden-window factor is computed exactly as before.
+// V2.5.5.4 changes js/engine.js (corridor-centre azimuth fix behind spatialField.centerAzimuthOffset); with the key absent from an
+// explicit historical config every engine value is computed exactly as before.
+// V2.5.5.5 changes js/engine.js again (aodResponse switch); with the key absent the AOD score is the original Gaussian.
+// V2.5.5.6 changes js/evolution.js (golden-window cloud/rain split behind evolution.cloudSignal); with the key absent the factor is unchanged.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
+  "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
   "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-  "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+  "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
 });
 const ORIGINS = Object.freeze([
 {
@@ -72,6 +76,39 @@ const ORIGINS = Object.freeze([
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    }
+  },
+  // V2.5.5.2 release line (e.g. Policy 9 P0 run practical_tuning_v9_561f773d7e43a9045dc3); differs from the current pins only in js/engine.js.
+  {
+    "engine": "8e20f02997b03ae73ea3febd8e3a61a92c637834b4de74efa1be8ff06e9fcb0a",
+    "files": {
+      "js/engine.js": "d8515566354bf71ef5898258a9aa07027120ff5024c833ba42f3499e9a110271",
+      "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+    }
+  },
+  // V2.5.5.4 working tree (e.g. Policy 10 run practical_tuning_v10_029b2a3afcd389326426); differs from the current pins only in js/engine.js.
+  {
+    "engine": "8338a588d81b513728a3f40606e0900a628e60372becf4851fdb767eb19fd219",
+    "files": {
+      "js/engine.js": "5c105d131cbf19d7b761b07eef608c64b7f156a340187f6778c9fec5f1002226",
+      "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+    }
+  },
+  // V2.5.5.5 working tree (e.g. Policy 11 run practical_tuning_v11_81d6faf13f3e42fe645d); differs from the current pins only in js/evolution.js.
+  {
+    "engine": "8ffaa8dc28ec76d59703910d31d74aeced3685492273d723147180b1bd7d1212",
+    "files": {
+      "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
     }
   }
 ]);

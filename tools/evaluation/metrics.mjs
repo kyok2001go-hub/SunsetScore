@@ -11,7 +11,13 @@ export const LABEL_TO_ORDINAL = Object.freeze(
 // offline tools can grade a recorded score by the model_version that produced it.
 export const LEGACY_GRADE_THRESHOLDS = Object.freeze([20, 40, 60, 90]);
 export const VERSIONED_GRADE_THRESHOLDS = Object.freeze({
-  '2.5.5.2': Object.freeze([22, 47, 66, 90])
+  '2.5.5.2': Object.freeze([22, 47, 66, 90]),
+  // V2.5.5.4 keeps the V2.5.5.2 grade lines (horizon centre-node fix only).
+  '2.5.5.4': Object.freeze([22, 47, 66, 90]),
+  // V2.5.5.5 keeps them too (AOD response shape only).
+  '2.5.5.5': Object.freeze([22, 47, 66, 90]),
+  // V2.5.5.6 keeps them too (golden-window cloud/rain split only).
+  '2.5.5.6': Object.freeze([22, 47, 66, 90])
 });
 const FIRST_VERSIONED_MODEL = [2, 5, 5, 2];
 

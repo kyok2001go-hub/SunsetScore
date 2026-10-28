@@ -160,7 +160,7 @@ test('H1 holdout rules: independence by date and DEV members, PRIMARY_LAST cohor
   const bad=structuredClone(configs['2.5.5.0']);bad.midCloudCenter+=1;assert.throws(()=>h.assertV2550(source,bad),/HOLDOUT_V2550_CONFIG_MISMATCH/);
 });
 
-test('H1 holdout check recomputes three release versions with their own grade lines and is single-use',{timeout:600000},async t=>{
+test('H1 holdout check (Policy 2) recomputes four release versions with their own grade lines and is single-use',{timeout:600000},async t=>{
   const h=await import('../tools/model-release/holdout.mjs'),{gradeScore}=await import('../tools/evaluation/metrics.mjs');
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'h1-holdout-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
   const date=i=>'2026-10-'+String(13+i).padStart(2,'0');
@@ -175,9 +175,9 @@ test('H1 holdout check recomputes three release versions with their own grade li
   const ledger=path.join(root,'ledger.jsonl'),out=path.join(root,'h1');
   await assert.rejects(h.holdoutCheck(sources,out,{dev,ledger}),/HOLDOUT_BELOW_THRESHOLD/);
   const done=await h.holdoutCheck(sources,out,{dev,policy,ledger});
-  assert.equal(done.status,'COMPLETE');assert.deepEqual(Object.keys(done.rollback_suggested),['V2551_VS_V2550','V2552_VS_V2551']);
+  assert.equal(done.status,'COMPLETE');assert.deepEqual(Object.keys(done.rollback_suggested),['V2551_VS_V2550','V2552_VS_V2551','V2554_VS_V2552']);
   const result=JSON.parse(await fs.readFile(path.join(out,'holdout_result.json'),'utf8'));
-  assert.deepEqual(result.grade_thresholds,{'2.5.5.0':[20,40,60,90],'2.5.5.1':[20,40,60,90],'2.5.5.2':[22,47,66,90]});
+  assert.deepEqual(result.grade_thresholds,{'2.5.5.0':[20,40,60,90],'2.5.5.1':[20,40,60,90],'2.5.5.2':[22,47,66,90],'2.5.5.4':[22,47,66,90]});assert.equal(result.policy.version,2);
   const csv=(await fs.readFile(path.join(out,'holdout_predictions.csv'),'utf8')).trim().split(/\r?\n/),head=csv[0].split(','),rows=csv.slice(1).map(l=>Object.fromEntries(l.split(',').map((v,i)=>[head[i],v])));
   assert.equal(rows.length,result.snapshot_count);
   const graded=rows.map(r=>({...r,gt_ordinal:+r.gt_ordinal,gt_confidence:+r.gt_confidence,event_normalized_weight:+r.event_normalized_weight,lead_time_minutes:+r.lead_time_minutes,

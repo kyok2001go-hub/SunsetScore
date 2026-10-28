@@ -31,6 +31,43 @@ export const SKY_OFF_REFERENCE=Object.freeze({source:'V2.5.6 signal run practica
 // golden-window factor; ordinals use the release grade lines.
 export const V2552_REFERENCE=Object.freeze({prediction_signature_sha256:'2404453e33e6310088d0bc3242a601ed555ba3994006d6b7997de2662537c5d8',
   product_loss:0.990135853225,score_changed_vs_V2551:388,grade_changed_vs_V2551:186});
+// V2.5.5.4 candidate (PRD V2.5.5.4 §3.1): V2.5.5.2 plus the corridor-centre azimuth fix; same grade lines.
+// FIX-H (scope HORIZON) limits the fix to the horizon sectors and exists for attribution only.
+export const CANDIDATE_VERSION='2.5.5.4';
+export function candidateReleaseScoring(scoring,{scope='ALL'}={}) {
+  if(scoring.version!==RELEASE_VERSION.model||scoring.spatialField?.centerAzimuthOffset!=null)fail('RELEASE_CANDIDATE_BASE_MISMATCH');
+  if(!['ALL','HORIZON'].includes(scope))fail('RELEASE_CANDIDATE_SCOPE_UNKNOWN');
+  const next=structuredClone(scoring);next.version=CANDIDATE_VERSION;next.spatialField.centerAzimuthOffset=0;
+  if(scope==='HORIZON')next.spatialField.centerAzimuthOffsetScope='HORIZON';
+  return next;
+}
+// FIX-ALL on the same 655 members, pinned from the V2.5.5.4 DEV evaluation (practical tuning Policy 10); ordinals use 22/47/66/90.
+export const V2554_REFERENCE=Object.freeze({prediction_signature_sha256:'e5102d750ab3c6bac65c5e8baa2f2d914d46742363dbf0960229b2e6bb3b324f',
+  product_loss:0.987673889961,score_changed_vs_V2552:323,grade_changed_vs_V2552:28});
+// V2.5.5.5 candidate (PRD V2.5.5.5 §3.1): V2.5.5.4 plus the monotone (half-Gaussian) AOD response; same grade lines.
+// A 2.5.5.2 base is accepted for the robustness row (A1@2.5.5.2, PRD §4.4).
+export const AOD_CANDIDATE_VERSION='2.5.5.5';
+export function aodCandidateScoring(scoring) {
+  if(![RELEASE_VERSION.model,CANDIDATE_VERSION].includes(scoring.version)||scoring.aodResponse!=null)fail('RELEASE_AOD_CANDIDATE_BASE_MISMATCH');
+  const next=structuredClone(scoring);next.version=AOD_CANDIDATE_VERSION;next.aodResponse='HALF_GAUSSIAN';
+  return next;
+}
+// A1 = 2.5.5.4 + HALF_GAUSSIAN on the same 655 members, pinned from the V2.5.5.5 DEV evaluation (practical tuning Policy 11).
+export const V2555_REFERENCE=Object.freeze({prediction_signature_sha256:'e0a01ba792dc84ded59a30fa9cd39c79abb4d6da8dd924e984844e941f0f1517',
+  product_loss:0.999983706283,score_changed_vs_V2554:52,grade_changed_vs_V2554:5});
+// V2.5.5.6 candidate (PRD V2.5.5.6 §3): V2.5.5.4 plus the golden-window cloud/rain split; the GW reference is recomputed
+// by the V2.5.5.2 rule (mean pre-reference factor of the active DEV rows) and passed in explicitly.
+export const GW_SPLIT_VERSION='2.5.5.6';
+export function gwSplitScoring(scoring,{cloudSignal='SUN_SIDE_BLOCKING',radarRole='RAIN_GATE',reference}={}) {
+  if(scoring.version!==CANDIDATE_VERSION||scoring.evolution?.cloudSignal!=null||scoring.aodResponse!=null)fail('RELEASE_GW_SPLIT_BASE_MISMATCH');
+  if(!['SUN_SIDE_BLOCKING','TOTAL_CLOUD'].includes(cloudSignal)||!['RAIN_GATE','IGNORE'].includes(radarRole))fail('RELEASE_GW_SPLIT_OPTION_UNKNOWN');
+  const next=structuredClone(scoring);next.version=GW_SPLIT_VERSION;next.evolution.cloudSignal=cloudSignal;next.evolution.radarRole=radarRole;
+  if(reference!==undefined){if(!(Number.isFinite(reference)&&reference>0))fail('RELEASE_GW_SPLIT_REFERENCE_INVALID');next.goldenWindow.reference=reference;}
+  return next;
+}
+// W1 on the same 655 members, pinned from the V2.5.5.6 DEV evaluation (practical tuning Policy 12).
+export const V2556_REFERENCE=Object.freeze({gw_reference:0.795492,prediction_signature_sha256:'2c277b3be5eabb7e06088a5ba947ad660cdfd12cf57416e95be9f7496fe1f11c',
+  product_loss:1.001641308843,score_changed_vs_V2554:343,grade_changed_vs_V2554:49});
 const json=async p=>JSON.parse(await readFile(p,'utf8'));
 const at=(o,p)=>p.split('.').reduce((v,k)=>v?.[k],o);
 export function differences(a,b,prefix='') {

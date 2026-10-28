@@ -1,5 +1,52 @@
 # 轻量 component_weights 调优（V2.5.4.9）
 
+## 黄金窗口云雨信号拆分评估（V2.5.5.6，Schema/Policy 12）
+
+```powershell
+npm run tuning:practical -- --search-space gw-split --model <DEV model目录> --raw <DEV raw目录> --gt <DEV gt目录> --output dataset/practical_tuning
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+单一假设评估，不搜索、不调参、不改默认配置。需求见 [V2.5.5.6 PRD](../../../ref_docs/PRD/V2.5.5.6--黄金窗口云雨信号拆分方案.md)。
+
+- **比较对象：** C0 = 2.5.5.4；W1 = `gwSplitScoring(C0)`，即 `evolution.cloudSignal: 'SUN_SIDE_BLOCKING'`、`evolution.radarRole: 'RAIN_GATE'`，reference 按 V2.5.5.2 规则（启用行 (floor + (1 − floor) × P_open) 的均值）在运行内重算。W_TOTAL（总云量）、W_NORADAR（不用雷达）、W1_NOREF（不重算 reference）只作归因对照。
+- **复现与不变量：** 缺键时须复现 2.5.5.2 / 2.5.5.1 / 2.5.5.4 的固定签名；reference 规则用于 C0 须在 1e-4 内复现 0.826654（只报告）；C0 与 W1 观察器开 / 关一致；GW 未启用的行在所有候选下逐条不变。
+- **建议：** `decision.json` 按 PRD §4.1（与 Policy 11 相同的改进门槛）机械生成，须项目负责人确认。
+- **其他输出：** GW 因子按路径分布、太阳侧遮挡 B 与 horizon 的重叠、三类场景（云幕多无回波 / 厚云无回波 / 有回波）、P0 分组变化。
+- **复算：** 发布前新进程完整重算 payload；`verify` 同样重算，接受固定的兼容引擎。
+
+## 大气函数 AOD 单调响应评估（V2.5.5.5，Schema/Policy 11）
+
+```powershell
+npm run tuning:practical -- --search-space aod-shape --model <DEV model目录> --raw <DEV raw目录> --gt <DEV gt目录> --output dataset/practical_tuning
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+单一假设评估，不搜索、不调参、不改默认配置。需求见 [V2.5.5.5 PRD](../../../ref_docs/PRD/V2.5.5.5--大气函数AOD单调响应方案.md)。
+
+- **比较对象：** C0 = 2.5.5.4（`candidateReleaseScoring`），A1 = `aodCandidateScoring(C0)`，即 C0 加 `aodResponse: 'HALF_GAUSSIAN'`；B0 = 2.5.5.2、B1 = B0 加同一键，只作稳健性对照，无决策权重。
+- **复现与不变量：** 缺键时须复现 2.5.5.2 / 2.5.5.1 / 2.5.5.4 的固定签名；C0 与 A1 观察器开 / 关一致；AOD 缺失或不低于 `aodCenter` 的行，A1 / B1 分数须与对照逐条相同，受影响行只升不降。
+- **建议：** `decision.json` 按 PRD §4.1 规则机械生成：产品损失点估计下降、AUC≥2 点估计不降且 95% 上限 > 0、≥2 召回下降不超过 0.02，满足为 `ADOPT_CANDIDATE`，否则为 `NO_GAIN`。须项目负责人确认。
+- **其他输出：** 受影响行与 atmosphere / Q 变化、各时段等级分布、P0 箱界下的 AOD 分箱校准、P0 分组（含 G3）的变化。
+- **复算：** 发布前新进程完整重算 payload；`verify` 同样重算，接受固定的兼容引擎（payload 除记录的引擎 Hash 外须字节一致）。
+
+## 地平线中心节点方位修正评估（V2.5.5.4，Schema/Policy 10）
+
+```powershell
+npm run tuning:practical -- --search-space horizon-fix --model <DEV model目录> --raw <DEV raw目录> --gt <DEV gt目录> --output dataset/practical_tuning
+npm run tuning:practical-stats -- --input <本轮Run目录>
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+固定候选评估，不搜索、不调参、不改默认配置。需求见 [V2.5.5.4 PRD](../../../ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md)。
+
+- **输入约束：** 与 Policy 9 相同，只接受 DEV 包（655 条），拒绝 H1 日期。
+- **比较对象：** C0 = 2.5.5.2；FIX_H = `candidateReleaseScoring(C0, { scope: 'HORIZON' })`；FIX_ALL = `candidateReleaseScoring(C0)`，与 H1 核验 Policy 2 中的 2.5.5.4 相同。三者等级线均为 22/47/66/90。
+- **复现：** 开关缺键时须复现 V2.5.5.2 / V2.5.5.1 固定签名；FIX_ALL 须与 `release.mjs` 的 `V2554_REFERENCE` 一致；C0 与 FIX_ALL 观察器开/关分数一致。
+- **内容：** 三者的产品损失、≥2/≥3 召回与精确、≥3 使用率、AUC≥2/≥3（最近一条）；两两差值的日期块 Bootstrap 区间（与 H1 核验同一算法）；变化面与各时段等级分布；horizon 分布、云幕区有效行、硬门槛、云幕对比度与梯度类型；P0 分组下的分数变化与修正后重分组的 D1。
+- **建议：** `decision.json` 按 PRD §4 规则机械生成（产品损失不高于 C0 超过 0.01、≥2 召回下降不超过 0.05、AUC≥2 差值 95% 上限 > 0），须项目负责人确认。
+- **复算：** 发布前新进程完整重算 payload，要求字节一致；`verify` 同样重算。
+
 ## P0 机制诊断与信号复核（V2.5.5.3，Schema/Policy 9）
 
 ```powershell

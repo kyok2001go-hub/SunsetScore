@@ -1,4 +1,4 @@
-// H1 forward-holdout check for the release line: compares V2.5.5.0 / V2.5.5.1 / V2.5.5.2 on data collected
+// H1 forward-holdout check for the release line: compares V2.5.5.0 / V2.5.5.1 / V2.5.5.2 / V2.5.5.4 on data collected
 // after the development pool. Each version is graded with its own grade lines. `status` only counts labels
 // (no prediction is computed, the holdout stays unused); `check` is single-use per policy version.
 import path from 'node:path';
@@ -10,34 +10,37 @@ import {preflight,replayCalculator,gradeThresholdsOf} from '../practical-tuning/
 import {digest} from '../practical-tuning/policy.mjs';
 import {productMetrics,weightedRows} from '../product-evaluation/metrics.mjs';
 import {gradeScore} from '../evaluation/metrics.mjs';
-import {loadProduction,previousReleaseScoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
+import {loadProduction,previousReleaseScoring,candidateReleaseScoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
 
 export const HOLDOUT_POLICY=Object.freeze({
-  version:1,name:'H1_RELEASE_LINE_CHECK',
+  // Version 2 (V2.5.5.4 PRD §3.5) adds the V2.5.5.4 candidate before H1 is first used; version 1 was never executed.
+  version:2,name:'H1_RELEASE_LINE_CHECK',
   first_holdout_date:'2026-10-13',
   // Standard readiness: distinct dates, Events, and Events with GT>=2 / GT>=3 after Replay exclusions.
   thresholds:Object.freeze({dates:15,events:100,ge2_events:25,ge3_events:10}),
   cohort:'PRIMARY_LAST_CLOSEST_SNAPSHOT_TO_SUNSET_PER_EVENT',
   bootstrap:Object.freeze({replicates:2000,block:'event_date_local',seed:'H1_RELEASE_LINE_CHECK_1'}),
-  versions:Object.freeze(['2.5.5.0','2.5.5.1','2.5.5.2']),
+  versions:Object.freeze(['2.5.5.0','2.5.5.1','2.5.5.2','2.5.5.4']),
   comparisons:Object.freeze([
     // V2.5.5.1 PRD §6: roll back when the sky-off release does not improve AUC>=3 or raises product loss.
     Object.freeze({id:'V2551_VS_V2550',candidate:'2.5.5.1',control:'2.5.5.0',rollback_rule:'AUC_GE3_NOT_HIGHER_OR_PRODUCT_LOSS_HIGHER'}),
     // V2.5.5.2 PRD §6: roll back when product loss rises or >=2 recall falls by more than 0.05.
-    Object.freeze({id:'V2552_VS_V2551',candidate:'2.5.5.2',control:'2.5.5.1',rollback_rule:'PRODUCT_LOSS_HIGHER_OR_GE2_RECALL_DROP_OVER_0_05'})
+    Object.freeze({id:'V2552_VS_V2551',candidate:'2.5.5.2',control:'2.5.5.1',rollback_rule:'PRODUCT_LOSS_HIGHER_OR_GE2_RECALL_DROP_OVER_0_05'}),
+    // V2.5.5.4 PRD §6: do not release (or roll back) on the same rule against V2.5.5.2.
+    Object.freeze({id:'V2554_VS_V2552',candidate:'2.5.5.4',control:'2.5.5.2',rollback_rule:'PRODUCT_LOSS_HIGHER_OR_GE2_RECALL_DROP_OVER_0_05'})
   ]),
   decision_owner:'PROJECT_OWNER'
 });
 export const LEDGER=path.join(APP_ROOT,'dataset/holdout/usage.jsonl');
 const DEFAULT_KEYS=['version','illuminationModel.bankShare','illuminationModel.twilightSaturationMinutes','skyState.factorCoefficients.arrivalRiskSlope'];
 
-// The three release-line configurations, rebuilt from the current production config.
+// The release-line configurations, rebuilt from the current production config (2.5.5.4 = the candidate fix).
 export async function releaseConfigs(root=APP_ROOT) {
   const production=await loadProduction(root);
   if(production.version.model!==RELEASE_VERSION.model)fail('HOLDOUT_PRODUCTION_VERSION_MISMATCH');
   const v2552=production.scoring,v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
   v2550.version='2.5.5.0';v2550.skyState.factorRange=[0.65,1.15];
-  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552};
+  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':candidateReleaseScoring(v2552)};
 }
 // V2.5.5.0 is the V6 selected configuration plus already-proved default-equivalent fields.
 export function assertV2550(selected,v2550) {
@@ -124,7 +127,7 @@ export async function holdoutCheck(sources,output,{root=APP_ROOT,progress=()=>{}
       event_normalized_weight:row.event_normalized_weight,lead_time_minutes:row.lead_time_minutes,location_key:row.location_key,model_version:row.model_version??null};
     for(const v of policy.versions)scored[`score_${v}`]=(await calculator.calculate(row,configs[v])).score;
     rows.push(scored);
-    if((i+1)%100===0||i+1===checked.rows.length)progress(`H1 核验 ${i+1}/${checked.rows.length}：三个版本重算`);
+    if((i+1)%100===0||i+1===checked.rows.length)progress(`H1 核验 ${i+1}/${checked.rows.length}：各版本重算`);
   }
   const metrics=Object.fromEntries(policy.versions.map(v=>[v,versionMetrics(rows,v,thresholds[v])]));
   progress(`按日期整块抽样（${policy.bootstrap.replicates} 次）`);

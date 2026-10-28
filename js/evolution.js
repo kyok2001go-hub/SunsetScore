@@ -216,7 +216,7 @@
    */
   function fuseEvolution(sources) {
     var cfg = SS.modelConfig.evolution;
-    var radar = sources.radar, satellite = sources.satellite, precip = sources.precip;
+    var radar = sources.radar, satellite = sources.satellite, precip = sources.precip, split = gwSplitMode(cfg), cloudSignal = split ? gwCloudSignal(cfg, sources) : null;
 
     var radarEvo = radar && radar.available && radar.coverageSeries
       ? radarOpenProbability(radar.coverageSeries, cfg.openCoverageThreshold) : null;
@@ -229,7 +229,7 @@
     if (!radarEvo && !satEvo && !(precip && precip.available) && !sources.motionForecast &&
         !valid(sources.sunsetCloudCover)) return null;
 
-    var openProb = corridorOpenProbability(radarEvo, satEvo, precip, sources.motionForecast, sources.nowMs);
+    var openProb = valid(cloudSignal) ? splitOpenProbability(cloudSignal, radarEvo, precip, sources.nowMs, cfg) : corridorOpenProbability(radarEvo, satEvo, precip, sources.motionForecast, sources.nowMs);
 
     /* 小时背景概率（方案 12 章 background 权重）：由小时云量趋势给出弱先验 */
     var bgP = valid(sources.forecastTrend)
@@ -269,7 +269,7 @@
     if (precipCoverageWeight(precip, sources.nowMs, HORIZONS[0]) > 0) evo.sources.push('precip');
     if (sources.motionForecast) evo.sources.push('cloud_motion');
     if (valid(sources.forecastTrend)) evo.sources.push('forecast');
-    evo.sources.push('background');
+    evo.sources.push('background'); if (split) { evo.cloudSignalMode = valid(cloudSignal) ? cfg.cloudSignal : 'LEGACY_FALLBACK'; evo.cloudSignalValue = valid(cloudSignal) ? cloudSignal : null; }
 
     var st = stateMachine(evo);
     evo.state = st.state;
@@ -283,8 +283,8 @@
       /* 分钟数据/云场运动支持的时距内按四档取值；超过支持范围时改用日落时刻的 NWP 云场。 */
       var pSunset;
       if (tSunset > maxEvolutionHorizon) {
-        if (valid(sources.sunsetCloudCover)) {
-          var sunsetNwpProbability = logistic((cfg.openCoverageThreshold - sources.sunsetCloudCover) /
+        if (valid(split && valid(cloudSignal) ? cloudSignal : sources.sunsetCloudCover)) {
+          var sunsetNwpProbability = logistic((cfg.openCoverageThreshold - (split && valid(cloudSignal) ? cloudSignal : sources.sunsetCloudCover)) /
             (cfg.sigma0 + cfg.sigmaPerMin * tSunset));
           pSunset = wBg * bgP + (1 - wBg) * sunsetNwpProbability;
           evo.sunsetProbabilitySource = 'NWP_SUNSET';
@@ -395,4 +395,55 @@
     evaluate: evaluate,
     fuseEvolution: fuseEvolution
   };
+
+  /* ---------- V2.5.5.6 黄金窗口云雨拆分（默认关闭） ----------
+     evolution.cloudSignal 为 'SUN_SIDE_BLOCKING' 或 'TOTAL_CLOUD' 时：P_open(t) = P_cloud(t) × P_rain(t)。
+     P_cloud 用日落时刻的云遮挡量（太阳侧分层遮挡 B 或 33 节点总云量），阈值与 σ(t) 沿用现值；
+     P_rain = 雷达开放概率（evolution.radarRole 为 'IGNORE' 时不用雷达）× 分钟降水雨停修正。
+     缺键或非法值时不进入此路径，旧配置逐位不变。放在文件末尾，避免调优注册表行号锚点偏移。 */
+  function gwSplitMode(cfg) {
+    return cfg.cloudSignal === 'SUN_SIDE_BLOCKING' || cfg.cloudSignal === 'TOTAL_CLOUD';
+  }
+  function gwCloudSignal(cfg, sources) {
+    if (cfg.cloudSignal === 'TOTAL_CLOUD') return valid(sources.sunsetCloudCover) ? sources.sunsetCloudCover : null;
+    return sunSideBlocking(sources.corridorSamples, sources.sunsetMs);
+  }
+  /* 太阳侧分层遮挡 B = 低云 + 0.5 × 中云（0–100），按 horizon 的有效偏移、距离权重、角权重与分区权重聚合。
+     偏移缺失且未配置 centerAzimuthOffset 的样本不参与（不复现 horizon 旧版的 NaN 失效）。 */
+  function sunSideBlocking(samples, sunsetMs) {
+    if (!samples || !samples.length || !valid(sunsetMs)) return null;
+    var sc = SS.modelConfig.scoring, sf = sc.spatialField, fix = sf.centerAzimuthOffset, sectors = { corridor: {}, bank: {} };
+    samples.forEach(function (s) {
+      var point = s.point || {}, offset = point.azimuthOffset;
+      if (offset == null && point.distanceKm === 0 && valid(fix)) offset = fix;
+      if (!valid(offset)) return;
+      var d = SS.cloudField.extractInterpolatedAt(s.forecast, sunsetMs);
+      if (!d || !valid(d.cloud_cover_low) || !valid(d.cloud_cover_mid)) return;
+      var sector = offset === 0 ? sectors.corridor : sectors.bank;
+      (sector[offset] = sector[offset] || []).push({ v: clamp(d.cloud_cover_low + 0.5 * d.cloud_cover_mid, 0, 100),
+        w: sc.horizonDistanceWeights[point.distanceKm] || 0.1 });
+    });
+    function mean(items) {
+      var sum = 0, wsum = 0;
+      items.forEach(function (it) { if (valid(it.v)) { sum += it.w * it.v; wsum += it.w; } });
+      return wsum > 0 ? sum / wsum : null;
+    }
+    function sectorValue(groups) {
+      return mean(Object.keys(groups).map(function (k) {
+        return { v: mean(groups[k]), w: Math.pow(Math.cos(Number(k) * Math.PI / 180), sf.angularPower) };
+      }));
+    }
+    return mean([{ v: sectorValue(sectors.corridor), w: sf.sectorWeights.corridor }, { v: sectorValue(sectors.bank), w: sf.sectorWeights.bank }]);
+  }
+  function splitOpenProbability(cloudValue, radarEvo, precip, nowMs, cfg) {
+    var out = {};
+    HORIZONS.forEach(function (h) {
+      var pCloud = logistic((cfg.openCoverageThreshold - cloudValue) / (cfg.sigma0 + cfg.sigmaPerMin * h));
+      var pRadar = cfg.radarRole !== 'IGNORE' && radarEvo ? safeProbability(radarEvo.openProbability[h + 'm'], 1) : 1;
+      var rainConfidence = safeProbability(rainStopConfidence(precip, h), 0.5);
+      var p = pCloud * pRadar * (1 - precipCoverageWeight(precip, nowMs, h) * (1 - rainConfidence));
+      out[h + 'm'] = Math.round(clamp(safeProbability(p, 0.5), cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
+    });
+    return out;
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
