@@ -3,7 +3,8 @@
  * 自动采集（?replay=1）时额外记录：33 个网格节点的气压层云量 / 相对湿度 / 位势高度（925–250 hPa）、
  * 露点与边界层高度，以及日落方位 0° 射线上 400 / 550 km 两个远点。
  * 只记录、不计分：不进入评分配置、engineInput 或 Replay；失败只记录状态，不影响预测。
- * HTTP 429 时该请求记为 RATE_LIMITED 并跳过，不重试。satellite_shadow 预留给 V2.5.5.8，本期恒为 null。
+ * HTTP 429 时该请求记为 RATE_LIMITED 并跳过，不重试。
+ * V2.5.5.8：对象升为 v2，satellite_shadow 由 js/satellite_shadow.js 填写（Band13 红外影子采集；模块缺失时为 null）。
  * 依据：ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md
  * ============================================================ */
 (function (root) {
@@ -26,7 +27,7 @@
   }
 
   var CONFIG = Object.freeze({
-    bypassSchemaVersion: 1,
+    bypassSchemaVersion: 2,
     api: 'open-meteo/forecast',
     model: 'best_match',
     levels: Object.freeze(LEVELS.slice()),
@@ -111,7 +112,10 @@
       return { key: 'SUNSET_' + distance, bearing_deg: azimuth, distance_km: distance, latitude: p.latitude, longitude: p.longitude };
     });
     var fetchedAt = new Date().toISOString();
-    var results = await Promise.all([fetchOnce(grid, GRID_VARIABLES, context), fetchOnce(far, FAR_VARIABLES, context)]);
+    var shadowPromise = SS.satelliteShadow
+      ? SS.satelliteShadow.capture(context).catch(function (error) { SS.network.throwIfAborted(context.signal); return SS.satelliteShadow.failure(error && (error.code || error.name)); })
+      : Promise.resolve(null);
+    var results = await Promise.all([fetchOnce(grid, GRID_VARIABLES, context), fetchOnce(far, FAR_VARIABLES, context), shadowPromise]);
     var mismatchA = {}, mismatchB = {};
     var gridNodes = grid.map(function (n, i) { return nodeRecord(n, results[0].forecasts[i], GRID_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchA); });
     var farNodes = far.map(function (n, i) { return nodeRecord(n, results[1].forecasts[i], FAR_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchB); });
@@ -130,7 +134,7 @@
         B: { status: results[1].status, reason_code: results[1].reason_code, variables: FAR_VARIABLES.slice() }
       },
       time_axis: 'utc_iso8601', units: units, grid_nodes: gridNodes, far_nodes: farNodes, quality: q,
-      satellite_shadow: null
+      satellite_shadow: results[2]
     };
   }
 

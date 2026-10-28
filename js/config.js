@@ -4,7 +4,8 @@
  * 走廊中心节点补齐方位偏移（spatialField.centerAzimuthOffset = 0），horizon 的 ±30° 云幕区与中心点恢复生效，
  * 云幕对比度与空间梯度同步使用有效偏移。其余沿用既有值。
  * 应用 V2.5.5.7（模型仍为 2.5.5.4）：自动采集时增加只记录、不计分的旁路采集（js/bypass_capture.js），评分配置不变。
- * 依据：ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
+ * 应用 V2.5.5.8：旁路对象增加 Band13 红外卫星影子采集（js/satellite_shadow.js），只记录、不计分。
+ * 依据：ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -12,10 +13,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.7',
+    app: '2.5.5.8',
     model: '2.5.5.4',
     schema: 3,
-    assetRevision: 'app2557',
+    assetRevision: 'app2558',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3

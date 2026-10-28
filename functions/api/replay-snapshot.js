@@ -16,7 +16,7 @@ import {
   canonicalJson,
   validateReplayPayload
 } from '../../server/replay-schema.js';
-import { BYPASS_SCHEMA_VERSION, bypassObjectKey, validateBypassPayload } from '../../server/bypass-schema.js';
+import { bypassObjectKey, validateBypassPayload } from '../../server/bypass-schema.js';
 
 const STALE_PENDING_MS = 10 * 60 * 1000;
 const ALL_FIELDS = Object.freeze([...SNAPSHOT_INSERT_FIELDS, ...SNAPSHOT_REPLAY_METADATA_FIELDS]);
@@ -199,7 +199,7 @@ async function storeBypass(bucket, replayKey, bypass, row) {
       onlyIf: { etagDoesNotMatch: '*' },
       sha256: await digestBytes(compressed),
       httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
-      customMetadata: { content_sha256: sha, bypass_schema_version: String(BYPASS_SCHEMA_VERSION), snapshot_id: row.id, event_id: row.event_id }
+      customMetadata: { content_sha256: sha, bypass_schema_version: String(bypass.bypass_schema_version), snapshot_id: row.id, event_id: row.event_id }
     });
     return created ? 'SAVED' : 'EXISTS';
   } catch {

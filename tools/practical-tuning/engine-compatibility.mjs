@@ -12,9 +12,10 @@ import { digest } from './policy.mjs';
 // V2.5.5.6 changes js/evolution.js (golden-window cloud/rain split behind evolution.cloudSignal); with the key absent the factor is unchanged.
 // V2.5.5.4 release changes js/config.js (version 2.5.5.4 / app2554, spatialField.centerAzimuthOffset 0); explicit historical configs carry their own values.
 // V2.5.5.7 changes js/config.js again (app version 2.5.5.7 / app2557 only; model and scoring configuration unchanged).
+// V2.5.5.8 changes js/config.js again (app version 2.5.5.8 / app2558 only; model and scoring configuration unchanged).
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
-  "js/config.js": "d45accc7350fb64d893b4f2f93555f5e2053986828824d7e19737cca7aa69e5d",
+  "js/config.js": "466197d5dbd77ee68761270db1b4ccfe04ed26da7a72415b2560bc9ffad3c68d",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
@@ -130,6 +131,17 @@ const ORIGINS = Object.freeze([
     "files": {
       "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
       "js/config.js": "531941d184569904e7c717826e05a45bc94b644d1d5e9c704f9d7af49f2bd5d3",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+    }
+  },
+  // V2.5.5.7 release (bypass capture V1); differs from the current pins only in js/config.js.
+  {
+    "engine": "9ef8009f5238856d91833bc0c7b2d572291104ec79c7a8efdae2f2261f0b5446",
+    "files": {
+      "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "d45accc7350fb64d893b4f2f93555f5e2053986828824d7e19737cca7aa69e5d",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"

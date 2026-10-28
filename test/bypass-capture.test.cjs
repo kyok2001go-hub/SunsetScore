@@ -77,7 +77,10 @@ test('Schema keeps satellite_shadow reserved, binds to the Replay and rejects un
   const schema = await import('../server/bypass-schema.js');
   const base = plain(await clientRuntime(openMeteoFetch([])).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
   const mutate = fn => { const copy = structuredClone(base); fn(copy); return () => schema.validateBypassPayload(copy, expected); };
-  assert.throws(mutate(b => { b.satellite_shadow = { frames: [] }; }), /BYPASS_SATELLITE_SHADOW_NOT_DEFINED/);
+  // v1 objects keep satellite_shadow reserved (null only); v2 objects validate it as the V2.5.5.8 shadow object.
+  assert.throws(mutate(b => { b.bypass_schema_version = 1; b.satellite_shadow = { frames: [] }; }), /BYPASS_SATELLITE_SHADOW_NOT_DEFINED/);
+  assert.doesNotThrow(mutate(b => { b.bypass_schema_version = 1; }));
+  assert.throws(mutate(b => { b.satellite_shadow = { frames: [] }; }), /satellite_shadow 缺少字段/);
   assert.throws(mutate(b => { delete b.satellite_shadow; }), /缺少字段：satellite_shadow/);
   assert.throws(mutate(b => { b.snapshot_id = 'snap_x'; }), /snapshot_id/);
   assert.throws(mutate(b => { b.latitude += 0.001; }), /BYPASS_BINDING_MISMATCH/);
@@ -149,10 +152,10 @@ test('Endpoint stores the bypass object next to a READY Replay; its failures nev
   assert.deepEqual([ok.first.replayStatus, ok.first.bypassStatus, ok.retry.deduplicated, ok.retry.bypassStatus], ['READY', 'SAVED', true, 'EXISTS']);
   assert.equal(R2.objects.size, 2);
   const stored = R2.objects.get(ok.row.replay_object_key.replace(/\.json\.gz$/, '.bypass.json.gz'));
-  assert.equal(stored.customMetadata.snapshot_id, ok.first.id); assert.equal(stored.customMetadata.bypass_schema_version, '1');
+  assert.equal(stored.customMetadata.snapshot_id, ok.first.id); assert.equal(stored.customMetadata.bypass_schema_version, '2');
   const noBypass = await run(await envelope(), bucket());
   assert.deepEqual([noBypass.first.replayStatus, noBypass.first.bypassStatus], ['READY', 'ABSENT']);
-  const reserved = structuredClone(bypass); reserved.satellite_shadow = { frames: [] };
+  const reserved = structuredClone(bypass); reserved.bypass_schema_version = 1; reserved.satellite_shadow = { frames: [] };
   const R2b = bucket(), invalid = await run(await envelope(reserved), R2b);
   assert.deepEqual([invalid.first.replayStatus, invalid.first.bypassStatus, R2b.objects.size], ['READY', 'BYPASS_SATELLITE_SHADOW_NOT_DEFINED', 1]);
   const outage = await run(await envelope(structuredClone(bypass)), bucket({ failBypassPut: true }));
