@@ -23,7 +23,8 @@ export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horiz
   'evolution.openCoverageThreshold':35,'evolution.satelliteOpenThreshold':40,'goldenWindow.reference':.826654,levels:RELEASE_LEVELS,
   // V2.5.5.4: corridor-centre azimuth fix.
   'spatialField.centerAzimuthOffset':0});
-export const RELEASE_VERSION=Object.freeze({app:'2.5.5.4',model:'2.5.5.4',assetRevision:'app2554'});
+// V2.5.5.7 changes the app only (record-only bypass capture); model and scoring configuration stay 2.5.5.4.
+export const RELEASE_VERSION=Object.freeze({app:'2.5.5.7',model:'2.5.5.4',assetRevision:'app2557'});
 // The previous release, rebuilt from production by removing the V2.5.5.4 key; it must reproduce V2552_REFERENCE.
 export const V2552_VERSION='2.5.5.2';
 export function v2552Scoring(scoring) {

@@ -460,6 +460,11 @@
     var spatialPromise = timed(timing, 'spatial_batch_ms', function () {
       return gatherSky(mode, location, solar, localForecast, localDate, ttlMinutes, spatialOptions);
     });
+    /* V2.5.5.7 旁路采集：只在自动采集（captureReplay）时与评分请求并行发出；只记录、不进入评分，失败只记状态。 */
+    var bypassPromise = options.captureReplay && SS.bypassCapture
+      ? SS.bypassCapture.capture({ location: location, solar: solar, nowUtcMs: nowUtcMs, signal: options.signal })
+        .catch(function () { return null; }) /* 取消或异常都不影响预测；预测自身的取消照常处理 */
+      : null;
     var settled = await Promise.allSettled([airPromise, precipPromise, spatialPromise]);
     SS.network.throwIfAborted(options.signal);
     var airQuality = settled[0].status === 'fulfilled' ? settled[0].value.value : null;
@@ -559,6 +564,7 @@
       result.replay_payload = await SS.replayService.capture({
         result: result, context: context, spatial: spatial, engineInput: engineInput
       });
+      result.bypass_payload = bypassPromise ? await bypassPromise : null;
     }
     return result;
   }

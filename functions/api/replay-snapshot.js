@@ -16,6 +16,7 @@ import {
   canonicalJson,
   validateReplayPayload
 } from '../../server/replay-schema.js';
+import { BYPASS_SCHEMA_VERSION, bypassObjectKey, validateBypassPayload } from '../../server/bypass-schema.js';
 
 const STALE_PENDING_MS = 10 * 60 * 1000;
 const ALL_FIELDS = Object.freeze([...SNAPSHOT_INSERT_FIELDS, ...SNAPSHOT_REPLAY_METADATA_FIELDS]);
@@ -182,6 +183,31 @@ async function ensureObject(bucket, key, bytes, replaySha, compressedDigest, row
   return current;
 }
 
+// V2.5.5.7 record-only bypass object, stored next to a READY Replay. Any failure here is reported through
+// bypassStatus only and never changes the Snapshot or Replay outcome.
+async function storeBypass(bucket, replayKey, bypass, row) {
+  if (!bypass) return 'ABSENT';
+  try {
+    bypass.snapshot_id = row.id;
+    const serialized = canonicalJson(bypass);
+    const sha = hex(await digestBytes(new TextEncoder().encode(serialized)));
+    const key = bypassObjectKey(replayKey);
+    const current = await bucket.head(key);
+    if (current) return current.customMetadata && current.customMetadata.content_sha256 === sha ? 'EXISTS' : 'CONFLICT';
+    const compressed = await gzip(serialized);
+    const created = await bucket.put(key, compressed, {
+      onlyIf: { etagDoesNotMatch: '*' },
+      sha256: await digestBytes(compressed),
+      httpMetadata: { contentType: 'application/json', contentEncoding: 'gzip' },
+      customMetadata: { content_sha256: sha, bypass_schema_version: String(BYPASS_SCHEMA_VERSION), snapshot_id: row.id, event_id: row.event_id }
+    });
+    return created ? 'SAVED' : 'EXISTS';
+  } catch {
+    console.error(JSON.stringify({ event: 'bypass_ingest_error', errorCode: 'BYPASS_R2_PUT_FAILED', snapshotId: row.id, eventId: row.event_id }));
+    return 'R2_PUT_FAILED';
+  }
+}
+
 export async function onRequestPost({ request, env }) {
   const auth = await authorized(request, env || {});
   if (!auth.ok) return auth.response;
@@ -198,8 +224,8 @@ export async function onRequestPost({ request, env }) {
   try {
     const body = await readJsonBody(request, REPLAY_MAX_BODY_BYTES);
     if (!body || typeof body !== 'object' || Array.isArray(body) || !body.snapshot || !body.replay ||
-        Object.keys(body).some((key) => key !== 'snapshot' && key !== 'replay')) {
-      throw new ValidationError('请求必须只包含 snapshot 与 replay');
+        Object.keys(body).some((key) => key !== 'snapshot' && key !== 'replay' && key !== 'bypass')) {
+      throw new ValidationError('请求只能包含 snapshot、replay 与可选的 bypass');
     }
     row = await buildSnapshotRow(body.snapshot);
     if (!['github_schedule', 'github_manual'].includes(row.snapshot_source)) {
@@ -228,6 +254,20 @@ export async function onRequestPost({ request, env }) {
       return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: false, replayStatus: 'FAILED', errorCode: 'INVALID_REPLAY' });
     }
 
+    // The bypass part is validated against this Replay; an invalid bypass is dropped and reported, the Replay proceeds.
+    let bypass = null, bypassStatus = body.bypass == null ? 'ABSENT' : null;
+    if (body.bypass != null) {
+      try {
+        bypass = validateBypassPayload(body.bypass, { prediction_time_utc: replay.identity.prediction_time_utc,
+          sunset_time_utc: replay.context.sunset_time_utc, latitude: replay.context.latitude, longitude: replay.context.longitude });
+      } catch (error) {
+        if (!(error instanceof ValidationError)) throw error;
+        bypassStatus = /^BYPASS_[A-Z_]+$/.test(error.message) ? error.message : 'INVALID_BYPASS';
+        console.warn(JSON.stringify({ event: 'bypass_ingest_warning', errorCode: bypassStatus, snapshotId: row.id }));
+      }
+    }
+    const finishBypass = async (replayKey) => bypassStatus || storeBypass(env.REPLAY_BUCKET, replayKey, bypass, row);
+
     replay.identity.snapshot_id = row.id;
     replay.identity.event_id = row.event_id;
     const serialized = canonicalJson(replay);
@@ -250,7 +290,8 @@ export async function onRequestPost({ request, env }) {
         return json({ success: false, error: 'Replay 内容冲突', errorCode: 'OBJECT_HASH_CONFLICT' }, 409);
       }
       if (readyObject) {
-        return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: true, replayStatus: 'READY', deduplicated: true });
+        return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: true, replayStatus: 'READY', deduplicated: true,
+          bypassStatus: await finishBypass(duplicate.replay_object_key) });
       }
       await recoverMissingReadyObject(env.DB, row.id, {
         now, sha256: replaySha, objectKey: duplicate.replay_object_key
@@ -304,7 +345,7 @@ export async function onRequestPost({ request, env }) {
       await setReady(env.DB, row.id, new Date().toISOString(), stored.etag);
       return json({ success: true, id: row.id, snapshotSaved: true, replaySaved: true,
         replayStatus: 'READY', replaySizeBytes: compressed.byteLength, replaySha256: replaySha,
-        deduplicated: !!duplicate });
+        deduplicated: !!duplicate, bypassStatus: await finishBypass(key) });
     } catch {
       console.error(JSON.stringify({ event: 'replay_ingest_error', errorCode: 'READY_UPDATE_FAILED',
         snapshotId: row.id, eventId: row.event_id }));

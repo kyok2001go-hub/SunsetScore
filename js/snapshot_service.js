@@ -121,7 +121,10 @@
     if (!result || !result.replay_payload || result.replay_payload.replay_schema_version !== 1) {
       throw new Error('FAILED_REPLAY_CAPTURE');
     }
-    return { snapshot: await buildPayload(result, options), replay: result.replay_payload };
+    var envelope = { snapshot: await buildPayload(result, options), replay: result.replay_payload };
+    /* V2.5.5.7：旁路对象只在采集时存在，与 Replay 同一请求上传；缺失时不带该字段。 */
+    if (result.bypass_payload) envelope.bypass = result.bypass_payload;
+    return envelope;
   }
 
   SS.snapshotService = { buildPayload: buildPayload, buildReplayEnvelope: buildReplayEnvelope, send: send, submit: submit };

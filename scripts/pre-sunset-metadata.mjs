@@ -418,7 +418,7 @@ export function createPlaywrightAdapter(browser) {
       }
       return { remote: true, id: data.id, replayStatus: data.replayStatus,
         replaySizeBytes: data.replaySizeBytes, replaySha256: data.replaySha256,
-        deduplicated: !!data.deduplicated };
+        deduplicated: !!data.deduplicated, bypassStatus: typeof data.bypassStatus === 'string' ? data.bypassStatus : null };
     },
 
     async screenshot(session, city, index, status, config) {
