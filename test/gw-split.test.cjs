@@ -10,6 +10,7 @@ const sunsetMs = Date.parse('2026-08-26T18:30:00Z');
 // 33-point grid: centre low 80 / mid 20 (blocking 90); every ring node low 40 / mid 20 (blocking 50).
 function setup(patch = {}, scoringPatch = {}) {
   const SS = load(createRuntime(), CORE_FILES), lat = 31.23, lon = 121.47;
+  delete SS.config.spatialField.centerAzimuthOffset; // start from the V2.5.5.2 behaviour; production carries the key since V2.5.5.4
   Object.assign(SS.config.evolution, patch); Object.assign(SS.config.spatialField, scoringPatch);
   const sky = SS.cloudField.generateGridNodes(lat, lon).map(p => ({ point: p,
     forecast: forecast(p.distanceKm === 0 ? { low: 80, mid: 20, high: 10, cloud: 90 } : { low: 40, mid: 20, high: 10, cloud: 50 }) }));

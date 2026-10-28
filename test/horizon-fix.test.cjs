@@ -10,6 +10,7 @@ async function api() { return modules ||= Promise.all(['practical-tuning/p0-feat
 // values, so the hand results are: 0° ray opening 60; centre opening 20; ±30° bank opening 60.
 function runEngine(spatialPatch, centreOffset) {
   const SS = load(createRuntime(), CORE_FILES), lat = 31.23, lon = 121.47, sunset = new Date('2026-08-26T18:30:00Z');
+  delete SS.config.spatialField.centerAzimuthOffset; // start from the V2.5.5.2 behaviour; production carries the key since V2.5.5.4
   Object.assign(SS.config.spatialField, spatialPatch);
   const sky = SS.cloudField.generateGridNodes(lat, lon).map(p => ({ point: centreOffset != null && p.distanceKm === 0 ? { ...p, azimuthOffset: centreOffset } : p,
     forecast: forecast(p.distanceKm === 0 ? { low: 80, high: 70, mid: 20, cloud: 90 } : { low: 40, high: 30, mid: 10, cloud: 50 }) }));

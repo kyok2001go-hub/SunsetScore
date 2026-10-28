@@ -1,8 +1,9 @@
 /* ============================================================
- * SunsetScore Model V2.5.5.2 - 黄金窗口与等级分数线校准
- * 在 V2.5.5.1（天空演化因子固定为 1）基础上：黄金窗口开放阈值 20→35（卫星 25→40），
- * 黄金窗口因子以 1 为中心（goldenWindow.reference），等级分数线改为 22/47/66/90。其余沿用既有值。
- * 依据：ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
+ * SunsetScore Model V2.5.5.4 - 地平线中心节点方位修正
+ * 在 V2.5.5.2（黄金窗口开放阈值 35 / 卫星 40、因子以 1 为中心、等级分数线 22/47/66/90）基础上：
+ * 走廊中心节点补齐方位偏移（spatialField.centerAzimuthOffset = 0），horizon 的 ±30° 云幕区与中心点恢复生效，
+ * 云幕对比度与空间梯度同步使用有效偏移。其余沿用既有值。
+ * 依据：ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -10,10 +11,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.2',
-    model: '2.5.5.2',
+    app: '2.5.5.4',
+    model: '2.5.5.4',
     schema: 3,
-    assetRevision: 'app2552',
+    assetRevision: 'app2554',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3
@@ -44,6 +45,8 @@
       /* 分区权重：0°→走廊，±30°→云幕区；Side Sky 暂无采样点，
          计算时按可用分区重新归一（方案 3.2 节） */
       sectorWeights: { corridor: 0.6, bank: 0.3, side: 0.1 },
+      /* V2.5.5.4：走廊中心节点（0 km）的有效方位偏移。缺省时中心节点缺少偏移，±30° 云幕区在 horizon 中失效 */
+      centerAzimuthOffset: 0,
       /* 距离半开区间分带：[0,50) near / [50,100) medium / [100,200) far / [200,300] veryFar */
       distanceBands: { near: 0.15, medium: 0.25, far: 0.35, veryFar: 0.25 },
       /* 分带预报可信度：距离越远预报误差越大（方案 2.2 节） */

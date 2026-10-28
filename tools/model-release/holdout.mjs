@@ -10,7 +10,7 @@ import {preflight,replayCalculator,gradeThresholdsOf} from '../practical-tuning/
 import {digest} from '../practical-tuning/policy.mjs';
 import {productMetrics,weightedRows} from '../product-evaluation/metrics.mjs';
 import {gradeScore} from '../evaluation/metrics.mjs';
-import {loadProduction,previousReleaseScoring,candidateReleaseScoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
+import {loadProduction,previousReleaseScoring,candidateReleaseScoring,v2552Scoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
 
 export const HOLDOUT_POLICY=Object.freeze({
   // Version 2 (V2.5.5.4 PRD §3.5) adds the V2.5.5.4 candidate before H1 is first used; version 1 was never executed.
@@ -34,13 +34,15 @@ export const HOLDOUT_POLICY=Object.freeze({
 export const LEDGER=path.join(APP_ROOT,'dataset/holdout/usage.jsonl');
 const DEFAULT_KEYS=['version','illuminationModel.bankShare','illuminationModel.twilightSaturationMinutes','skyState.factorCoefficients.arrivalRiskSlope'];
 
-// The release-line configurations, rebuilt from the current production config (2.5.5.4 = the candidate fix).
+// The release-line configurations, rebuilt from the current production config (2.5.5.4 since its release).
 export async function releaseConfigs(root=APP_ROOT) {
   const production=await loadProduction(root);
   if(production.version.model!==RELEASE_VERSION.model)fail('HOLDOUT_PRODUCTION_VERSION_MISMATCH');
-  const v2552=production.scoring,v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
+  const v2554=production.scoring,v2552=v2552Scoring(v2554),v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
   v2550.version='2.5.5.0';v2550.skyState.factorRange=[0.65,1.15];
-  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':candidateReleaseScoring(v2552)};
+  // Adding the fix back to the rebuilt 2.5.5.2 must give production exactly (no other default drifted).
+  if(differences(candidateReleaseScoring(v2552),v2554).length)fail('HOLDOUT_V2554_RECONSTRUCTION_MISMATCH');
+  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':v2554};
 }
 // V2.5.5.0 is the V6 selected configuration plus already-proved default-equivalent fields.
 export function assertV2550(selected,v2550) {

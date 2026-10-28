@@ -9,19 +9,22 @@ const serviceFiles=[...CORE_FILES,'js/vendor/suncalc.js','js/solar.js','js/cache
   'js/sampling.js','js/corridor.js','js/nowcast.js','js/replay_service.js','js/prediction_service.js',
   'js/event_service.js','js/snapshot_service.js','js/feedback_service.js'];
 
-test('release loads real production aliases, admits only nine declared metadata/default/sky-off/V2.5.5.2 diffs, hashes real Replay config',async()=>{
+test('release loads real production aliases, admits only ten declared metadata/default/sky-off/V2.5.5.2/V2.5.5.4 diffs, hashes real Replay config',async()=>{
   const m=await import('../tools/model-release/release.mjs'),p=await m.loadProduction();
   const source=JSON.parse(await fs.readFile(path.join(__dirname,'fixtures/model-2550-selected-config.json'),'utf8'));
-  assert.equal(p.version.app,'2.5.5.2');assert.equal(p.version.model,'2.5.5.2');assert.equal(p.version.assetRevision,'app2552');
+  assert.equal(p.version.app,'2.5.5.4');assert.equal(p.version.model,'2.5.5.4');assert.equal(p.version.assetRevision,'app2554');assert.equal(p.scoring.spatialField.centerAzimuthOffset,0);
   assert.equal(p.model.scoring,p.SS.config);assert.equal(p.model.goldenWindow,p.model.scoring.goldenWindow);
-  assert.equal(m.compareSelected(source,p.scoring).length,9);
+  assert.equal(m.compareSelected(source,p.scoring).length,10);
   assert.equal(p.scoring.evolution.openCoverageThreshold,35);assert.equal(p.scoring.evolution.satelliteOpenThreshold,40);assert.equal(p.scoring.goldenWindow.reference,.826654);
   assert.deepEqual(JSON.parse(JSON.stringify(p.scoring.levels)).map(l=>l.min),[90,66,47,22,0]);
-  for(const [key,value] of [['evolution.openCoverageThreshold',20],['goldenWindow.reference',undefined],['levels',JSON.parse(JSON.stringify(m.LEGACY_LEVELS))]]){
+  for(const [key,value] of [['evolution.openCoverageThreshold',20],['goldenWindow.reference',undefined],['levels',JSON.parse(JSON.stringify(m.LEGACY_LEVELS))],['spatialField.centerAzimuthOffset',undefined]]){
     const back=structuredClone(p.scoring),parts=key.split('.');const parent=parts.length===2?back[parts[0]]:back;if(value===undefined)delete parent[parts.at(-1)];else parent[parts.at(-1)]=value;
     assert.throws(()=>m.compareSelected(source,back),/UNEXPECTED_RELEASE|RELEASE_PARAMETER/,key);
   }
-  const previous=m.previousReleaseScoring(p.scoring);assert.equal(previous.evolution.openCoverageThreshold,20);assert.equal('reference' in previous.goldenWindow,false);assert.deepEqual(JSON.parse(JSON.stringify(previous.levels.map(l=>l.min))),[90,60,40,20,0]);
+  // V2.5.5.2 is rebuilt from production by removing the V2.5.5.4 key; adding it back gives production exactly.
+  const v2552=m.v2552Scoring(p.scoring);assert.equal(v2552.version,'2.5.5.2');assert.equal('centerAzimuthOffset' in v2552.spatialField,false);
+  assert.deepEqual(m.differences(m.candidateReleaseScoring(v2552),p.scoring),[]);assert.throws(()=>m.v2552Scoring(v2552),/RELEASE_V2552_BASE_MISMATCH/);
+  const previous=m.previousReleaseScoring(v2552);assert.equal(previous.evolution.openCoverageThreshold,20);assert.equal('reference' in previous.goldenWindow,false);assert.deepEqual(JSON.parse(JSON.stringify(previous.levels.map(l=>l.min))),[90,60,40,20,0]);
   assert.deepEqual(JSON.parse(JSON.stringify(p.scoring.skyState.factorRange)),[1,1]);
   const skyBack=structuredClone(p.scoring);skyBack.skyState.factorRange=[0.65,1.15];assert.throws(()=>m.compareSelected(source,skyBack),/UNEXPECTED_RELEASE|RELEASE_PARAMETER/);
   const bad=structuredClone(p.scoring);bad.highCloudCenter=61;assert.throws(()=>m.compareSelected(source,bad),/UNEXPECTED_RELEASE/);
@@ -30,14 +33,14 @@ test('release loads real production aliases, admits only nine declared metadata/
     assert.notEqual(p.SS.modelConfigKey(),before,key);parent[k]-=.001;
   }
   const effective=await m.captureEffective(p.SS);
-  assert.equal(effective.effective_config.scoring.version,'2.5.5.2');
+  assert.equal(effective.effective_config.scoring.version,'2.5.5.4');assert.equal(effective.effective_config.scoring.spatialField.centerAzimuthOffset,0);
   assert.equal(effective.effective_config.goldenWindow.reference,.826654);assert.deepEqual(JSON.parse(JSON.stringify(effective.effective_config.scoring.levels.map(l=>l.min))),[90,66,47,22,0]);
   assert.deepEqual(JSON.parse(JSON.stringify(effective.effective_config.scoring.skyState.factorRange)),[1,1]);
   assert.equal(effective.effective_config.scoring.goldenWindow.floor,.507692307692);
   assert.equal(effective.config_hash,await p.SS.replayService.sha256(p.SS.replayService.canonicalJson(effective.effective_config)));
   const html=await fs.readFile(path.join(__dirname,'../index.html'),'utf8');
-  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.5.5.2-app2552')));
-  assert.match(html,/sunset-score-v2\.5\.5\.2/);
+  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.5.5.4-app2554')));
+  assert.match(html,/sunset-score-v2\.5\.5\.4/);
 });
 
 test('new production default has independent component, normalized weight and final score expectations',()=>{
@@ -64,7 +67,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   SS.data.fetchForecastWithRetry=async()=>fc;SS.data.fetchAirQuality=async()=>null;
   SS.data.gather=async nodes=>({samples:nodes.map(point=>({point,forecast:fc})),successCount:nodes.length});
   const opts={location,nowUtcMs:Date.parse('2026-08-26T17:00:00Z')},query=()=>SS.prediction.predict('31.23,121.47',opts);
-  const first=await query();assert.equal(first.app_version,'2.5.5.2');assert.equal(first.model_version,'2.5.5.2');assert.equal(first.sky_evolution_factor,1);assert.equal((await query()).result_cache_status,'HIT');
+  const first=await query();assert.equal(first.app_version,'2.5.5.4');assert.equal(first.model_version,'2.5.5.4');assert.equal(first.sky_evolution_factor,1);assert.equal((await query()).result_cache_status,'HIT');
   const index=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),cached=SS.cache.get(index.resultKey);
   SS.cache.set(index.resultKey,{...cached,model_version:'2.4.6'},60);assert.equal((await query()).result_cache_status,'MISS');
   const currentIndex=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),currentCache=SS.cache.get(currentIndex.resultKey);
@@ -72,7 +75,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   SS.config.weights.skyCanvas+=.001;assert.equal((await query()).result_cache_status,'MISS');assert.equal((await query()).result_cache_status,'HIT');SS.config.weights.skyCanvas-=.001;
   SS.config.midCloudCenter+=1;assert.equal((await query()).result_cache_status,'MISS');SS.config.midCloudCenter-=1;
   const captured=await SS.prediction.predict('31.23,121.47',{...opts,captureReplay:true}),replay=captured.replay_payload;
-  assert.equal(replay.context.app_version,'2.5.5.2');assert.equal(replay.identity.model_version,'2.5.5.2');assert.equal(replay.context.asset_revision,'app2552');
+  assert.equal(replay.context.app_version,'2.5.5.4');assert.equal(replay.identity.model_version,'2.5.5.4');assert.equal(replay.context.asset_revision,'app2554');
   assert.equal(replay.effective_config.goldenWindow.reference,.826654);assert.equal(replay.effective_config.evolution.openCoverageThreshold,35);
   assert.deepEqual(JSON.parse(JSON.stringify(replay.effective_config.skyState.factorRange)),[1,1]);
   assert.equal(replay.effective_config.scoring.midCloudCenter,54);assert.equal(replay.effective_config.scoring.weights.weather,0);
@@ -82,7 +85,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   assert.equal(replay.identity.config_hash,(await captureEffective((await loadProduction()).SS)).config_hash);
   const payload=await SS.snapshotService.buildPayload(captured,{source:'github_schedule',scheduledSlot:'1213',nowUtcMs:opts.nowUtcMs});
   const row=await (await import('../server/event-dataset.js')).buildSnapshotRow(payload);
-  assert.equal(row.app_version,'2.5.5.2');assert.equal(row.model_version,'2.5.5.2');assert.equal(row.sky_evolution_factor,1);await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
+  assert.equal(row.app_version,'2.5.5.4');assert.equal(row.model_version,'2.5.5.4');assert.equal(row.sky_evolution_factor,1);await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
   assert.equal(captured.nowcast_active,true);assert.ok(captured.sky_evolution);
   assert.equal(captured.score,Math.round(SS.domain.clamp(captured.base_score*captured.sky_evolution_factor*captured.sky_evolution.gwFactor,0,100)));
   const range=SS.evolution.goldenWindowFactorRange();near(range[0],.507692307692/.826654);near(range[1],1/.826654);

@@ -20,8 +20,17 @@ export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horiz
   // V2.5.5.1: sky evolution disabled.
   'skyState.factorRange':[1,1],
   // V2.5.5.2: golden-window open thresholds, centred factor and grade lines.
-  'evolution.openCoverageThreshold':35,'evolution.satelliteOpenThreshold':40,'goldenWindow.reference':.826654,levels:RELEASE_LEVELS});
-export const RELEASE_VERSION=Object.freeze({app:'2.5.5.2',model:'2.5.5.2',assetRevision:'app2552'});
+  'evolution.openCoverageThreshold':35,'evolution.satelliteOpenThreshold':40,'goldenWindow.reference':.826654,levels:RELEASE_LEVELS,
+  // V2.5.5.4: corridor-centre azimuth fix.
+  'spatialField.centerAzimuthOffset':0});
+export const RELEASE_VERSION=Object.freeze({app:'2.5.5.4',model:'2.5.5.4',assetRevision:'app2554'});
+// The previous release, rebuilt from production by removing the V2.5.5.4 key; it must reproduce V2552_REFERENCE.
+export const V2552_VERSION='2.5.5.2';
+export function v2552Scoring(scoring) {
+  if(scoring.version!==RELEASE_VERSION.model||scoring.spatialField?.centerAzimuthOffset!==0)fail('RELEASE_V2552_BASE_MISMATCH');
+  const previous=structuredClone(scoring);previous.version=V2552_VERSION;delete previous.spatialField.centerAzimuthOffset;
+  return previous;
+}
 // The deployed V2.5.5.1 equals the V2.5.6 SC-SKY-OFF configuration on the same 655 members; rebuilding it from the
 // release configuration (V2.5.5.2 changes reverted) must reproduce that signature before the new release is compared.
 export const SKY_OFF_REFERENCE=Object.freeze({source:'V2.5.6 signal run practical_tuning_v7_d3a8721fad7cd295b517, ablation AB-SKY; deployed as V2.5.5.1',
@@ -35,7 +44,7 @@ export const V2552_REFERENCE=Object.freeze({prediction_signature_sha256:'2404453
 // FIX-H (scope HORIZON) limits the fix to the horizon sectors and exists for attribution only.
 export const CANDIDATE_VERSION='2.5.5.4';
 export function candidateReleaseScoring(scoring,{scope='ALL'}={}) {
-  if(scoring.version!==RELEASE_VERSION.model||scoring.spatialField?.centerAzimuthOffset!=null)fail('RELEASE_CANDIDATE_BASE_MISMATCH');
+  if(scoring.version!==V2552_VERSION||scoring.spatialField?.centerAzimuthOffset!=null)fail('RELEASE_CANDIDATE_BASE_MISMATCH');
   if(!['ALL','HORIZON'].includes(scope))fail('RELEASE_CANDIDATE_SCOPE_UNKNOWN');
   const next=structuredClone(scoring);next.version=CANDIDATE_VERSION;next.spatialField.centerAzimuthOffset=0;
   if(scope==='HORIZON')next.spatialField.centerAzimuthOffsetScope='HORIZON';
@@ -48,7 +57,7 @@ export const V2554_REFERENCE=Object.freeze({prediction_signature_sha256:'e5102d7
 // A 2.5.5.2 base is accepted for the robustness row (A1@2.5.5.2, PRD §4.4).
 export const AOD_CANDIDATE_VERSION='2.5.5.5';
 export function aodCandidateScoring(scoring) {
-  if(![RELEASE_VERSION.model,CANDIDATE_VERSION].includes(scoring.version)||scoring.aodResponse!=null)fail('RELEASE_AOD_CANDIDATE_BASE_MISMATCH');
+  if(![V2552_VERSION,CANDIDATE_VERSION].includes(scoring.version)||scoring.aodResponse!=null)fail('RELEASE_AOD_CANDIDATE_BASE_MISMATCH');
   const next=structuredClone(scoring);next.version=AOD_CANDIDATE_VERSION;next.aodResponse='HALF_GAUSSIAN';
   return next;
 }
@@ -85,11 +94,12 @@ export async function loadProduction(root=APP_ROOT) {
 export function compareSelected(source,runtime) {
   const d=differences(source,runtime),allowed={version:['2.4.6',RELEASE_VERSION.model],'illuminationModel.bankShare':[null,.5],'illuminationModel.twilightSaturationMinutes':[null,35],
     'skyState.factorCoefficients.arrivalRiskSlope':[null,.3],'skyState.factorRange':[[0.65,1.15],[1,1]],
-    'evolution.openCoverageThreshold':[20,35],'evolution.satelliteOpenThreshold':[25,40],'goldenWindow.reference':[null,.826654],levels:[LEGACY_LEVELS,RELEASE_LEVELS]};
-  if(d.length!==9||d.some(v=>!allowed[v.path]||digest([v.source,v.runtime])!==digest(allowed[v.path])))fail('UNEXPECTED_RELEASE_CONFIG_DIFFERENCE');
+    'evolution.openCoverageThreshold':[20,35],'evolution.satelliteOpenThreshold':[25,40],'goldenWindow.reference':[null,.826654],levels:[LEGACY_LEVELS,RELEASE_LEVELS],
+    'spatialField.centerAzimuthOffset':[null,0]};
+  if(d.length!==10||d.some(v=>!allowed[v.path]||digest([v.source,v.runtime])!==digest(allowed[v.path])))fail('UNEXPECTED_RELEASE_CONFIG_DIFFERENCE');
   for(const [p,v]of Object.entries(RELEASE_VALUES))if(digest(at(runtime,p))!==digest(v))fail('RELEASE_PARAMETER_MISMATCH');
   const reasons={version:'EXPLICIT_MODEL_IDENTITY_CHANGE','skyState.factorRange':'V2551_SKY_EVOLUTION_DISABLED','evolution.openCoverageThreshold':'V2552_GOLDEN_WINDOW_OPEN_THRESHOLD',
-    'evolution.satelliteOpenThreshold':'V2552_GOLDEN_WINDOW_OPEN_THRESHOLD','goldenWindow.reference':'V2552_GOLDEN_WINDOW_CENTRED',levels:'V2552_GRADE_LINES'};
+    'evolution.satelliteOpenThreshold':'V2552_GOLDEN_WINDOW_OPEN_THRESHOLD','goldenWindow.reference':'V2552_GOLDEN_WINDOW_CENTRED',levels:'V2552_GRADE_LINES','spatialField.centerAzimuthOffset':'V2554_HORIZON_CENTRE_FIX'};
   return d.map(v=>({...v,reason:reasons[v.path]??'ALREADY_PROVED_DEFAULT_EQUIVALENT_FIELD'}));
 }
 // The deployed V2.5.5.1 configuration: the release scoring with the V2.5.5.2 changes reverted.
@@ -132,49 +142,55 @@ export async function stageRuntime(output,root=APP_ROOT) {
     else if(match[1]!=='jose')fail('RELEASE_UNKNOWN_RUNTIME_DEPENDENCY');}}
   return {scope:'EXPLICIT_RUNTIME_ALLOWLIST_WITH_FUNCTIONS_AND_SERVER_DEPENDENCIES',files,artifact_sha256:digest(files),uncommitted_review_required:true};
 }
-export async function prepareRelease(output,{progress=()=>{}}={}) {
+// `sources` may point at local copies of the V6 Raw / GT / Model packages when the recorded absolute paths are absent on this
+// machine; the loaded bytes must still match the V6 input fingerprints exactly (RELEASE_INPUT_MISMATCH otherwise).
+export async function prepareRelease(output,{progress=()=>{},sources=null}={}) {
   output=await safeOutput(output);const source=path.join(APP_ROOT,'dataset/practical_tuning',SOURCE_RUN),code=await codeIdentity();
   const inspected=await inspectPractical(source),selectedBytes=await readFile(path.join(source,'selected_effective_config.json'));
   if(hash(selectedBytes)!==SOURCE_CONFIG_SHA||inspected.result.selected_candidate!=='practical_candidate_v6_34df8f13f05d6275e49d')fail('RELEASE_SOURCE_IDENTITY_MISMATCH');
   const selected=JSON.parse(selectedBytes),request=await json(path.join(source,'verification_request.json')),production=await loadProduction();
   if(production.version.model!==RELEASE_VERSION.model||production.version.app!==RELEASE_VERSION.app||production.version.assetRevision!==RELEASE_VERSION.assetRevision||production.scoring.version!==RELEASE_VERSION.model)fail('RELEASE_VERSION_MISMATCH');
-  const configDiff=compareSelected(selected,production.scoring),effective=await captureEffective(production.SS),loaded=await loadPool(inspected.spec.sources,progress);
+  const configDiff=compareSelected(selected,production.scoring),effective=await captureEffective(production.SS),loaded=await loadPool(sources??inspected.spec.sources,progress);
   if(digest(loaded.fingerprints)!==digest(inspected.spec.identity.inputs)||loaded.exclusions.length)fail('RELEASE_INPUT_MISMATCH');
   const byId=new Map(loaded.rows.map(r=>[r.snapshot_id,r])),rows=weightedRows(request.pool.included.map(r=>{const live=byId.get(r.snapshot_id);if(!live||['event_id','gt_ordinal','gt_confidence','input_sha256'].some(k=>r[k]!==live[k]))fail('RELEASE_MEMBER_MISMATCH');return live;}));
   if(rows.length!==655||byId.size!==655||rows.some((r,i)=>r.event_normalized_weight!==request.pool.included[i].event_normalized_weight))fail('RELEASE_POOL_MISMATCH');
   const thresholds=gradeThresholdsFromLevels(production.scoring.levels);
   if(digest(thresholds)!==digest(gradeThresholdsForModelVersion(RELEASE_VERSION.model)))fail('RELEASE_GRADE_LINES_NOT_REGISTERED');
-  const previousModel=buildModelConfig(previousReleaseScoring(production.scoring));
-  const scores=[],previousScores=[],records=[];
+  const v2552Config=v2552Scoring(production.scoring),v2552Model=buildModelConfig(v2552Config),previousModel=buildModelConfig(previousReleaseScoring(v2552Config));
+  const scores=[],v2552Scores=[],previousScores=[],records=[];
   for(const [i,row]of rows.entries()){
-    // previous_* is the deployed V2.5.5.1 (graded 20/40/60/90); release_* is V2.5.5.2 graded with its own lines.
+    // previous_* is the deployed V2.5.5.1 (graded 20/40/60/90); v2552_* is the rebuilt V2.5.5.2; release_* is V2.5.5.4. Both use 22/47/66/90.
     const result=await runReplay(row.replay,{modelConfig:production.model,versionedGradeLines:true}),score=result.actual.score;
+    const v2552=(await runReplay(row.replay,{modelConfig:v2552Model,versionedGradeLines:true})).actual.score;
     const previous=(await runReplay(row.replay,{modelConfig:previousModel})).actual.score;
     if(result.actual.sky_evolution_factor!==1)fail('RELEASE_SKY_FACTOR_NOT_DISABLED');
-    scores.push(score);previousScores.push(previous);
-    records.push({snapshot_id:row.snapshot_id,event_id:row.event_id,gt_ordinal:row.gt_ordinal,event_weight:row.event_normalized_weight,previous_score:previous,release_score:score,
-      previous_ordinal:scoreToOrdinal(previous),release_ordinal:gradeScore(score,thresholds),release_gw_factor:result.actual.gw_factor});
-    if((i+1)%100===0||i+1===rows.length)progress(`发布一致性 ${i+1}/${rows.length}：V2.5.5.1 复现与 V2.5.5.2 计算`);
+    scores.push(score);v2552Scores.push(v2552);previousScores.push(previous);
+    records.push({snapshot_id:row.snapshot_id,event_id:row.event_id,gt_ordinal:row.gt_ordinal,event_weight:row.event_normalized_weight,previous_score:previous,v2552_score:v2552,release_score:score,
+      previous_ordinal:scoreToOrdinal(previous),v2552_ordinal:gradeScore(v2552,thresholds),release_ordinal:gradeScore(score,thresholds),release_gw_factor:result.actual.gw_factor});
+    if((i+1)%100===0||i+1===rows.length)progress(`发布一致性 ${i+1}/${rows.length}：V2.5.5.1 / V2.5.5.2 复现与 V2.5.5.4 计算`);
   }
   const previousSignature=digest(rows.map((r,i)=>[r.snapshot_id,previousScores[i],scoreToOrdinal(previousScores[i])]));
   if(previousSignature!==SKY_OFF_REFERENCE.prediction_signature_sha256)fail('RELEASE_PREVIOUS_DIFFERS_FROM_V2551');
   const previousMetrics=highCloudMetrics(rows,previousScores);if(Math.abs(previousMetrics.product_loss-SKY_OFF_REFERENCE.product_loss)>1e-9)fail('RELEASE_PREVIOUS_METRICS_DIFFERS');
+  const v2552Metrics=highCloudMetrics(rows,v2552Scores,thresholds);
+  const v2552Reference={prediction_signature_sha256:digest(rows.map((r,i)=>[r.snapshot_id,v2552Scores[i],gradeScore(v2552Scores[i],thresholds)])),product_loss:v2552Metrics.product_loss,
+    score_changed_vs_V2551:records.filter(r=>r.previous_score!==r.v2552_score).length,grade_changed_vs_V2551:records.filter(r=>r.previous_ordinal!==r.v2552_ordinal).length};
+  if(digest(v2552Reference)!==digest(V2552_REFERENCE))fail('RELEASE_REBUILT_V2552_DIFFERS_FROM_REFERENCE');
   const signature=digest(rows.map((r,i)=>[r.snapshot_id,scores[i],gradeScore(scores[i],thresholds)]));
-  const changed=records.filter(r=>r.previous_score!==r.release_score).length,gradeChanged=records.filter(r=>r.previous_ordinal!==r.release_ordinal).length;
+  const changed=records.filter(r=>r.v2552_score!==r.release_score).length,gradeChanged=records.filter(r=>r.v2552_ordinal!==r.release_ordinal).length;
   const metrics=highCloudMetrics(rows,scores,thresholds);
-  const reference={prediction_signature_sha256:signature,product_loss:metrics.product_loss,score_changed_vs_V2551:changed,grade_changed_vs_V2551:gradeChanged};
-  if(V2552_REFERENCE.prediction_signature_sha256===null){progress('V2552_REFERENCE 尚未固定：'+canonicalJson(reference));fail('RELEASE_REFERENCE_NOT_PINNED');}
-  if(digest(reference)!==digest(V2552_REFERENCE))fail('RELEASE_PREDICTION_DIFFERS_FROM_V2552_REFERENCE');
+  const reference={prediction_signature_sha256:signature,product_loss:metrics.product_loss,score_changed_vs_V2552:changed,grade_changed_vs_V2552:gradeChanged};
+  if(digest(reference)!==digest(V2554_REFERENCE))fail('RELEASE_PREDICTION_DIFFERS_FROM_V2554_REFERENCE');
   await checkInputs(loaded);if((await codeIdentity()).sha256!==code.sha256)fail('CODE_CHANGED_DURING_RELEASE');
   await mkdir(output,{recursive:true});const put=async(n,v)=>writeFile(path.join(output,n),canonicalJson(v)+'\n');
   const legacy=await json(path.join(source,'original_control_config.json'));
   const diff={parameter_changes:Object.entries(RELEASE_VALUES).map(([p,v])=>({path:p,experiment_B0:at(legacy,p),V2550:at(selected,p),release:v})),candidate_runtime_differences:configDiff,
     unchanged:{highCloudCenter:60,highCloudWidth:25,minimumWeatherWeight:.05,illuminationModel:{bankShare:.5,twilightSaturationMinutes:35},arrivalRiskSlope:.3,goldenWindowWindow:{beforeSunsetMinutes:180,afterSunsetMinutes:30}},new_default_is_not_old_default:true};
   const comparison={status:'PASS',scope:'RELEASE_CONSISTENCY_ON_REUSED_DEVELOPMENT_DATA; NOT_INDEPENDENT_TEST',snapshot_count:655,event_count:metrics.event_count,date_count:metrics.date_count,
-    V2551_metrics:previousMetrics,release_metrics:metrics,release_grade_thresholds:thresholds,V2551_grade_thresholds:LEGACY_GRADE_THRESHOLDS,
-    V2551_reproduced:SKY_OFF_REFERENCE,V2552_reference:V2552_REFERENCE,score_changed_vs_V2551:changed,grade_changed_vs_V2551:gradeChanged,full_search_repeated:false,
+    V2551_metrics:previousMetrics,V2552_metrics:v2552Metrics,release_metrics:metrics,release_grade_thresholds:thresholds,V2551_grade_thresholds:LEGACY_GRADE_THRESHOLDS,
+    V2551_reproduced:SKY_OFF_REFERENCE,V2552_reproduced:V2552_REFERENCE,V2554_reference:V2554_REFERENCE,score_changed_vs_V2552:changed,grade_changed_vs_V2552:gradeChanged,full_search_repeated:false,
     source_config_file_sha256:SOURCE_CONFIG_SHA,runtime_scoring_config_sha256:hash(canonicalJson(production.scoring)),replay_effective_config_sha256:effective.config_hash,
-    prediction_signature_sha256:signature,V2551_prediction_signature_sha256:previousSignature,V2550_prediction_signature_sha256:request.selected.predictions_sha256};
+    prediction_signature_sha256:signature,V2552_prediction_signature_sha256:v2552Reference.prediction_signature_sha256,V2551_prediction_signature_sha256:previousSignature,V2550_prediction_signature_sha256:request.selected.predictions_sha256};
   await copyFile(path.join(source,'selected_effective_config.json'),path.join(output,'source_selected_effective_config.json'));
   await put('parameter_diff.json',diff);await put('release_comparison.json',comparison);await put('runtime_scoring_config.json',production.scoring);await put('replay_effective_config.json',effective);
   const headers=Object.keys(records[0]);await writeFile(path.join(output,'release_predictions.csv'),headers.join(',')+'\r\n'+records.map(r=>headers.map(k=>String(r[k])).join(',')).join('\r\n')+'\r\n');
@@ -185,6 +201,13 @@ export async function prepareRelease(output,{progress=()=>{}}={}) {
   return {status:'LOCAL_CONSISTENCY_PASS_PENDING_FULL_CHECK_AND_HISTORICAL_VERIFY',source_run:SOURCE_RUN,output,snapshots:655,scoring_hash:comparison.runtime_scoring_config_sha256,effective_config_hash:effective.config_hash,artifact_sha256:artifact.artifact_sha256};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  try{if(process.argv[2]!=='prepare'||!process.argv[3])fail('USAGE_PREPARE_OUTPUT');console.log(canonicalJson(await prepareRelease(process.argv[3],{progress:console.error})));}
+  try{
+    if(process.argv[2]!=='prepare'||!process.argv[3])fail('USAGE_PREPARE_OUTPUT');
+    const args=process.argv.slice(4),flags={};
+    for(let i=0;i<args.length;i+=2){if(!['--raw','--gt','--model'].includes(args[i])||!args[i+1]||flags[args[i]])fail('INVALID_ARGUMENTS');flags[args[i]]=path.resolve(args[i+1]);}
+    const given=Object.keys(flags).length;if(given&&given!==3)fail('INVALID_ARGUMENTS');
+    const sources=given?{raw:flags['--raw'],gt:flags['--gt'],model:flags['--model']}:null;
+    console.log(canonicalJson(await prepareRelease(process.argv[3],{progress:console.error,sources})));
+  }
   catch(e){console.error(e.code??e.message);process.exitCode=1;}
 }

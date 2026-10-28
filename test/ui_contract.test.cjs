@@ -104,9 +104,9 @@ test('static resources, edge logs and server identifiers match the app version a
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
   // npm uses three-part SemVer; runtime keeps the four-part release identity.
   assert.equal(pkg.version, '2.5.5');
-  // V2.5.5.2 keeps npm at 2.5.5; the runtime adds the fourth release part.
+  // V2.5.5.4 keeps npm at 2.5.5; the runtime adds the fourth release part.
   assert.match(SS.version.app, new RegExp('^' + pkg.version.replace(/\./g, '\\.') + '\\.\\d+$'));
-  assert.equal(SS.version.model, '2.5.5.2');
+  assert.equal(SS.version.model, '2.5.5.4');
   assert.equal(SS.config.version, SS.version.model);
   assert.ok(html.includes('sunset-score-v' + SS.version.model));
   const { EDGE_APP_VERSION } = await import('../server/edge-log.js');

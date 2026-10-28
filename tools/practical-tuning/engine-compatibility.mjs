@@ -10,9 +10,10 @@ import { digest } from './policy.mjs';
 // explicit historical config every engine value is computed exactly as before.
 // V2.5.5.5 changes js/engine.js again (aodResponse switch); with the key absent the AOD score is the original Gaussian.
 // V2.5.5.6 changes js/evolution.js (golden-window cloud/rain split behind evolution.cloudSignal); with the key absent the factor is unchanged.
+// V2.5.5.4 release changes js/config.js (version 2.5.5.4 / app2554, spatialField.centerAzimuthOffset 0); explicit historical configs carry their own values.
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
-  "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
+  "js/config.js": "531941d184569904e7c717826e05a45bc94b644d1d5e9c704f9d7af49f2bd5d3",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
@@ -109,6 +110,17 @@ const ORIGINS = Object.freeze([
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+    }
+  },
+  // V2.5.5.6 working tree before the V2.5.5.4 release (e.g. Policy 12 run practical_tuning_v12_f307106bf58943ec80e5); differs from the current pins only in js/config.js.
+  {
+    "engine": "8a10d193fb649a873ef01a72fb861fc77e7f928f31d4109c27fed26312aa5937",
+    "files": {
+      "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
     }
   }
 ]);
