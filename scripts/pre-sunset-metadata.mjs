@@ -138,6 +138,8 @@ function resultRecord(city, index, startedAtMs) {
     replayStatus: null,
     replaySizeBytes: null,
     replaySha256Prefix: null,
+    // V2.5.5.9: the endpoint's bypass outcome (stored object or rejection reason); null when not submitted.
+    bypassStatus: null,
     errorCode: null,
     errorMessage: null,
     screenshot: null
@@ -203,6 +205,7 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
           record.replayStatus = response.replayStatus || 'READY';
           record.replaySizeBytes = Number.isFinite(response.replaySizeBytes) ? response.replaySizeBytes : null;
           record.replaySha256Prefix = response.replaySha256 ? String(response.replaySha256).slice(0, 12) : null;
+          record.bypassStatus = typeof response.bypassStatus === 'string' ? response.bypassStatus : null;
         }
       }
     }
@@ -462,6 +465,10 @@ export function summaryMarkdown(report) {
     map[item.status] = (map[item.status] || 0) + 1;
     return map;
   }, {});
+  const bypassCounts = report.results.reduce((map, item) => {
+    if (item.bypassStatus) map[item.bypassStatus] = (map[item.bypassStatus] || 0) + 1;
+    return map;
+  }, {});
   const lines = [
     '# SunsetScore Pre-Sunset Metadata', '',
     '- Mode: **' + report.mode + '**',
@@ -471,13 +478,14 @@ export function summaryMarkdown(report) {
     '- Requested cities: **' + report.requestedCities.length + '**',
     '- Actual start: **' + report.startedAtUtc + '**',
     '- Duration: **' + Math.round(report.durationMs / 1000) + 's**',
-    '- Counts: **' + Object.entries(counts).map(([key, value]) => key + '=' + value).join(', ') + '**', '',
-    '| 城市 | 实际城市 | SunsetScore | 等级 | 预测时间UTC | 结果 |',
-    '| --- | --- | ---: | --- | --- | --- |'
+    '- Counts: **' + Object.entries(counts).map(([key, value]) => key + '=' + value).join(', ') + '**',
+    '- Bypass: **' + (Object.entries(bypassCounts).map(([key, value]) => key + '=' + value).join(', ') || '—') + '**', '',
+    '| 城市 | 实际城市 | SunsetScore | 等级 | 预测时间UTC | 结果 | 旁路 |',
+    '| --- | --- | ---: | --- | --- | --- | --- |'
   ];
   report.results.forEach((item) => {
     lines.push('| ' + [item.requestedCity, item.actualCity, item.score, item.level,
-      item.predictionTimeUtc, item.status].map(markdown).join(' | ') + ' |');
+      item.predictionTimeUtc, item.status, item.bypassStatus].map(markdown).join(' | ') + ' |');
   });
   return lines.join('\n') + '\n';
 }

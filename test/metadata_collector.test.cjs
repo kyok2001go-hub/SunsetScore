@@ -173,6 +173,9 @@ test('collector emits every required status and dry run never submits', async ()
   const submitted = await collector.collectCity('深圳', 0, config(true), submittedAdapter);
   assert.equal(submitted.status, collector.STATUSES.SUBMITTED);
   assert.equal(submitted.snapshotId, 'fb-test');
+  assert.equal(submitted.bypassStatus, null, 'no bypass outcome in the response');
+  const withBypass = await collector.collectCity('深圳', 0, config(true), fakeAdapter({ response: { remote: true, id: 'fb-test', bypassStatus: 'SAVED' } }));
+  assert.equal(withBypass.bypassStatus, 'SAVED');
   assert.deepEqual(submittedAdapter.calls.submit[0].feedback, collector.snapshotSubmission(config(true)));
 
   const mismatch = await collector.collectCity('深圳', 0, config(true), fakeAdapter({ prediction: prediction('广州') }));
