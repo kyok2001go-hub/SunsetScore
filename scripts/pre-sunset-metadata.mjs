@@ -259,15 +259,26 @@ export async function collectCityWithPredictionRetry(city, index, config, adapte
   return retried;
 }
 
-export async function runWorkerPool(items, concurrency, handler) {
+// V2.5.5.9: city starts are spaced by intervalMs across all workers. Since V2.5.5.7 each city costs about
+// 140 weighted Open-Meteo calls (scoring ~70 + bypass ~72); unspaced bursts exceeded the 600/minute limit and
+// the resulting 429s pushed pages past their 90 s query deadline.
+export async function runWorkerPool(items, concurrency, handler, options = {}) {
   const results = new Array(items.length);
   let cursor = 0;
   const workerCount = Math.min(items.length, boundedInteger(concurrency, 2, 1, 2));
+  const intervalMs = Math.max(0, Number(options.intervalMs) || 0);
+  const wait = options.sleep || sleep, now = options.now || Date.now;
+  let nextStartMs = 0;
 
   async function worker() {
     while (true) {
       const index = cursor++;
       if (index >= items.length) return;
+      if (intervalMs) {
+        const startMs = Math.max(now(), nextStartMs);
+        nextStartMs = startMs + intervalMs;
+        if (startMs > now()) await wait(startMs - now());
+      }
       try {
         results[index] = await handler(items[index], index);
       } catch (error) {
@@ -312,6 +323,7 @@ export function readConfig(env = process.env) {
     engineBuildSha: String(env.GITHUB_SHA || '').trim() || null,
     scheduledReplayEnabled,
     concurrency: boundedInteger(env.METADATA_CONCURRENCY, 2, 1, 2),
+    cityIntervalMs: boundedInteger(env.METADATA_CITY_INTERVAL_MS, 20000, 0, 120000),
     predictionTimeoutMs: boundedInteger(env.PREDICTION_TIMEOUT_MS, 120000, 1000, 180000),
     navigationTimeoutMs: boundedInteger(env.NAVIGATION_TIMEOUT_MS, 45000, 1000, 120000),
     artifactsDir: path.resolve(String(env.ARTIFACTS_DIR || 'artifacts')),
@@ -456,6 +468,7 @@ export function buildReport(config, startedAtMs, finishedAtMs, results, env = pr
     finishedAtUtc: new Date(finishedAtMs).toISOString(),
     durationMs: Math.max(0, finishedAtMs - startedAtMs),
     concurrency: config.concurrency,
+    cityIntervalMs: config.cityIntervalMs,
     results
   };
 }
@@ -531,7 +544,7 @@ export async function main(env = process.env) {
       });
       console.log('[' + (index + 1) + '/' + config.cities.length + '] ' + city + ' -> ' + result.status);
       return result;
-    });
+    }, { intervalMs: config.cityIntervalMs });
   } catch (error) {
     const message = safeErrorMessage(error);
     results = config.cities.map((city, index) => {

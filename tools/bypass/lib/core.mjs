@@ -1,7 +1,7 @@
 // V2.5.5.9 bypass export: shared contract for the offline bypass package (record-only objects next to READY Replays).
 // Reads only prediction_snapshots and the R2 bypass objects; never Observations or labels.
 // PRD: ref_docs/PRD/V2.5.5.9--旁路对象导出与质量巡检方案.md
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { bypassObjectKey, validateBypassPayload, MAX_BYPASS_UNCOMPRESSED_BYTES } from '../../../server/bypass-schema.js';
 import { canonicalJson, fail, hash } from '../../dataset/lib/common.mjs';
 
@@ -50,14 +50,19 @@ export function expectation(row) {
 
 export const objectKeyFor = row => bypassObjectKey(row.replay_object_key);
 
+const isGzip = bytes => bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 /**
  * Decompress, bind and validate one stored object. The endpoint stores canonical JSON with snapshot_id set
  * to the Snapshot ID; the shared validator expects the submitted form (snapshot_id null).
+ * Wrangler transparently decodes objects stored with Content-Encoding: gzip, so downloads usually arrive as
+ * plain JSON (same as tools/dataset/lib/replay-integrity.mjs); package files are gzip.
  */
-export function verifyObject(row, compressed) {
-  let bytes;
-  try { bytes = gunzipSync(compressed, { maxOutputLength: MAX_BYPASS_UNCOMPRESSED_BYTES }); }
-  catch (error) { fail(error?.code === 'ERR_BUFFER_TOO_LARGE' || error instanceof RangeError ? 'BYPASS_TOO_LARGE' : 'BYPASS_GZIP_INVALID'); }
+export function verifyObject(row, downloaded) {
+  let bytes = downloaded;
+  if (isGzip(downloaded)) {
+    try { bytes = gunzipSync(downloaded, { maxOutputLength: MAX_BYPASS_UNCOMPRESSED_BYTES }); }
+    catch (error) { fail(error?.code === 'ERR_BUFFER_TOO_LARGE' || error instanceof RangeError ? 'BYPASS_TOO_LARGE' : 'BYPASS_GZIP_INVALID'); }
+  } else if (downloaded.length > MAX_BYPASS_UNCOMPRESSED_BYTES) fail('BYPASS_TOO_LARGE');
   const text = bytes.toString('utf8');
   let payload;
   try { payload = JSON.parse(text); } catch { fail('BYPASS_JSON_INVALID'); }
@@ -70,7 +75,8 @@ export function verifyObject(row, compressed) {
   } catch (error) {
     fail(/^BYPASS_[A-Z_]+$/.test(error?.message || '') ? error.message : 'BYPASS_SCHEMA_INVALID', { detail: String(error?.message || '').slice(0, 200) });
   }
-  return { payload, uncompressedBytes: bytes.length, contentSha256: hash(bytes) };
+  return { payload, uncompressedBytes: bytes.length, contentSha256: hash(bytes),
+    packageBytes: isGzip(downloaded) ? downloaded : gzipSync(bytes, { level: 9 }) };
 }
 
 export function indexRow(row, fields) {

@@ -246,6 +246,21 @@ test('navigation and submission failures never enter the prediction retry path',
   }
 });
 
+test('city starts are spaced across workers so Open-Meteo bursts stay under the per-minute limit', async () => {
+  const collector = await collectorPromise;
+  const starts = [];
+  await collector.runWorkerPool(['a', 'b', 'c', 'd', 'e'], 2, async (city) => {
+    starts.push(Date.now());
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return { requestedCity: city };
+  }, { intervalMs: 40 });
+  // Two workers would otherwise start two cities at once; starts follow absolute 40 ms slots (Windows timer slack ~15 ms).
+  for (let i = 1; i < starts.length; i++) assert.ok(starts[i] - starts[0] >= i * 40 - 5, JSON.stringify(starts));
+  assert.equal(starts.length, 5);
+  assert.equal(collector.readConfig({ METADATA_CITIES: '深圳', METADATA_SLOT: '1213' }).cityIntervalMs, 20000);
+  assert.equal(collector.readConfig({ METADATA_CITIES: '深圳', METADATA_SLOT: '1213', METADATA_CITY_INTERVAL_MS: '0' }).cityIntervalMs, 0);
+});
+
 test('two-worker pool never exceeds concurrency, continues after failure and restores input order', async () => {
   const collector = await collectorPromise;
   const cities = ['深圳', '广州', '北京', '上海', '兰州'];

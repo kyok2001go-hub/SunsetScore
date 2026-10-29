@@ -73,7 +73,7 @@ async function setup(t) {
   ];
   const objects = new Map([
     ['snap_a', stored(rows[0], p => { p.satellite_shadow = f.cold; })],
-    ['snap_b', stored(rows[1], p => { p.satellite_shadow = f.warm; })],
+    ['snap_b', require('node:zlib').gunzipSync(stored(rows[1], p => { p.satellite_shadow = f.warm; }))],
     ['snap_d', stored(rows[3], p => { p.latitude += 0.01; })],
     ['snap_g', stored(rows[6], p => { p.bypass_schema_version = 1; })]
   ].map(([id, bytes]) => [m.core.objectKeyFor(rows.find(r => r.id === id)), bytes]));
@@ -186,7 +186,12 @@ test('Stored objects must be canonical, bound to their Snapshot and within 512 K
   assert.equal(ok.payload.snapshot_id, 'snap_x'); assert.equal(ok.contentSha256, m.common.hash(Buffer.from(m.canonicalJson(good))));
   assert.throws(() => m.core.verifyObject(row, store({ ...good, snapshot_id: 'snap_y' })), /BYPASS_SNAPSHOT_ID_MISMATCH/);
   assert.throws(() => m.core.verifyObject(row, store(null, JSON.stringify(good, null, 1))), /BYPASS_NOT_CANONICAL/);
-  assert.throws(() => m.core.verifyObject(row, Buffer.from('not gzip')), /BYPASS_GZIP_INVALID/);
+  // Wrangler decodes Content-Encoding: gzip objects, so a download is usually plain canonical JSON.
+  const plainOk = m.core.verifyObject(row, Buffer.from(m.canonicalJson(good)));
+  assert.equal(plainOk.contentSha256, ok.contentSha256); assert.equal(plainOk.packageBytes[0], 0x1f);
+  assert.throws(() => m.core.verifyObject(row, Buffer.from([0x1f, 0x8b, 1, 2, 3])), /BYPASS_GZIP_INVALID/);
+  assert.throws(() => m.core.verifyObject(row, Buffer.from('not json')), /BYPASS_JSON_INVALID/);
+  assert.throws(() => m.core.verifyObject(row, Buffer.alloc(600 * 1024, 32)), /BYPASS_TOO_LARGE/);
   assert.throws(() => m.core.verifyObject(row, gzipSync(Buffer.alloc(600 * 1024, 32))), /BYPASS_TOO_LARGE/);
   assert.throws(() => m.core.verifyObject(row, store({ ...good, extra: 1 })), /BYPASS_SCHEMA_INVALID/);
 });

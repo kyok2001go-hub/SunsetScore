@@ -128,9 +128,9 @@ async function runExport(options, dependencies = {}) {
         else {
           if (got.cached) hits++; else downloads++;
           const local = `objects/${row.id}.json.gz`;
-          await writeFile(path.join(staging, local), got.bytes, { flag: 'wx' });
+          await writeFile(path.join(staging, local), got.verified.packageBytes, { flag: 'wx' });
           payloads.set(row.id, got.verified.payload);
-          fields = { object_status: 'VALID', compressed_bytes: got.bytes.length, uncompressed_bytes: got.verified.uncompressedBytes,
+          fields = { object_status: 'VALID', compressed_bytes: got.verified.packageBytes.length, uncompressed_bytes: got.verified.uncompressedBytes,
             content_sha256: got.verified.contentSha256, local_path: local, ...payloadFields(got.verified.payload) };
         }
       } catch (error) {
