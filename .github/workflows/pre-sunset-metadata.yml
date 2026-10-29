@@ -130,7 +130,7 @@ jobs:
           METADATA_RUN_TYPE: ${{ steps.collector-mode.outputs.run_type }}
           METADATA_TRIGGER: workflow_dispatch
           METADATA_TIMEZONE: ${{ env.METADATA_TIMEZONE }}
-          METADATA_CONCURRENCY: '1'
+          METADATA_CONCURRENCY: '2'
           NAVIGATION_TIMEOUT_MS: '45000'
           PREDICTION_TIMEOUT_MS: '120000'
           ARTIFACTS_DIR: artifacts

@@ -20,6 +20,10 @@ export const DEFAULT_CITIES = Object.freeze([
 export const MAX_METADATA_CITIES = 20;
 export const PREDICTION_RETRY_MIN_DELAY_MS = 15000;
 export const PREDICTION_RETRY_MAX_DELAY_MS = 30000;
+// V2.5.5.9: a second, later retry. Open-Meteo occasionally stops answering GitHub runners for 10–15 s at a time;
+// the first retry 15–30 s later often lands in the same stall.
+export const PREDICTION_SECOND_RETRY_MIN_DELAY_MS = 60000;
+export const PREDICTION_SECOND_RETRY_MAX_DELAY_MS = 90000;
 
 function boundedInteger(value, fallback, min, max) {
   const parsed = Number.parseInt(String(value == null ? '' : value), 10);
@@ -235,33 +239,37 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
   return finishRecord(record, Date.now());
 }
 
-export function predictionRetryDelayMs(random = Math.random) {
+export function predictionRetryDelayMs(random = Math.random, retry = 1) {
   const value = Number(random());
   const ratio = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
-  return Math.round(PREDICTION_RETRY_MIN_DELAY_MS +
-    (PREDICTION_RETRY_MAX_DELAY_MS - PREDICTION_RETRY_MIN_DELAY_MS) * ratio);
+  const [min, max] = retry >= 2 ? [PREDICTION_SECOND_RETRY_MIN_DELAY_MS, PREDICTION_SECOND_RETRY_MAX_DELAY_MS]
+    : [PREDICTION_RETRY_MIN_DELAY_MS, PREDICTION_RETRY_MAX_DELAY_MS];
+  return Math.round(min + (max - min) * ratio);
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export const PREDICTION_RETRIES = 2;
+
 export async function collectCityWithPredictionRetry(city, index, config, adapter, runtime = {}) {
   const first = await collectCity(city, index, config, adapter, { captureFailure: false });
-  if (first.status !== STATUSES.FAILED_PREDICTION) return first;
-
-  const delayMs = predictionRetryDelayMs(runtime.random || Math.random);
-  if (typeof runtime.onRetry === 'function') {
-    runtime.onRetry({ city, index, delayMs, errorCode: first.errorCode });
+  let latest = first;
+  for (let retry = 1; retry <= PREDICTION_RETRIES && latest.status === STATUSES.FAILED_PREDICTION; retry++) {
+    const delayMs = predictionRetryDelayMs(runtime.random || Math.random, retry);
+    if (typeof runtime.onRetry === 'function') {
+      runtime.onRetry({ city, index, delayMs, errorCode: latest.errorCode, retry });
+    }
+    await (runtime.sleep || sleep)(delayMs);
+    // collectCity closes each attempt in finally, so every retry gets a fresh BrowserContext/Page and the
+    // city can submit at most once; only the final attempt captures a screenshot.
+    latest = await collectCity(city, index, config, adapter, { captureFailure: retry === PREDICTION_RETRIES });
   }
-  await (runtime.sleep || sleep)(delayMs);
-
-  // collectCity closes the first attempt in finally. A second call therefore
-  // creates a fresh BrowserContext/Page and can submit at most once.
-  const retried = await collectCity(city, index, config, adapter);
-  retried.startedAtUtc = first.startedAtUtc;
-  retried.durationMs = Math.max(0, Date.parse(retried.finishedAtUtc) - Date.parse(first.startedAtUtc));
-  return retried;
+  if (latest === first) return first;
+  latest.startedAtUtc = first.startedAtUtc;
+  latest.durationMs = Math.max(0, Date.parse(latest.finishedAtUtc) - Date.parse(first.startedAtUtc));
+  return latest;
 }
 
 // V2.5.5.9: city starts are spaced by intervalMs across all workers. Since V2.5.5.7 each city costs about

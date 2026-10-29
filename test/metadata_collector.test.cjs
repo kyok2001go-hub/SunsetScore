@@ -212,18 +212,33 @@ test('prediction failure retries once after bounded backoff with a fresh context
   assert.equal(adapter.calls.screenshot, 0);
 });
 
-test('a second prediction failure becomes final and only the final attempt captures a screenshot', async () => {
+test('a second failure gets one more, later retry that can still succeed', async () => {
   const collector = await collectorPromise;
   const adapter = fakeAdapter({ predictionErrors: 2 });
+  const delays = [];
+  const result = await collector.collectCityWithPredictionRetry('武汉', 9, config(true), adapter, {
+    random: () => 0,
+    sleep: async (delayMs) => { delays.push(delayMs); }
+  });
+  assert.equal(result.status, collector.STATUSES.SUBMITTED);
+  assert.deepEqual(delays, [collector.PREDICTION_RETRY_MIN_DELAY_MS, collector.PREDICTION_SECOND_RETRY_MIN_DELAY_MS]);
+  assert.equal(adapter.calls.create, 3);
+  assert.equal(adapter.calls.submit.length, 1);
+  assert.equal(adapter.calls.screenshot, 0);
+});
+
+test('a third prediction failure becomes final and only the final attempt captures a screenshot', async () => {
+  const collector = await collectorPromise;
+  const adapter = fakeAdapter({ predictionErrors: 3 });
   const delays = [];
   const result = await collector.collectCityWithPredictionRetry('武汉', 9, config(false), adapter, {
     random: () => 1,
     sleep: async (delayMs) => { delays.push(delayMs); }
   });
   assert.equal(result.status, collector.STATUSES.FAILED_PREDICTION);
-  assert.deepEqual(delays, [collector.PREDICTION_RETRY_MAX_DELAY_MS]);
-  assert.equal(adapter.calls.create, 2);
-  assert.equal(adapter.calls.close, 2);
+  assert.deepEqual(delays, [collector.PREDICTION_RETRY_MAX_DELAY_MS, collector.PREDICTION_SECOND_RETRY_MAX_DELAY_MS]);
+  assert.equal(adapter.calls.create, 3);
+  assert.equal(adapter.calls.close, 3);
   assert.equal(adapter.calls.submit.length, 0);
   assert.equal(adapter.calls.screenshot, 1);
 });
