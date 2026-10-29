@@ -140,6 +140,8 @@ function resultRecord(city, index, startedAtMs) {
     replaySha256Prefix: null,
     // V2.5.5.9: the endpoint's bypass outcome (stored object or rejection reason); null when not submitted.
     bypassStatus: null,
+    // V2.5.5.9: per-host request statistics of the page (hostnames only, never paths or query strings).
+    network: null,
     errorCode: null,
     errorMessage: null,
     screenshot: null
@@ -221,6 +223,9 @@ export async function collectCity(city, index, config, adapter, attemptOptions =
       } catch {
         // Diagnostics must never replace the original city outcome.
       }
+    }
+    if (session && typeof adapter.networkSummary === 'function') {
+      try { record.network = adapter.networkSummary(session); } catch { /* diagnostics only */ }
     }
     if (session) {
       try { await adapter.close(session); } catch { /* best effort */ }
@@ -353,12 +358,47 @@ function predictionFromPage() {
   };
 }
 
+// Hostname-level request log: which upstream was slow or failed when a page reports a timeout.
+export function summarizeNetwork(entries) {
+  const hosts = {};
+  for (const entry of entries) {
+    const host = hosts[entry.host] || (hosts[entry.host] = { requests: 0, maxMs: 0, slowOver5s: 0, failed: 0, httpErrors: 0, failures: [] });
+    host.requests += 1;
+    host.maxMs = Math.max(host.maxMs, entry.ms);
+    if (entry.ms > 5000) host.slowOver5s += 1;
+    if (entry.status >= 400) host.httpErrors += 1;
+    if (entry.failure) {
+      host.failed += 1;
+      if (!host.failures.includes(entry.failure) && host.failures.length < 5) host.failures.push(entry.failure);
+    }
+  }
+  return hosts;
+}
+
 export function createPlaywrightAdapter(browser) {
   return {
     async create() {
       const context = await browser.newContext({ locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
       const page = await context.newPage();
-      return { context, page };
+      const started = new Map(), network = [];
+      const hostOf = (request) => { try { return new URL(request.url()).hostname; } catch { return 'invalid'; } };
+      const elapsed = (request) => Math.max(0, Date.now() - (started.get(request) || Date.now()));
+      page.on('request', (request) => started.set(request, Date.now()));
+      page.on('requestfinished', async (request) => {
+        let status = null;
+        try { const response = await request.response(); status = response ? response.status() : null; } catch { /* ignore */ }
+        network.push({ host: hostOf(request), ms: elapsed(request), status });
+      });
+      page.on('requestfailed', (request) => {
+        const failure = request.failure();
+        network.push({ host: hostOf(request), ms: elapsed(request), status: null,
+          failure: String(failure && failure.errorText || 'failed').slice(0, 60) });
+      });
+      return { context, page, network };
+    },
+
+    networkSummary(session) {
+      return summarizeNetwork(session.network || []);
     },
 
     async navigate(session, city, config) {

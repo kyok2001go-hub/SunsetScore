@@ -246,6 +246,18 @@ test('navigation and submission failures never enter the prediction retry path',
   }
 });
 
+test('network summary keeps hostnames only and counts slow, failed and HTTP error requests', async () => {
+  const collector = await collectorPromise;
+  const summary = collector.summarizeNetwork([
+    { host: 'api.open-meteo.com', ms: 800, status: 200 }, { host: 'api.open-meteo.com', ms: 10050, status: null, failure: 'net::ERR_ABORTED' },
+    { host: 'api.open-meteo.com', ms: 300, status: 429 }, { host: 'gibs.earthdata.nasa.gov', ms: 6200, status: 200 }
+  ]);
+  assert.deepEqual(summary['api.open-meteo.com'], { requests: 3, maxMs: 10050, slowOver5s: 1, failed: 1, httpErrors: 1, failures: ['net::ERR_ABORTED'] });
+  assert.equal(summary['gibs.earthdata.nasa.gov'].slowOver5s, 1);
+  const submitted = await collector.collectCity('深圳', 0, config(true), fakeAdapter());
+  assert.equal(submitted.network, null, 'adapters without networkSummary leave the field empty');
+});
+
 test('city starts are spaced across workers so Open-Meteo bursts stay under the per-minute limit', async () => {
   const collector = await collectorPromise;
   const starts = [];
