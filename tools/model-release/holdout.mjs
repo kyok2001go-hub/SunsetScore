@@ -10,14 +10,16 @@ import {preflight,replayCalculator,gradeThresholdsOf} from '../practical-tuning/
 import {digest} from '../practical-tuning/policy.mjs';
 import {productMetrics,weightedRows} from '../product-evaluation/metrics.mjs';
 import {gradeScore} from '../evaluation/metrics.mjs';
-import {loadProduction,previousReleaseScoring,candidateReleaseScoring,v2552Scoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
+import {loadProduction,previousReleaseScoring,candidateReleaseScoring,v2552Scoring,v2554Scoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
 
 export const HOLDOUT_POLICY=Object.freeze({
   // Version 2 (V2.5.5.4 PRD §3.5) adds the V2.5.5.4 candidate before H1 is first used; version 1 was never executed.
-  version:2,name:'H1_RELEASE_LINE_CHECK',
+  // Version 3 (2026-10-30, project owner): ge3_events 10 -> 8 after a label-count-only status (17 days / 142 Events / GT>=2 34 / GT>=3 8);
+  // no prediction had been computed. Version 2 was never executed.
+  version:3,name:'H1_RELEASE_LINE_CHECK',
   first_holdout_date:'2026-10-13',
   // Standard readiness: distinct dates, Events, and Events with GT>=2 / GT>=3 after Replay exclusions.
-  thresholds:Object.freeze({dates:15,events:100,ge2_events:25,ge3_events:10}),
+  thresholds:Object.freeze({dates:15,events:100,ge2_events:25,ge3_events:8}),
   cohort:'PRIMARY_LAST_CLOSEST_SNAPSHOT_TO_SUNSET_PER_EVENT',
   bootstrap:Object.freeze({replicates:2000,block:'event_date_local',seed:'H1_RELEASE_LINE_CHECK_1'}),
   versions:Object.freeze(['2.5.5.0','2.5.5.1','2.5.5.2','2.5.5.4']),
@@ -31,18 +33,33 @@ export const HOLDOUT_POLICY=Object.freeze({
   ]),
   decision_owner:'PROJECT_OWNER'
 });
+// H2 (PRD V2.5.5.11 §7) confirms the recalibrated grade lines on Events from 2026-10-30, none of which informed them.
+// Unlike H1, the product-loss trigger needs the 95% interval to exclude zero: H1's point-estimate rule fired on a 0.002 gap.
+export const H2_POLICY=Object.freeze({
+  version:1,name:'H2_GRADE_LINE_CHECK',
+  first_holdout_date:'2026-10-30',
+  thresholds:Object.freeze({dates:15,events:100,ge2_events:25,ge3_events:8}),
+  cohort:'PRIMARY_LAST_CLOSEST_SNAPSHOT_TO_SUNSET_PER_EVENT',
+  bootstrap:Object.freeze({replicates:2000,block:'event_date_local',seed:'H2_GRADE_LINE_CHECK_1'}),
+  versions:Object.freeze(['2.5.5.4','2.5.5.11']),
+  comparisons:Object.freeze([
+    Object.freeze({id:'V25511_VS_V2554',candidate:'2.5.5.11',control:'2.5.5.4',rollback_rule:'PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_BELOW_0_60'})
+  ]),
+  decision_owner:'PROJECT_OWNER'
+});
+export const POLICIES=Object.freeze({H1:HOLDOUT_POLICY,H2:H2_POLICY});
 export const LEDGER=path.join(APP_ROOT,'dataset/holdout/usage.jsonl');
 const DEFAULT_KEYS=['version','illuminationModel.bankShare','illuminationModel.twilightSaturationMinutes','skyState.factorCoefficients.arrivalRiskSlope'];
 
-// The release-line configurations, rebuilt from the current production config (2.5.5.4 since its release).
+// The release-line configurations, rebuilt from the current production config (2.5.5.11 since its release).
 export async function releaseConfigs(root=APP_ROOT) {
   const production=await loadProduction(root);
   if(production.version.model!==RELEASE_VERSION.model)fail('HOLDOUT_PRODUCTION_VERSION_MISMATCH');
-  const v2554=production.scoring,v2552=v2552Scoring(v2554),v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
+  const v25511=production.scoring,v2554=v2554Scoring(v25511),v2552=v2552Scoring(v2554),v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
   v2550.version='2.5.5.0';v2550.skyState.factorRange=[0.65,1.15];
   // Adding the fix back to the rebuilt 2.5.5.2 must give production exactly (no other default drifted).
   if(differences(candidateReleaseScoring(v2552),v2554).length)fail('HOLDOUT_V2554_RECONSTRUCTION_MISMATCH');
-  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':v2554};
+  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':v2554,'2.5.5.11':v25511};
 }
 // V2.5.5.0 is the V6 selected configuration plus already-proved default-equivalent fields.
 export function assertV2550(selected,v2550) {
@@ -81,7 +98,8 @@ export function versionMetrics(rows,version,thresholds) {
   return {product_loss:m.product_loss,ge2_recall:m.target_ge2.recall,ge2_precision:m.target_ge2.precision,ge3_recall:m.target_ge3.recall,ge3_precision:m.target_ge3.precision,
     auc_ge2_primary_last:weightedAuc(last,key,2),auc_ge3_primary_last:weightedAuc(last,key,3)};
 }
-export function rollbackSuggested(rule,candidate,control) {
+export function rollbackSuggested(rule,candidate,control,bootstrap=null) {
+  if(rule==='PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_BELOW_0_60')return bootstrap.product_loss.ci95[0]>0||candidate.ge2_recall<.6;
   if(rule==='AUC_GE3_NOT_HIGHER_OR_PRODUCT_LOSS_HIGHER')return !(candidate.auc_ge3_primary_last>control.auc_ge3_primary_last)||candidate.product_loss>control.product_loss;
   if(rule==='PRODUCT_LOSS_HIGHER_OR_GE2_RECALL_DROP_OVER_0_05')return candidate.product_loss>control.product_loss||candidate.ge2_recall<control.ge2_recall-.05;
   fail('UNKNOWN_ROLLBACK_RULE');
@@ -134,7 +152,7 @@ export async function holdoutCheck(sources,output,{root=APP_ROOT,progress=()=>{}
   const metrics=Object.fromEntries(policy.versions.map(v=>[v,versionMetrics(rows,v,thresholds[v])]));
   progress(`按日期整块抽样（${policy.bootstrap.replicates} 次）`);
   const deltas=bootstrapDeltas(rows,thresholds,policy);
-  const comparisons=policy.comparisons.map(c=>({...c,rollback_suggested:rollbackSuggested(c.rollback_rule,metrics[c.candidate],metrics[c.control]),
+  const comparisons=policy.comparisons.map(c=>({...c,rollback_suggested:rollbackSuggested(c.rollback_rule,metrics[c.candidate],metrics[c.control],deltas[c.id]),
     point_difference:Object.fromEntries(Object.keys(metrics[c.candidate]).map(k=>[k,metrics[c.candidate][k]==null||metrics[c.control][k]==null?null:metrics[c.candidate][k]-metrics[c.control][k]])),
     bootstrap:deltas[c.id]}));
   await checkInputs(loaded);if((await codeIdentity()).sha256!==code.sha256)fail('CODE_CHANGED_DURING_HOLDOUT');
@@ -169,12 +187,13 @@ function report(r) {
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   try{
     const [command,...args]=process.argv.slice(2),flags={};
-    for(let i=0;i<args.length;i+=2){if(!['--raw','--gt','--model','--output'].includes(args[i])||!args[i+1]||flags[args[i]])fail('INVALID_ARGUMENTS');flags[args[i]]=path.resolve(args[i+1]);}
+    for(let i=0;i<args.length;i+=2){if(!['--raw','--gt','--model','--output','--policy'].includes(args[i])||!args[i+1]||flags[args[i]])fail('INVALID_ARGUMENTS');flags[args[i]]=args[i]==='--policy'?args[i+1]:path.resolve(args[i+1]);}
     if(!flags['--raw']||!flags['--gt']||!flags['--model'])fail('INVALID_ARGUMENTS');
-    const sources={raw:flags['--raw'],gt:flags['--gt'],model:flags['--model']};
+    const sources={raw:flags['--raw'],gt:flags['--gt'],model:flags['--model']},policy=POLICIES[flags['--policy']??'H1'];
+    if(!policy)fail('UNKNOWN_HOLDOUT_POLICY');
     let result;
-    if(command==='status')result=await holdoutStatus(sources,{progress:console.error});
-    else if(command==='check'&&flags['--output'])result=await holdoutCheck(sources,flags['--output'],{progress:console.error});
+    if(command==='status')result=await holdoutStatus(sources,{progress:console.error,policy});
+    else if(command==='check'&&flags['--output'])result=await holdoutCheck(sources,flags['--output'],{progress:console.error,policy});
     else fail('USAGE_STATUS_OR_CHECK');
     console.log(canonicalJson(result));
   }catch(e){console.error(e.code??e.message);if(e.detail)console.error(e.detail);process.exitCode=1;}

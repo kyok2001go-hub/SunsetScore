@@ -64,7 +64,7 @@ test('V2.5.5.4 candidate configuration, grade lines and H1 Policy 2', async () =
   assert.deepEqual([...m.metrics.gradeThresholdsForModelVersion('2.5.5.4')], [22, 47, 66, 90]);
   assert.equal(m.digest(configs['2.5.5.4']), m.digest(all));
   const p = m.holdout.HOLDOUT_POLICY;
-  assert.equal(p.version, 2); assert.deepEqual([...p.versions], ['2.5.5.0', '2.5.5.1', '2.5.5.2', '2.5.5.4']);
+  assert.equal(p.version, 3); assert.deepEqual([...p.versions], ['2.5.5.0', '2.5.5.1', '2.5.5.2', '2.5.5.4']);
   assert.deepEqual(p.comparisons.map(c => c.id), ['V2551_VS_V2550', 'V2552_VS_V2551', 'V2554_VS_V2552']);
   const c = p.comparisons[2], ctl = { product_loss: 1, ge2_recall: .7 };
   assert.equal(m.holdout.rollbackSuggested(c.rollback_rule, { product_loss: 1, ge2_recall: .65 }, ctl), false);

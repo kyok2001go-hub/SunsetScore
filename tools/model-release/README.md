@@ -39,14 +39,14 @@ npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.2发布�
 
 ## H1 前向留出核验（`holdout.mjs`）
 
-Policy 2（V2.5.5.4 起，Policy 1 从未执行）比较 2.5.5.0 / 2.5.5.1 / 2.5.5.2 / 2.5.5.4。四个配置都由当前生产配置重建：2.5.5.1 撤回 V2.5.5.2 的四处改动，2.5.5.0 再恢复天空演化区间 [0.65, 1.15]，并核对它与 V6 selected 只差已证明默认等价的字段；2.5.5.4 为 2.5.5.2 加 `spatialField.centerAzimuthOffset: 0`（地平线中心节点方位修正，2026-10-28 起为生产配置；按上文从生产配置反向重建 2.5.5.2）。各版本按自身等级线判级。
+Policy 3（2026-10-30 起：项目负责人在只看过标签数量、未计算任何预测的情况下，把 GT≥3 门槛从 10 降到 8；Policy 1、2 从未执行）比较 2.5.5.0 / 2.5.5.1 / 2.5.5.2 / 2.5.5.4。四个配置都由当前生产配置重建：2.5.5.1 撤回 V2.5.5.2 的四处改动，2.5.5.0 再恢复天空演化区间 [0.65, 1.15]，并核对它与 V6 selected 只差已证明默认等价的字段；2.5.5.4 为 2.5.5.2 加 `spatialField.centerAzimuthOffset: 0`（地平线中心节点方位修正，2026-10-28 起为生产配置；按上文从生产配置反向重建 2.5.5.2）。各版本按自身等级线判级。
 
 ```powershell
-npm run model:holdout -- status --raw <Raw 包> --gt <GT 包> --model <Model 包>
-npm run model:holdout -- check  --raw <Raw 包> --gt <GT 包> --model <Model 包> --output <仓库外目录>
+npm run model:holdout -- status --raw <Raw 包> --gt <GT 包> --model <Model 包> [--policy H2]
+npm run model:holdout -- check  --raw <Raw 包> --gt <GT 包> --model <Model 包> --output <仓库外目录> [--policy H2]
 ```
 
-- **`status`：** 只统计标签，不计算任何预测，可以反复运行。报告与 DEV 是否独立（日期须在 2026-10-13 及以后，Snapshot 与 Event 不得出现在 V6 开发池中），以及是否达到门槛：15 天、100 个 Event、GT≥2 Event 25、GT≥3 Event 10。
+- **`status`：** 只统计标签，不计算任何预测，可以反复运行。报告与 DEV 是否独立（日期须在 2026-10-13 及以后，Snapshot 与 Event 不得出现在 V6 开发池中），以及是否达到门槛：15 天、100 个 Event、GT≥2 Event 25、GT≥3 Event 8。
 - **`check`：** 不独立或未达门槛时直接失败。通过后用当前引擎重算四个版本，输出：
   - `holdout_result.json`：各版本的产品损失、≥2 / ≥3 召回与精确、最近一条的 AUC≥2 / AUC≥3；三组比较的点差值、按日期整块抽样（2000 次）的 95% 区间与变好的概率；是否触发回退规则；
   - `holdout_predictions.csv`、`holdout_inputs.json`、`report.md`。
@@ -57,6 +57,16 @@ npm run model:holdout -- check  --raw <Raw 包> --gt <GT 包> --model <Model 包
   - 2.5.5.4 对 2.5.5.2：同上规则（不发布，或已发布则回退）。
 
   工具只给出"建议回退 / 不触发"，最终由项目负责人决定。
+
+## H2 前向留出核验（`--policy H2`，V2.5.5.11）
+
+确认等级分数线 19/49/66/90（V2.5.5.11）。比较 2.5.5.4 与 2.5.5.11，两者分数相同，只差分界。
+
+- **数据：** Event 日期 2026-10-30 及以后；新线只用到 10-29 之前的数据，所以这批数据是独立的。门槛为 15 天、100 个 Event、GT≥2 Event 25、GT≥3 Event 8。
+- **回退规则：** 2.5.5.11 对 2.5.5.4 的产品损失差值 95% 区间下限 > 0，或 2.5.5.11 的 ≥2 召回 < 0.60。工具只给建议，由项目负责人决定。
+- **只能用一次：** 与 H1 分开记录在 `dataset/holdout/usage.jsonl`。
+
+需求见 [V2.5.5.11 PRD](../../../ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md)。
 
 ## V2.5.5.1 关闭天空演化发布验收（历史）
 
