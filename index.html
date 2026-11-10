@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SunsetScore · 晚霞预测</title>
-  <link rel="stylesheet" href="css/style.css?v=2.5.5.11-app25511">
+  <link rel="stylesheet" href="css/style.css?v=2.5.5.12-app25512">
 </head>
 <body>
   <div class="bg-glow" aria-hidden="true"></div>
@@ -177,6 +177,8 @@
             <svg id="cloud-field-radar-svg" viewBox="0 0 620 620" preserveAspectRatio="xMidYMid meet"></svg>
             <div id="radar-tooltip" class="radar-tooltip hidden"></div>
           </div>
+          <p id="radar-status-note" class="radar-note radar-note-warn hidden" role="status"></p>
+          <p class="radar-note">云量是数值预报对当前时刻的估计，不是卫星实况。底色越亮表示总云量越多，圆点面积表示各层云量。</p>
         </div>
 
         <!-- V1.9 黄金窗口动态状态（有 Nowcasting 数据时显示） -->
@@ -347,41 +349,41 @@
 
   <!-- 经典 script 顺序加载，保证 file:// 下可直接打开运行。
        版本号参数：每次发版递增，避免 CDN/浏览器缓存新旧文件混用 -->
-<script src="js/config.js?v=2.5.5.11-app25511"></script>
-<script src="js/model_config.js?v=2.5.5.11-app25511"></script>
-<script src="js/network.js?v=2.5.5.11-app25511"></script>
-<script src="js/domain.js?v=2.5.5.11-app25511"></script>
-<script src="js/time.js?v=2.5.5.11-app25511"></script>
-<script src="js/vendor/suncalc.js?v=2.5.5.11-app25511"></script>
-<script src="js/solar.js?v=2.5.5.11-app25511"></script>
-<script src="js/baseline.js?v=2.5.5.11-app25511"></script>
-<script src="js/cache.js?v=2.5.5.11-app25511"></script>
-<script src="js/data.js?v=2.5.5.11-app25511"></script>
-<script src="js/city_search.js?v=2.5.5.11-app25511"></script>
-<script src="js/cloud_field.js?v=2.5.5.11-app25511"></script>
-<script src="js/wind.js?v=2.5.5.11-app25511"></script>
-<script src="js/cloud_motion.js?v=2.5.5.11-app25511"></script>
-<script src="js/sky_state.js?v=2.5.5.11-app25511"></script>
-<script src="js/engine.js?v=2.5.5.11-app25511"></script>
-<script src="js/sampling.js?v=2.5.5.11-app25511"></script>
-<script src="js/corridor.js?v=2.5.5.11-app25511"></script>
-<script src="js/nowcast.js?v=2.5.5.11-app25511"></script>
-<script src="js/evolution.js?v=2.5.5.11-app25511"></script>
-<script src="js/satellite_colormap.js?v=2.5.5.11-app25511"></script>
-<script src="js/satellite_shadow.js?v=2.5.5.11-app25511"></script>
-<script src="js/bypass_capture.js?v=2.5.5.11-app25511"></script>
-<script src="js/replay_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/prediction_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/feedback_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/event_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/snapshot_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/observation_service.js?v=2.5.5.11-app25511"></script>
-<script src="js/radar_view.js?v=2.5.5.11-app25511"></script>
-<script src="js/debug.js?v=2.5.5.11-app25511"></script>
-<script src="js/sticky_summary.js?v=2.5.5.11-app25511"></script>
-<script src="js/ui.js?v=2.5.5.11-app25511"></script>
-<script src="js/feedback_ui.js?v=2.5.5.11-app25511"></script>
-<script src="js/city_search_ui.js?v=2.5.5.11-app25511"></script>
-<script src="js/app.js?v=2.5.5.11-app25511"></script>
+<script src="js/config.js?v=2.5.5.12-app25512"></script>
+<script src="js/model_config.js?v=2.5.5.12-app25512"></script>
+<script src="js/network.js?v=2.5.5.12-app25512"></script>
+<script src="js/domain.js?v=2.5.5.12-app25512"></script>
+<script src="js/time.js?v=2.5.5.12-app25512"></script>
+<script src="js/vendor/suncalc.js?v=2.5.5.12-app25512"></script>
+<script src="js/solar.js?v=2.5.5.12-app25512"></script>
+<script src="js/baseline.js?v=2.5.5.12-app25512"></script>
+<script src="js/cache.js?v=2.5.5.12-app25512"></script>
+<script src="js/data.js?v=2.5.5.12-app25512"></script>
+<script src="js/city_search.js?v=2.5.5.12-app25512"></script>
+<script src="js/cloud_field.js?v=2.5.5.12-app25512"></script>
+<script src="js/wind.js?v=2.5.5.12-app25512"></script>
+<script src="js/cloud_motion.js?v=2.5.5.12-app25512"></script>
+<script src="js/sky_state.js?v=2.5.5.12-app25512"></script>
+<script src="js/engine.js?v=2.5.5.12-app25512"></script>
+<script src="js/sampling.js?v=2.5.5.12-app25512"></script>
+<script src="js/corridor.js?v=2.5.5.12-app25512"></script>
+<script src="js/nowcast.js?v=2.5.5.12-app25512"></script>
+<script src="js/evolution.js?v=2.5.5.12-app25512"></script>
+<script src="js/satellite_colormap.js?v=2.5.5.12-app25512"></script>
+<script src="js/satellite_shadow.js?v=2.5.5.12-app25512"></script>
+<script src="js/bypass_capture.js?v=2.5.5.12-app25512"></script>
+<script src="js/replay_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/prediction_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/feedback_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/event_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/snapshot_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/observation_service.js?v=2.5.5.12-app25512"></script>
+<script src="js/radar_view.js?v=2.5.5.12-app25512"></script>
+<script src="js/debug.js?v=2.5.5.12-app25512"></script>
+<script src="js/sticky_summary.js?v=2.5.5.12-app25512"></script>
+<script src="js/ui.js?v=2.5.5.12-app25512"></script>
+<script src="js/feedback_ui.js?v=2.5.5.12-app25512"></script>
+<script src="js/city_search_ui.js?v=2.5.5.12-app25512"></script>
+<script src="js/app.js?v=2.5.5.12-app25512"></script>
 </body>
 </html>

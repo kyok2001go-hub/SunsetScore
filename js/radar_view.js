@@ -45,6 +45,134 @@
     radarTogglesBound = true;
   }
 
+  /* ---------- V2.5.5.12 显示修复：只改渲染，不取数、不参与评分 ----------
+     1. 没有数据的节点画成空心标记并给出说明，不再当作 0% 云量；
+     2. 33 点云场降级为日落方向采样点时，把实际取到的节点画在真实方位与距离上；
+     3. 圆面积与云量成正比（原为半径成正比，50% 云量只占 1/4 面积），并用扇区底色表示总云量。 */
+  var CENTER_X = 310, CENTER_Y = 310;
+  var MAX_CLOUD_RADIUS = 28;
+  var CENTER_CELL_RADIUS = 37;
+  /* 各距离环对应的扇区径向范围（相邻环半径的中点） */
+  var RING_BOUNDS = { 50: [37, 103], 100: [103, 161], 200: [161, 219], 300: [219, 248] };
+  var SLOT_DIRECTIONS = { N: true, NE: true, E: true, SE: true, S: true, SW: true, W: true, NW: true };
+
+  function finite(value) { return typeof value === 'number' && isFinite(value); }
+  function percent(value) { return finite(value) ? Math.max(0, Math.min(100, value)) : 0; }
+  function round1(value) { return Math.round(value * 10) / 10; }
+
+  /* 0% 不绘制；其余面积正比于云量，最小 3.2px 保证可见。 */
+  function cloudRadius(value) {
+    if (!finite(value) || value <= 0) return 0;
+    return Math.max(3.2, Math.sqrt(Math.min(100, value) / 100) * MAX_CLOUD_RADIUS);
+  }
+
+  /* 任意距离（km）到图上半径的分段线性映射，与四个距离环一致。 */
+  function radiusForDistance(distanceKm) {
+    var stops = [[0, 0], [50, 74], [100, 132], [200, 190], [300, 248]];
+    if (!finite(distanceKm) || distanceKm <= 0) return 0;
+    for (var i = 1; i < stops.length; i++) {
+      if (distanceKm <= stops[i][0]) {
+        var a = stops[i - 1], b = stops[i];
+        return a[1] + (b[1] - a[1]) * (distanceKm - a[0]) / (b[0] - a[0]);
+      }
+    }
+    return 248;
+  }
+
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    var rad = Math.PI / 180;
+    var y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad);
+    var x = Math.cos(lat1 * rad) * Math.sin(lat2 * rad) -
+      Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad);
+    return (Math.atan2(y, x) / rad + 360) % 360;
+  }
+
+  function pointFrom(record, base) {
+    var has = !!record && record.hasData !== false && !!record.data;
+    var data = has ? record.data : {};
+    base.hasData = has;
+    base.low = percent(data.cloud_cover_low);
+    base.mid = percent(data.cloud_cover_mid);
+    base.high = percent(data.cloud_cover_high);
+    base.total = percent(data.cloud_cover);
+    return base;
+  }
+
+  /* 把预测结果整理成绘图用的点集与说明文字；纯函数，便于测试。 */
+  function buildRadarModel(result) {
+    var cloudField = (result && result.cloud_field) || {};
+    var nodes = cloudField.nodes || [];
+    var centerNode = cloudField.center || null;
+    var used = [];
+    var points = [pointFrom(centerNode, {
+      key: 'CENTER_0', label: '本地中心 (0km)', azimuth: 0, distanceKm: 0, x: CENTER_X, y: CENTER_Y, slot: true
+    })];
+    var missing = 0;
+
+    RADAR_DIRS.forEach(function (direction) {
+      var angle = direction.az * Math.PI / 180;
+      RADAR_DISTS.forEach(function (distance) {
+        var ringRadius = RADAR_RADII[distance] || 248;
+        var key = direction.dir + '_' + distance;
+        var record = cloudField.nodeMap && cloudField.nodeMap[key];
+        if (!record) {
+          for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].direction === direction.dir && nodes[i].distanceKm === distance) { record = nodes[i]; break; }
+          }
+        }
+        if (record) used.push(record);
+        var point = pointFrom(record, {
+          key: key, label: direction.label + ' · ' + distance + 'km', azimuth: direction.az, distanceKm: distance,
+          x: round1(CENTER_X + ringRadius * Math.sin(angle)), y: round1(CENTER_Y - ringRadius * Math.cos(angle)), slot: true
+        });
+        if (!point.hasData) missing++;
+        points.push(point);
+      });
+    });
+
+    /* 降级采样点（日落方向 7 / 13 点）不在 8 方位网格上：按真实方位与距离绘制。 */
+    var centerLat = centerNode && finite(centerNode.latitude) ? centerNode.latitude : (result ? result.latitude : null);
+    var centerLon = centerNode && finite(centerNode.longitude) ? centerNode.longitude : (result ? result.longitude : null);
+    var extras = 0;
+    nodes.forEach(function (node) {
+      if (!node || used.indexOf(node) !== -1 || node.hasData === false || !node.data) return;
+      if (SLOT_DIRECTIONS[node.direction] && RADAR_RADII[node.distanceKm]) return;
+      if (!finite(node.latitude) || !finite(node.longitude) || !finite(centerLat) || !finite(centerLon) || !(node.distanceKm > 0)) return;
+      var azimuth = bearingDeg(centerLat, centerLon, node.latitude, node.longitude);
+      var angle = azimuth * Math.PI / 180, radius = radiusForDistance(node.distanceKm);
+      extras++;
+      points.push(pointFrom(node, {
+        key: 'EXTRA_' + extras, label: '日落方向采样点 · 方位 ' + Math.round(azimuth) + '° · ' + Math.round(node.distanceKm) + 'km',
+        azimuth: azimuth, distanceKm: node.distanceKm,
+        x: round1(CENTER_X + radius * Math.sin(angle)), y: round1(CENTER_Y - radius * Math.cos(angle)), slot: false
+      }));
+    });
+
+    var note = null;
+    if (missing > 0) {
+      var tail = '空心标记表示没有数据，不代表无云。';
+      if (extras > 0) note = '全天空云场获取失败，本次降级为日落方向 ' + extras + ' 个采样点。' + tail;
+      else if (missing === RADAR_DIRS.length * RADAR_DISTS.length) {
+        note = (result && result.batch_attempts > 0 ? '周边云场获取失败，本次只有本地节点。' : '本地为浓厚阴天，本次只采样了本地节点。') + tail;
+      } else note = missing + ' 个节点暂无数据。' + tail;
+    }
+    return { points: points, missing: missing, extras: extras, note: note };
+  }
+
+  /* 网格节点对应的扇区（中心为圆），用于总云量底色。 */
+  function cellPath(point) {
+    if (point.distanceKm === 0) {
+      return 'M ' + (CENTER_X - CENTER_CELL_RADIUS) + ' ' + CENTER_Y + ' a ' + CENTER_CELL_RADIUS + ' ' + CENTER_CELL_RADIUS + ' 0 1 0 ' +
+        (2 * CENTER_CELL_RADIUS) + ' 0 a ' + CENTER_CELL_RADIUS + ' ' + CENTER_CELL_RADIUS + ' 0 1 0 ' + (-2 * CENTER_CELL_RADIUS) + ' 0 Z';
+    }
+    var bounds = RING_BOUNDS[point.distanceKm];
+    if (!bounds) return '';
+    var a0 = (point.azimuth - 22.5) * Math.PI / 180, a1 = (point.azimuth + 22.5) * Math.PI / 180;
+    function at(radius, angle) { return round1(CENTER_X + radius * Math.sin(angle)) + ' ' + round1(CENTER_Y - radius * Math.cos(angle)); }
+    return 'M ' + at(bounds[0], a0) + ' L ' + at(bounds[1], a0) + ' A ' + bounds[1] + ' ' + bounds[1] + ' 0 0 1 ' + at(bounds[1], a1) +
+      ' L ' + at(bounds[0], a1) + ' A ' + bounds[0] + ' ' + bounds[0] + ' 0 0 0 ' + at(bounds[0], a0) + ' Z';
+  }
+
   function renderCloudFieldRadar(result) {
     var block = $('cloud-field-radar-block');
     var chart = $('cloud-field-radar-svg');
@@ -59,53 +187,15 @@
     cachedRadarResult = result;
     initRadarLayerToggles();
 
-    var centerX = 310, centerY = 310;
-    var maxCloudRadius = 23.5;
-    var centerNode = cloudField.center || {};
-    var centerData = centerNode.data || {};
-    var allPoints = [{
-      key: 'CENTER_0', label: '本地中心 (0km)', azimuth: 0, distanceKm: 0,
-      x: centerX, y: centerY,
-      low: centerData.cloud_cover_low || 0,
-      mid: centerData.cloud_cover_mid || 0,
-      high: centerData.cloud_cover_high || 0,
-      total: centerData.cloud_cover || 0
-    }];
-
-    RADAR_DIRS.forEach(function (direction) {
-      var angle = direction.az * Math.PI / 180;
-      RADAR_DISTS.forEach(function (distance) {
-        var ringRadius = RADAR_RADII[distance] || 248;
-        var key = direction.dir + '_' + distance;
-        var record = cloudField.nodeMap && cloudField.nodeMap[key];
-        if (!record && cloudField.nodes) {
-          for (var i = 0; i < cloudField.nodes.length; i++) {
-            if (cloudField.nodes[i].direction === direction.dir && cloudField.nodes[i].distanceKm === distance) {
-              record = cloudField.nodes[i];
-              break;
-            }
-          }
-        }
-        var data = record && record.data || {};
-        allPoints.push({
-          key: key,
-          label: direction.label + ' · ' + distance + 'km',
-          azimuth: direction.az,
-          distanceKm: distance,
-          x: Math.round((centerX + ringRadius * Math.sin(angle)) * 10) / 10,
-          y: Math.round((centerY - ringRadius * Math.cos(angle)) * 10) / 10,
-          low: data.cloud_cover_low || 0,
-          mid: data.cloud_cover_mid || 0,
-          high: data.cloud_cover_high || 0,
-          total: data.cloud_cover || 0
-        });
-      });
-    });
-
-    /* V2.2.2 原始线性半径映射：0% 不绘制，>0% 为 3.2~23.5px。 */
-    function calculateRadius(percent) {
-      if (!percent || percent <= 0) return 0;
-      return Math.max(3.2, percent / 100 * maxCloudRadius);
+    var centerX = CENTER_X, centerY = CENTER_Y;
+    var centerData = (cloudField.center && cloudField.center.data) || {};
+    var model = buildRadarModel(result);
+    var allPoints = model.points;
+    var calculateRadius = cloudRadius;
+    var statusNote = $('radar-status-note');
+    if (statusNote) {
+      statusNote.textContent = model.note || '';
+      if (model.note) show(statusNote); else hide(statusNote);
     }
 
     var cloudMotion = result.cloud_motion || {};
@@ -202,10 +292,21 @@
       markup += '</g>';
     }
 
+    /* A2. 总云量底色（扇区越亮云越多）与无数据节点的空心标记。 */
+    allPoints.forEach(function (point) {
+      if (!point.hasData) {
+        markup += '<circle cx="' + point.x + '" cy="' + point.y + '" r="6" class="radar-node-missing" />';
+      } else if (point.slot && point.total > 0) {
+        var path = cellPath(point);
+        if (path) markup += '<path d="' + path + '" class="radar-cloud-cell" fill-opacity="' + (0.03 + 0.25 * point.total / 100).toFixed(3) + '" />';
+      }
+    });
+
     /* B. 原始绘制顺序：低云 -> 中云 -> 高云，自底向上叠色。 */
     function addLayer(layer, className) {
       if (!radarVisibleLayers[layer]) return;
       allPoints.forEach(function (point) {
+        if (!point.hasData) return;
         var radius = calculateRadius(point[layer]);
         if (radius > 0) markup += '<circle cx="' + point.x + '" cy="' + point.y + '" r="' + radius.toFixed(1) + '" class="radar-cloud-circle ' + className + '" />';
       });
@@ -235,8 +336,9 @@
       var lowStyle = radarVisibleLayers.low ? 'color:#85a5ff' : 'color:rgba(133,165,255,0.4);text-decoration:line-through';
       var midStyle = radarVisibleLayers.mid ? 'color:#95de64' : 'color:rgba(149,222,100,0.4);text-decoration:line-through';
       var highStyle = radarVisibleLayers.high ? 'color:#ffc069' : 'color:rgba(255,192,105,0.4);text-decoration:line-through';
-      tooltip.innerHTML =
-        '<div class="radar-tooltip-title">' + point.label + '</div>' +
+      tooltip.innerHTML = !point.hasData
+        ? '<div class="radar-tooltip-title">' + point.label + '</div><div class="radar-tooltip-row"><span>暂无数据（不代表无云）</span></div>'
+        : '<div class="radar-tooltip-title">' + point.label + '</div>' +
         '<div class="radar-tooltip-row"><span>总云量:</span><strong>' + point.total + '%</strong></div>' +
         '<div class="radar-tooltip-row" style="' + lowStyle + '"><span>低云 (LOW):</span><span>' + point.low + '%' + (!radarVisibleLayers.low ? ' (隐藏)' : '') + '</span></div>' +
         '<div class="radar-tooltip-row" style="' + midStyle + '"><span>中云 (MID):</span><span>' + point.mid + '%' + (!radarVisibleLayers.mid ? ' (隐藏)' : '') + '</span></div>' +
@@ -274,6 +376,10 @@
 
   SS.radarView = {
     render: renderCloudFieldRadar,
+    buildModel: buildRadarModel,
+    cloudRadius: cloudRadius,
+    radiusForDistance: radiusForDistance,
+    cellPath: cellPath,
     visibleLayers: radarVisibleLayers
   };
 })(typeof window !== 'undefined' ? window : globalThis);

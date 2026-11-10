@@ -767,6 +767,30 @@ body {
   fill: rgba(250, 160, 95, 0.60);
 }
 
+/* V2.5.5.12：总云量底色、无数据节点与说明文字 */
+.radar-cloud-cell {
+  fill: #dfe9ff;
+  stroke: none;
+  pointer-events: none;
+}
+.radar-node-missing {
+  fill: none;
+  stroke: rgba(200, 210, 235, 0.6);
+  stroke-width: 1.3;
+  stroke-dasharray: 2.5, 2.5;
+  pointer-events: none;
+}
+.radar-note {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  text-align: center;
+}
+.radar-note-warn {
+  color: #ffc069;
+}
+
 .radar-node-target {
   cursor: pointer;
 }
