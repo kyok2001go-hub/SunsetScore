@@ -142,11 +142,17 @@ test('Export classifies every Snapshot, verifies binding, reports label-free qua
   const quality = JSON.parse(await fs.readFile(path.join(result.directory, 'reports/quality.json'), 'utf8'));
   assert.equal(quality.status, 'WARN');
   assert.deepEqual(quality.warnings.map(w => w.code), ['EXPECTED_OBJECTS_NOT_VALID']);
-  assert.deepEqual([quality.coverage.expected, quality.coverage.valid_ratio, quality.requests.A.ok_ratio], [6, 0.5, 1]);
+  // Fixtures come from the V2.5.5.15 client, which no longer sends request A: its OK ratio has no denominator.
+  assert.deepEqual([quality.coverage.expected, quality.coverage.valid_ratio, quality.requests.A.ok_ratio, quality.requests.A.not_requested, quality.requests.B.ok_ratio], [6, 0.5, null, 3, 1]);
   assert.deepEqual(quality.satellite_shadow.status, { OK: 2 });
   assert.deepEqual([quality.satellite_shadow.cold_cloud_cases.length, quality.satellite_shadow.worldview_candidates.cloudy[0].snapshot_id,
     quality.satellite_shadow.worldview_candidates.clear[0].snapshot_id], [1, 'snap_a', 'snap_b']);
-  assert.equal(quality.satellite_shadow.spearman_frac_cloud_vs_nwp_mid_high, null, 'fewer than 10 pairs');
+  // V2.5.5.15 report v2: the pressure-level rank correlation is dropped (see validate --raw); frame-level statistics added.
+  assert.equal(quality.quality_version, 2);
+  assert.ok(!('spearman_frac_cloud_vs_nwp_mid_high' in quality.satellite_shadow));
+  assert.equal(quality.satellite_shadow.nwp_comparison, 'SEE_VALIDATE_RAW_SINGLE_LEVEL');
+  assert.deepEqual([quality.satellite_shadow.frames.all_frames_ok_ratio, quality.satellite_shadow.frames.objects_without_ok_frame], [1, 0]);
+  assert.equal(quality.requests.pressure_level_cloud_consistency.pressure_level_lt_10_when_single_ge_50, null, 'no single-level ≥ 50% nodes');
   assert.match(await fs.readFile(path.join(result.directory, 'reports/quality.md'), 'utf8'), /旁路对象质量周报[\s\S]*Worldview/);
   const first = calls.length;
   const again = await run();
@@ -172,6 +178,8 @@ test('Validation re-verifies objects, detects tampering and reports the join wit
   const join = (await m.val.validateBypass({ dataset: result.directory, raw })).raw_join;
   assert.deepEqual([join.matched, join.matched_valid, join.replay_sha256_mismatch, join.raw_only], [1, 1, ['snap_b'], ['snap_z']]);
   assert.equal(join.bypass_only.length, 6);
+  const contrastResult = (await m.val.validateBypass({ dataset: result.directory, raw })).nwp_single_level_contrast;
+  assert.deepEqual([contrastResult.objects, contrastResult.replay_missing, contrastResult.replay_hash_mismatch], [0, 1, 0], "the fixture Raw has no Replay files");
   const object = path.join(result.directory, 'objects/snap_a.json.gz');
   await fs.chmod(object, 0o644); await fs.appendFile(object, 'x');
   await assert.rejects(m.val.validateBypass({ dataset: result.directory, raw: null }), /BYPASS_FILE_HASH_MISMATCH/);
@@ -206,4 +214,103 @@ test('Collector report keeps the endpoint bypassStatus and shows it in the Actio
   const md = collector.summaryMarkdown(report);
   assert.match(md, /- Bypass: \*\*SAVED=1, BYPASS_BINDING_MISMATCH=1\*\*/);
   assert.match(md, /\| 结果 \| 旁路 \|/); assert.match(md, /\| SUBMITTED \| SAVED \|/);
+});
+
+// ---------- V2.5.5.15 ----------
+const quality = () => import('../tools/bypass/lib/quality.mjs');
+const contrast = () => import('../tools/bypass/lib/nwp-contrast.mjs');
+function frame(status, extra = {}) {
+  return { status, tiles_ok: status === 'TILES_FAILED' ? 1 : 2, tiles_requested: 2, time_utc: '2026-11-01T08:00:00.000Z', age_minutes: 30, valid_sample_ratio: 0.9,
+    summary: status === 'OK' ? { frac_cloud_v1: 0.5, frac_cold_high: 0, bands: [{ band_km: [0, 50], valid: 10, frac_cloud_v1: 1 }, { band_km: [50, 100], valid: 30, frac_cloud_v1: 0 }, { band_km: [100, 250], valid: 60, frac_cloud_v1: 0.5 }] } : null, ...extra };
+}
+function qualityItem(id, frames, slot, farClouds = []) {
+  const times = ['2026-11-01T08:00:00.000Z', '2026-11-01T09:00:00.000Z'];
+  const far = farClouds.map(([pl, sl]) => ({ time_utc: times, variables: { cloud_cover_500hPa: [pl, pl], cloud_cover_300hPa: [0, 0], cloud_cover_250hPa: [0, 0], cloud_cover_mid: [0, 0], cloud_cover_high: [sl, sl] } }));
+  const row = { snapshot_id: id, expected: 'EXPECTED', object_status: 'VALID', city: '上海', scheduled_slot: slot, request_a_status: 'OK', request_b_status: 'OK',
+    uncompressed_bytes: 1000, compressed_bytes: 100, bypass_schema_version: 2, shadow_status: 'OK', prediction_time_utc: '2026-11-01T08:13:00.000Z' };
+  const payload = { bypass_schema_version: 2, sunset_time_utc: '2026-11-01T09:10:00.000Z', grid_nodes: [], far_nodes: far, quality: { null_counts: {} },
+    satellite_shadow: { status: frames.some(f => f.status === 'OK') ? 'OK' : 'TILES_FAILED', reason_code: null, satellite: 'himawari', frames } };
+  return { row, payload };
+}
+
+test('V2.5.5.15 quality v2: versions are dispatched, frame-level statistics and pressure-level consistency are reported', async () => {
+  const q = await quality();
+  const items = [
+    qualityItem('s1', [frame('OK'), frame('OK'), frame('OK')], '1613', Array.from({ length: 12 }, () => [0, 80])),
+    qualityItem('s2', [frame('OK'), frame('TILES_FAILED'), frame('INSUFFICIENT_SAMPLES')], '1613'),
+    qualityItem('s3', [frame('TILES_FAILED'), frame('TILES_FAILED'), frame('TILES_FAILED')], '1720')
+  ];
+  const rows = items.map(x => x.row), payloads = new Map(items.map(x => [x.row.snapshot_id, x.payload]));
+  const v1 = q.buildQuality(rows, payloads, 1), v2 = q.buildQuality(rows, payloads);
+  assert.equal(v1.quality_version, undefined); assert.ok('spearman_frac_cloud_vs_nwp_mid_high' in v1.satellite_shadow);
+  assert.deepEqual(v1.thresholds, q.THRESHOLDS, 'v1 thresholds never change');
+  assert.equal(v2.quality_version, 2); assert.notEqual(JSON.stringify(v1), JSON.stringify(v2));
+  assert.throws(() => q.buildQuality(rows, payloads, 3), /BYPASS_QUALITY_VERSION_UNSUPPORTED/);
+  const f = v2.satellite_shadow.frames;
+  assert.deepEqual([f.all_frames_ok_ratio, f.latest_frame_ok_ratio, f.objects_without_ok_frame], [0.333, 0.333, 1]);
+  assert.deepEqual(f.status_by_position, { 1: { OK: 2, TILES_FAILED: 1 }, 2: { OK: 1, TILES_FAILED: 2 }, 3: { INSUFFICIENT_SAMPLES: 1, OK: 1, TILES_FAILED: 1 } });
+  assert.deepEqual(f.all_frames_ok_by_slot, { 1613: { objects: 2, all_frames_ok: 1, ratio: 0.5 }, 1720: { objects: 1, all_frames_ok: 0, ratio: 0 } });
+  assert.deepEqual(f.failed_frame_tiles, { INSUFFICIENT_SAMPLES: { '2/2': 1 }, TILES_FAILED: { '1/2': 4 } });
+  const c = v2.requests.pressure_level_cloud_consistency;
+  assert.deepEqual([c.nodes, c.single_level_ge_50, c.pressure_level_lt_10_when_single_ge_50, c.mean_pressure_level, c.mean_single_level], [12, 12, 1, 0, 80]);
+  assert.deepEqual(v2.warnings.map(w => w.code), ['SHADOW_OK_BELOW_90', 'SHADOW_ALL_FRAMES_OK_BELOW_80', 'PRESSURE_LEVEL_CLOUD_INCONSISTENT']);
+  const md = q.qualityMarkdown(v2, { bypass_dataset_id: 'x', descriptor: { selection: { event_date_from: 'a', event_date_to: 'b' }, cutoff_utc: 'c' } });
+  assert.match(md, /三帧全部 OK 33\.3%/); assert.match(md, /气压层云量一致性/); assert.doesNotMatch(md, /与 NWP 中高云的秩相关/);
+});
+
+test('V2.5.5.15 single-level contrast uses the sunset sector, two zones, the latest OK frame and the frame time', async () => {
+  const c = await contrast();
+  const times = ['2026-11-01T07:00:00.000Z', '2026-11-01T09:00:00.000Z'];
+  const node = (key, direction, azimuth, distance_km) => ({ key, direction, azimuth, distance_km });
+  const payload = { bypass_schema_version: 2, sunset_azimuth_deg: 250, grid_nodes: [node('CENTER_0', 'CENTER', 0, 0), node('SW_50', 'SW', 225, 50),
+    node('W_100', 'W', 270, 100), node('E_50', 'E', 90, 50), node('SW_200', 'SW', 225, 200), node('SW_300', 'SW', 225, 300)],
+    satellite_shadow: { status: 'OK', frames: [frame('OK'), frame('TILES_FAILED')] } };
+  // Geometry is taken from the Replay nodes (V2.5.5.15 objects have no grid_nodes).
+  const geometry = Object.fromEntries(payload.grid_nodes.map(n => [n.key, n]));
+  const rn = (key, mid, high) => ({ ...geometry[key], time_utc: times, variables: { cloud_cover_mid: mid, cloud_cover_high: high } });
+  const replay = { nwp: { nodes: [rn('CENTER_0', [0, 0], [0, 100]), rn('SW_50', [20, 20], [0, 0]), rn('W_100', [60, 60], [0, 0]), rn('E_50', [100, 100], [100, 100]),
+    rn('SW_200', [0, 0], [40, 40]), rn('SW_300', [100, 100], [100, 100])] } };
+  payload.grid_nodes = [];
+  assert.deepEqual([...c.zoneKeys(replay.nwp.nodes, 250, 'near')].sort(), ['CENTER_0', 'SW_50', 'W_100']);
+  assert.deepEqual([...c.zoneKeys(replay.nwp.nodes, 250, 'far')], ['SW_200']);
+  assert.equal(c.satelliteZone(frame('OK'), 'near'), 0.25);
+  const r = c.singleLevelContrast([{ payload, replay }]);
+  // near NWP at 08:00: CENTER max(0, 50) = 0.5, SW_50 0.2, W_100 0.6 → 0.433; satellite near 0.25
+  assert.deepEqual([r.near.n, r.near.mean_nwp, r.near.mean_satellite, r.near.mean_diff], [1, 0.433, 0.25, -0.183]);
+  assert.deepEqual([r.far.n, r.far.mean_nwp, r.far.mean_satellite, r.far.mean_diff], [1, 0.4, 0.5, 0.1]);
+  const none = c.singleLevelContrast([{ payload: { ...payload, satellite_shadow: { status: 'TILES_FAILED', frames: [frame('TILES_FAILED')] } }, replay }]);
+  assert.deepEqual([none.without_ok_frame, none.near.n], [1, 0]);
+});
+
+test('V2.5.5.15 D1 queries retry NETWORK_TRANSIENT only, and a failed export removes an empty staging directory', async t => {
+  const { source } = await api(), dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sunset-bypass-d1-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const make = outcomes => { let i = 0; const delays = [], calls = [];
+    return { delays, calls, src: source.createBypassSource({ database: 'd', config: null }, dir, { delay: async ms => { delays.push(ms); },
+      d1Rows: async (...args) => { calls.push(args); const o = outcomes[Math.min(i++, outcomes.length - 1)];
+        if (o === 'ok') return [{ x: 1 }]; throw Object.assign(new Error(o), { code: o }); } }) }; };
+  let s = make(['NETWORK_TRANSIENT', 'NETWORK_TRANSIENT', 'ok']);
+  assert.deepEqual(await s.src.query('SELECT 1'), [{ x: 1 }]); assert.deepEqual(s.delays, [5000, 15000]);
+  s = make(['NETWORK_TRANSIENT']); await assert.rejects(s.src.query('SELECT 1'), /NETWORK_TRANSIENT/); assert.equal(s.calls.length, 4);
+  assert.deepEqual(s.delays, [...source.D1_RETRY_DELAYS_MS]);
+  s = make(['D1_QUERY_FAILED']); await assert.rejects(s.src.query('SELECT 1'), /D1_QUERY_FAILED/); assert.equal(s.calls.length, 1);
+
+  const { m, dir: out } = await setup(t);
+  const options = m.exp.parseArgs(['--output', out, '--from', '2026-10-28', '--to', '2026-10-29', '--quiet'], Date.parse('2026-10-29T12:00:00Z'));
+  const failing = { query: async () => { throw Object.assign(new Error('NETWORK_TRANSIENT'), { code: 'NETWORK_TRANSIENT' }); }, getObject: async () => ({ status: 'MISSING' }) };
+  const failed = await m.exp.exportBypass(options, { source: failing });
+  assert.deepEqual([failed.status, failed.error_code, failed.staging], ['FAIL', 'NETWORK_TRANSIENT', null]);
+  assert.deepEqual(await fs.readdir(path.join(out, 'bypass/staging')), []);
+  // A run that already wrote objects keeps its staging directory and names it.
+  const f = await fixtures();
+  const object = id => { const p = structuredClone(f.base); p.snapshot_id = id; return gzipSync(Buffer.from(m.canonicalJson(p))); };
+  let ticks = 0;
+  const timed = await m.exp.exportBypass({ ...options, refresh: true }, { source: {
+    query: async sql => sql.includes('strftime') ? [{ cutoff_epoch: Date.parse('2026-10-29T12:00:00Z') }]
+      : sql.includes('AND (submitted_at_epoch >') ? [] : [snapshot('snap_a', { submitted_at_epoch: 1 }), snapshot('snap_b', { submitted_at_epoch: 2 })],
+    getObject: async key => ({ status: 'FOUND', bytes: object(key.includes('snap_a') ? 'snap_a' : 'snap_b') }) },
+    now: () => (++ticks > 1 ? Date.now() + 3_600_000 : Date.now()) });
+  assert.deepEqual([timed.status, timed.error_code], ['FAIL', 'BYPASS_EXPORT_TIMEOUT']);
+  assert.ok(timed.staging, 'staging with files is kept');
+  assert.ok((await m.common.inventory(timed.staging)).length > 0);
 });

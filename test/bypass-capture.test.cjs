@@ -44,7 +44,7 @@ test('Client request lists equal the server schema, one 33-node request and one 
   assert.deepEqual([...SS.bypassCapture.CONFIG.gridVariables], [...schema.BYPASS_GRID_VARIABLES]);
   assert.deepEqual([...SS.bypassCapture.CONFIG.farVariables], [...schema.BYPASS_FAR_VARIABLES]);
   assert.equal(schema.BYPASS_GRID_VARIABLES.length, 20); assert.equal(schema.BYPASS_FAR_VARIABLES.length, 24);
-  const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   assert.equal(calls.length, 2);
   assert.equal(new URL(calls[0]).searchParams.get('latitude').split(',').length, 33);
   assert.equal(new URL(calls[1]).searchParams.get('latitude').split(',').length, 2);
@@ -59,23 +59,42 @@ test('Client request lists equal the server schema, one 33-node request and one 
   assert.doesNotThrow(() => schema.validateBypassPayload(bypass, expected));
 });
 
+// V2.5.5.15: request A (33 grid nodes) is disabled online. The object keeps the v2 shape, so the server schema is unchanged
+// and objects from pages that still send request A (V2.5.5.14 and earlier) stay valid; the tests above build those with gridRequest.
+test('V2.5.5.15 capture sends only the far-point request: request A is NOT_REQUESTED / DISABLED and grid_nodes is empty', async () => {
+  const schema = await import('../server/bypass-schema.js'), calls = [];
+  const SS = clientRuntime(openMeteoFetch(calls));
+  assert.equal(SS.bypassCapture.CONFIG.gridRequestEnabled, false);
+  const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.equal(calls.length, 1, 'one Open-Meteo request (far points)');
+  assert.equal(new URL(calls[0]).searchParams.get('latitude').split(',').length, 2);
+  assert.deepEqual(bypass.requests.A, { status: 'NOT_REQUESTED', reason_code: 'DISABLED', variables: [...schema.BYPASS_GRID_VARIABLES] });
+  assert.equal(bypass.requests.B.status, 'OK'); assert.deepEqual(bypass.grid_nodes, []);
+  assert.equal(bypass.far_nodes.length, 2); assert.deepEqual(bypass.quality.missing_reason, {});
+  assert.equal(bypass.bypass_schema_version, 2);
+  assert.doesNotThrow(() => schema.validateBypassPayload(bypass, expected));
+  const limited = plain(await clientRuntime(openMeteoFetch([], { status: 429 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.deepEqual([limited.requests.A.status, limited.requests.B.status, limited.quality.missing_reason.dew_point_2m], ['NOT_REQUESTED', 'RATE_LIMITED', 'RATE_LIMITED']);
+  assert.doesNotThrow(() => schema.validateBypassPayload(limited, expected));
+});
+
 test('HTTP 429 is recorded as RATE_LIMITED without any retry; units that differ are nulled as UNIT_MISMATCH', async () => {
   const schema = await import('../server/bypass-schema.js'), calls = [];
-  const limited = plain(await clientRuntime(openMeteoFetch(calls, { status: 429 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const limited = plain(await clientRuntime(openMeteoFetch(calls, { status: 429 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   assert.equal(calls.length, 2, 'one attempt per request, no retry');
   assert.deepEqual([limited.requests.A.status, limited.requests.A.reason_code, limited.requests.B.status], ['RATE_LIMITED', 'HTTP_429', 'RATE_LIMITED']);
   assert.equal(limited.quality.missing_reason.cloud_cover_850hPa, 'RATE_LIMITED'); assert.equal(limited.grid_nodes[0].time_utc.length, 0);
   assert.doesNotThrow(() => schema.validateBypassPayload(limited, expected));
-  const failed = plain(await clientRuntime(openMeteoFetch([], { status: 503 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const failed = plain(await clientRuntime(openMeteoFetch([], { status: 503 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   assert.deepEqual([failed.requests.A.status, failed.requests.A.reason_code, failed.quality.missing_reason.dew_point_2m], ['FAILED', 'HTTP_503', 'REQUEST_FAILED']);
-  const kelvin = plain(await clientRuntime(openMeteoFetch([], { units: { dew_point_2m: 'K' } })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const kelvin = plain(await clientRuntime(openMeteoFetch([], { units: { dew_point_2m: 'K' } })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   assert.equal(kelvin.quality.missing_reason.dew_point_2m, 'UNIT_MISMATCH'); assert.ok(kelvin.grid_nodes[0].variables.dew_point_2m.every(v => v === null));
   assert.doesNotThrow(() => schema.validateBypassPayload(kelvin, expected));
 });
 
 test('Schema keeps satellite_shadow reserved, binds to the Replay and rejects unknown, mismatched or oversized objects', async () => {
   const schema = await import('../server/bypass-schema.js');
-  const base = plain(await clientRuntime(openMeteoFetch([])).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const base = plain(await clientRuntime(openMeteoFetch([])).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   const mutate = fn => { const copy = structuredClone(base); fn(copy); return () => schema.validateBypassPayload(copy, expected); };
   // v1 objects keep satellite_shadow reserved (null only); v2 objects validate it as the V2.5.5.8 shadow object.
   assert.throws(mutate(b => { b.bypass_schema_version = 1; b.satellite_shadow = { frames: [] }; }), /BYPASS_SATELLITE_SHADOW_NOT_DEFINED/);
@@ -173,7 +192,7 @@ test('Ordinary predictions send no bypass request; capture runs attach it, and s
   const bypassCalls = () => calls.filter(u => u.includes('geopotential_height')).length;
   assert.equal(bypassCalls(), 0); assert.equal(ordinary.bypass_payload, undefined);
   const captured = await SS.prediction.predict('31.23,121.47', { nowUtcMs, captureReplay: true });
-  assert.equal(bypassCalls(), 2); assert.equal(captured.bypass_payload.satellite_shadow, null);
+  assert.equal(bypassCalls(), 1, 'V2.5.5.15: far-point request only'); assert.equal(captured.bypass_payload.satellite_shadow, null);
   assert.equal(captured.score, ordinary.score);
   const env1 = await SS.snapshotService.buildReplayEnvelope(captured, { source: 'github_manual', scheduledSlot: '1613' });
   assert.deepEqual(Object.keys(env1), ['snapshot', 'replay', 'bypass']); assert.equal(env1.bypass, captured.bypass_payload);
@@ -184,7 +203,7 @@ test('Ordinary predictions send no bypass request; capture runs attach it, and s
   const SF = load(failingRuntime, [...SERVICE_FILES, 'js/bypass_capture.js']);
   SF.data.fetchForecastWithRetry = async () => fc; SF.data.fetchAirQuality = async () => null; SF.data.gather = SS.data.gather;
   const limited = await SF.prediction.predict('31.23,121.47', { nowUtcMs, captureReplay: true });
-  assert.equal(limited.score, captured.score); assert.equal(limited.bypass_payload.requests.A.status, 'RATE_LIMITED');
+  assert.equal(limited.score, captured.score); assert.deepEqual([limited.bypass_payload.requests.A.status, limited.bypass_payload.requests.B.status], ['NOT_REQUESTED', 'RATE_LIMITED']);
   assert.equal(JSON.stringify(limited.replay_payload.nwp), JSON.stringify(captured.replay_payload.nwp));
   assert.equal(limited.replay_payload.identity.config_hash, captured.replay_payload.identity.config_hash);
 });

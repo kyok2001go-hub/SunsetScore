@@ -5,7 +5,10 @@
  * 只记录、不计分：不进入评分配置、engineInput 或 Replay；失败只记录状态，不影响预测。
  * HTTP 429 时该请求记为 RATE_LIMITED 并跳过，不重试。
  * V2.5.5.8：对象升为 v2，satellite_shadow 由 js/satellite_shadow.js 填写（Band13 红外影子采集；模块缺失时为 null）。
- * 依据：ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md
+ * V2.5.5.15：停用请求 A（33 个网格节点）。它占旁路 Open-Meteo 计费的九成以上，而其中的气压层云量由相对湿度估算、
+ * 高层几乎恒为 0，其余变量在 V2.5.5.13 中也没有增量。requests.A 记为 NOT_REQUESTED / DISABLED，grid_nodes 为空数组；
+ * 对象格式不变（仍为 v2），服务端校验不变。请求 B（远点）与卫星影子照常采集。
+ * 依据：ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.15--旁路质量报告修正与气压层云量核查方案.md
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -34,6 +37,7 @@
     gridVariables: Object.freeze(GRID_VARIABLES.slice()),
     farVariables: Object.freeze(FAR_VARIABLES.slice()),
     farDistancesKm: Object.freeze([400, 550]),
+    gridRequestEnabled: false,
     timeoutMs: 15000
   });
 
@@ -98,15 +102,17 @@
     });
   }
 
-  /* context: { location, solar, nowUtcMs, signal }；返回 bypass_schema_version 1 对象（snapshot_id 由服务端写入）。 */
-  async function capture(context) {
+  /* context: { location, solar, nowUtcMs, signal }；返回 bypass_schema_version 2 对象（snapshot_id 由服务端写入）。
+   * options.gridRequest 只供测试构造 V2.5.5.14 及以前的对象；线上调用不传，按 CONFIG.gridRequestEnabled（false）。 */
+  async function capture(context, options) {
+    var gridRequest = options && typeof options.gridRequest === 'boolean' ? options.gridRequest : CONFIG.gridRequestEnabled;
     var location = context.location, solar = context.solar;
     var lat = location.latitude, lon = location.longitude, azimuth = solar.sunsetAzimuthDeg;
     var nowUtcMs = context.nowUtcMs, sunsetUtcMs = solar.sunset.valueOf();
-    var grid = SS.cloudField.generateGridNodes(lat, lon).map(function (n) {
+    var grid = gridRequest ? SS.cloudField.generateGridNodes(lat, lon).map(function (n) {
       return { key: String(n.key), direction: String(n.direction || ''), azimuth: finiteOrNull(n.azimuth),
         distance_km: finiteOrNull(n.distanceKm), latitude: Number(n.latitude), longitude: Number(n.longitude) };
-    });
+    }) : [];
     var far = CONFIG.farDistancesKm.map(function (distance) {
       var p = SS.data.destinationPoint(lat, lon, azimuth, distance);
       return { key: 'SUNSET_' + distance, bearing_deg: azimuth, distance_km: distance, latitude: p.latitude, longitude: p.longitude };
@@ -115,14 +121,16 @@
     var shadowPromise = SS.satelliteShadow
       ? SS.satelliteShadow.capture(context).catch(function (error) { SS.network.throwIfAborted(context.signal); return SS.satelliteShadow.failure(error && (error.code || error.name)); })
       : Promise.resolve(null);
-    var results = await Promise.all([fetchOnce(grid, GRID_VARIABLES, context), fetchOnce(far, FAR_VARIABLES, context), shadowPromise]);
+    var gridPromise = gridRequest ? fetchOnce(grid, GRID_VARIABLES, context)
+      : Promise.resolve({ status: 'NOT_REQUESTED', reason_code: 'DISABLED', forecasts: [] });
+    var results = await Promise.all([gridPromise, fetchOnce(far, FAR_VARIABLES, context), shadowPromise]);
     var mismatchA = {}, mismatchB = {};
     var gridNodes = grid.map(function (n, i) { return nodeRecord(n, results[0].forecasts[i], GRID_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchA); });
     var farNodes = far.map(function (n, i) { return nodeRecord(n, results[1].forecasts[i], FAR_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchB); });
     var units = {};
     FAR_VARIABLES.forEach(function (name) { units[name] = UNIT_NAMES[expectedSymbol(name)]; });
     var q = { null_counts: {}, missing_reason: {} };
-    quality(gridNodes, GRID_VARIABLES, results[0], mismatchA, q);
+    if (gridRequest) quality(gridNodes, GRID_VARIABLES, results[0], mismatchA, q);
     quality(farNodes, FAR_VARIABLES, results[1], mismatchB, q);
     return {
       bypass_schema_version: CONFIG.bypassSchemaVersion, record_only: true,

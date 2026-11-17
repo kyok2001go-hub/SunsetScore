@@ -182,7 +182,10 @@ async function runExport(options, dependencies = {}) {
       warnings: quality.warnings.map(w => w.code), cache_hits: hits, downloads, duration_ms: Date.now() - started, query_metrics: metrics };
   } catch (error) {
     await removeOwned(staging, temp).catch(() => {});
-    return { status: 'FAIL', error_code: errorCode(error), staging };
+    // V2.5.5.15: a staging directory without files (e.g. a failed D1 read) is removed; one with files is kept and named.
+    let kept = staging;
+    try { if (!(await inventory(staging)).length) { await removeOwned(path.join(root, 'staging'), staging); kept = null; } } catch { /* keep */ }
+    return { status: 'FAIL', error_code: errorCode(error), staging: kept };
   }
 }
 

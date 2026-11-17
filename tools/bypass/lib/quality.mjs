@@ -1,8 +1,12 @@
 // V2.5.5.9 weekly bypass quality report (label-free). Thresholds come from the V2.5.5.7 / V2.5.5.8 PRD section 6;
 // a missed threshold is WARN, never a failure. PRD: ref_docs/PRD/V2.5.5.9--旁路对象导出与质量巡检方案.md §3.5
-import { compare } from '../../dataset/lib/common.mjs';
+import { compare, fail } from '../../dataset/lib/common.mjs';
 
+// v1 thresholds are part of every v1 report and must never change (bypass:validate recomputes old reports).
 export const THRESHOLDS = Object.freeze({ requestOk: 0.95, shadowOk: 0.9, maxFrameAgeMinutes: 120, maxUncompressedBytes: 150 * 1024 });
+// V2.5.5.15 report v2 (PRD: ref_docs/PRD/V2.5.5.15--旁路质量报告修正与气压层云量核查方案.md §3).
+export const QUALITY_VERSION = 2;
+export const THRESHOLDS_V2 = Object.freeze({ ...THRESHOLDS, shadowAllFramesOk: 0.8, pressureLevelInconsistent: 0.3, minConsistencySupport: 10 });
 
 const round = (value, digits = 3) => value == null ? null : Math.round(value * 10 ** digits) / 10 ** digits;
 const ratio = (part, total) => total ? round(part / total) : null;
@@ -75,8 +79,85 @@ function breakdown(rows, key) {
   return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => compare(a, b)));
 }
 
-/** rows: index rows; payloads: Map snapshot_id → payload for VALID rows. Output is deterministic. */
-export function buildQuality(rows, payloads) {
+/** Frame-level satellite statistics: the object-level OK hides failed frames (V2.5.5.13: only 60% had all three OK). */
+function frameStats(shadows) {
+  const byPosition = {}, groups = { slot: {}, city: {} }, failedTiles = {};
+  let allOk = 0, latestOk = 0, noOk = 0;
+  for (const x of shadows) {
+    const frames = x.shadow.frames;
+    frames.forEach((f, i) => {
+      (byPosition[String(i + 1)] ||= []).push(f.status);
+      if (f.status !== 'OK') (failedTiles[f.status] ||= []).push(`${f.tiles_ok ?? 'null'}/${f.tiles_requested ?? 'null'}`);
+    });
+    const all = frames.length > 0 && frames.every(f => f.status === 'OK');
+    if (all) allOk++;
+    if (frames.length && frames.at(-1).status === 'OK') latestOk++;
+    if (!frames.some(f => f.status === 'OK')) noOk++;
+    for (const [key, value] of [['slot', x.row.scheduled_slot], ['city', x.row.city]]) {
+      const g = groups[key][value ?? 'null'] ||= { objects: 0, all_frames_ok: 0 };
+      g.objects++; if (all) g.all_frames_ok++;
+    }
+  }
+  const ratios = map => Object.fromEntries(Object.entries(map).sort(([a], [b]) => compare(a, b))
+    .map(([k, g]) => [k, { ...g, ratio: ratio(g.all_frames_ok, g.objects) }]));
+  return {
+    status_by_position: Object.fromEntries(Object.entries(byPosition).sort(([a], [b]) => compare(a, b)).map(([k, v]) => [k, counts(v)])),
+    all_frames_ok_ratio: ratio(allOk, shadows.length), latest_frame_ok_ratio: ratio(latestOk, shadows.length), objects_without_ok_frame: noOk,
+    all_frames_ok_by_slot: ratios(groups.slot), all_frames_ok_by_city: ratios(groups.city),
+    failed_frame_tiles: Object.fromEntries(Object.entries(failedTiles).sort(([a], [b]) => compare(a, b)).map(([k, v]) => [k, counts(v)]))
+  };
+}
+
+// Pressure-level cloud vs the same model's single-level mid/high cloud, on the far nodes (they carry both), at the
+// hour nearest sunset. V2.5.5.13 found the pressure-level cloud far below the single-level cloud.
+function pressureLevelConsistency(payloads) {
+  const pairs = [];
+  for (const payload of payloads) {
+    const sunset = Date.parse(payload.sunset_time_utc);
+    for (const node of payload.far_nodes || []) {
+      if (!node.time_utc.length) continue;
+      let best = 0;
+      node.time_utc.forEach((t, i) => { if (Math.abs(Date.parse(t) - sunset) < Math.abs(Date.parse(node.time_utc[best]) - sunset)) best = i; });
+      const pl = ['cloud_cover_500hPa', 'cloud_cover_300hPa', 'cloud_cover_250hPa'].map(k => node.variables[k]?.[best]).filter(v => v != null);
+      const sl = ['cloud_cover_mid', 'cloud_cover_high'].map(k => node.variables[k]?.[best]).filter(v => v != null);
+      if (pl.length && sl.length) pairs.push([Math.max(...pl), Math.max(...sl)]);
+    }
+  }
+  const mean = a => a.length ? round(a.reduce((s, v) => s + v, 0) / a.length, 1) : null;
+  const high = pairs.filter(p => p[1] >= 50);
+  return { nodes: pairs.length, mean_pressure_level: mean(pairs.map(p => p[0])), mean_single_level: mean(pairs.map(p => p[1])),
+    spearman: spearman(pairs.map(p => [p[0], p[1]])), single_level_ge_50: high.length,
+    pressure_level_lt_10_when_single_ge_50: high.length >= THRESHOLDS_V2.minConsistencySupport ? ratio(high.filter(p => p[0] < 10).length, high.length) : null };
+}
+
+/** rows: index rows; payloads: Map snapshot_id → payload for VALID rows. Output is deterministic. version: report version to build. */
+export function buildQuality(rows, payloads, version = QUALITY_VERSION) {
+  if (version === 1) return buildQualityV1(rows, payloads);
+  if (version !== 2) fail('BYPASS_QUALITY_VERSION_UNSUPPORTED');
+  const v1 = buildQualityV1(rows, payloads);
+  const expected = rows.filter(r => r.expected === 'EXPECTED'), valid = expected.filter(r => r.object_status === 'VALID');
+  const items = valid.map(r => ({ row: r, payload: payloads.get(r.snapshot_id) }));
+  const shadows = items.filter(x => x.payload.bypass_schema_version >= 2 && x.payload.satellite_shadow)
+    .map(x => ({ ...x, shadow: x.payload.satellite_shadow }));
+  const frames = frameStats(shadows), consistency = pressureLevelConsistency(items.map(x => x.payload));
+  // V2.5.5.15 stops request A online (NOT_REQUESTED): its OK ratio is taken over the objects that sent it.
+  const requestedA = valid.filter(r => r.request_a_status !== 'NOT_REQUESTED');
+  const requestA = { status: v1.requests.A.status, ok_ratio: ratio(requestedA.filter(r => r.request_a_status === 'OK').length, requestedA.length),
+    not_requested: valid.length - requestedA.length };
+  const warnings = v1.warnings.filter(w => w.code !== 'REQUEST_A_OK_BELOW_95');
+  if (requestA.ok_ratio != null && requestA.ok_ratio < THRESHOLDS.requestOk) warnings.unshift({ code: 'REQUEST_A_OK_BELOW_95', value: requestA.ok_ratio });
+  if (frames.all_frames_ok_ratio != null && frames.all_frames_ok_ratio < THRESHOLDS_V2.shadowAllFramesOk)
+    warnings.push({ code: 'SHADOW_ALL_FRAMES_OK_BELOW_80', value: frames.all_frames_ok_ratio });
+  if (consistency.pressure_level_lt_10_when_single_ge_50 != null && consistency.pressure_level_lt_10_when_single_ge_50 > THRESHOLDS_V2.pressureLevelInconsistent)
+    warnings.push({ code: 'PRESSURE_LEVEL_CLOUD_INCONSISTENT', value: consistency.pressure_level_lt_10_when_single_ge_50 });
+  // The v1 satellite-vs-NWP rank correlation used pressure-level cloud, which does not represent the model's cloud.
+  const { spearman_frac_cloud_vs_nwp_mid_high: _dropped, ...shadow } = v1.satellite_shadow;
+  return { quality_version: 2, ...v1, status: warnings.length ? 'WARN' : 'PASS', thresholds: THRESHOLDS_V2, warnings,
+    requests: { ...v1.requests, A: requestA, pressure_level_cloud_consistency: consistency },
+    satellite_shadow: { ...shadow, frames, nwp_comparison: 'SEE_VALIDATE_RAW_SINGLE_LEVEL' } };
+}
+
+function buildQualityV1(rows, payloads) {
   const expected = rows.filter(r => r.expected === 'EXPECTED'), valid = expected.filter(r => r.object_status === 'VALID');
   const items = valid.map(r => ({ row: r, payload: payloads.get(r.snapshot_id) }));
   const v2 = items.filter(x => x.payload.bypass_schema_version >= 2);
@@ -147,15 +228,25 @@ export function qualityMarkdown(quality, manifest) {
     lines.push('');
   }
   lines.push('## 旁路请求（V2.5.5.7）', '',
-    `- 请求 A（33 节点）OK ${pct(q.requests.A.ok_ratio)}；请求 B（远点）OK ${pct(q.requests.B.ok_ratio)}；限流 ${q.requests.rate_limited} 次`,
+    `- 请求 A（33 节点）OK ${pct(q.requests.A.ok_ratio)}${q.quality_version >= 2 ? `（只统计发出请求 A 的对象；V2.5.5.15 起线上停用，未请求 ${q.requests.A.not_requested} 个）` : ''}；请求 B（远点）OK ${pct(q.requests.B.ok_ratio)}；限流 ${q.requests.rate_limited} 次`,
     `- 解压体积（字节）：${dist(q.requests.uncompressed_bytes)}`,
     `- 缺测率最高的变量：${Object.entries(q.requests.variable_missing_ratio).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k} ${pct(v)}`).join('，') || '—'}`, '',
     '## 卫星影子（V2.5.5.8）', '',
     `- 对象 ${q.satellite_shadow.objects} 个；OK ${pct(q.satellite_shadow.ok_ratio)}；状态：${Object.entries(q.satellite_shadow.status).map(([k, v]) => `${k}=${v}`).join('，') || '—'}`,
     `- 最新帧帧龄（分钟）：${dist(q.satellite_shadow.latest_frame_age_minutes)}`,
     `- 最新帧有效采样比例：${dist(q.satellite_shadow.latest_frame_valid_sample_ratio)}`,
-    `- frac_cloud_v1 非零比例 ${pct(q.satellite_shadow.frac_cloud_v1_nonzero_ratio)}；与 NWP 中高云的秩相关 ${q.satellite_shadow.spearman_frac_cloud_vs_nwp_mid_high ?? '—（样本不足 10）'}`,
+    ...(q.quality_version >= 2 ? [
+      `- 帧级：三帧全部 OK ${pct(q.satellite_shadow.frames.all_frames_ok_ratio)}；最后一帧 OK ${pct(q.satellite_shadow.frames.latest_frame_ok_ratio)}；没有 OK 帧的对象 ${q.satellite_shadow.frames.objects_without_ok_frame} 个`,
+      `- 各帧位置状态：${Object.entries(q.satellite_shadow.frames.status_by_position).map(([k, v]) => `第 ${k} 帧 ` + Object.entries(v).map(([s, n]) => `${s}=${n}`).join('/')).join('；') || '—'}`,
+      `- 三帧全部 OK（按时段）：${Object.entries(q.satellite_shadow.frames.all_frames_ok_by_slot).map(([k, g]) => `${k} ${pct(g.ratio)}（n=${g.objects}）`).join('，') || '—'}`,
+      `- frac_cloud_v1 非零比例 ${pct(q.satellite_shadow.frac_cloud_v1_nonzero_ratio)}；与 NWP 单层中高云的对照见 \`bypass:validate --raw\``
+    ] : [
+      `- frac_cloud_v1 非零比例 ${pct(q.satellite_shadow.frac_cloud_v1_nonzero_ratio)}；与 NWP 中高云的秩相关 ${q.satellite_shadow.spearman_frac_cloud_vs_nwp_mid_high ?? '—（样本不足 10）'}`
+    ]),
     `- 冷云（≤ −30 °C）个例：${q.satellite_shadow.cold_cloud_cases.length} 个`, '',
+    ...(q.quality_version >= 2 ? ['## 气压层云量一致性（远点）', '',
+      `- 节点 ${q.requests.pressure_level_cloud_consistency.nodes} 个：气压层（500/300/250 hPa 最大值）平均 ${q.requests.pressure_level_cloud_consistency.mean_pressure_level ?? '—'}%，单层中高云平均 ${q.requests.pressure_level_cloud_consistency.mean_single_level ?? '—'}%，秩相关 ${q.requests.pressure_level_cloud_consistency.spearman ?? '—'}`,
+      `- 单层中高云 ≥ 50% 的 ${q.requests.pressure_level_cloud_consistency.single_level_ge_50} 个节点中，气压层 < 10% 的比例 ${pct(q.requests.pressure_level_cloud_consistency.pressure_level_lt_10_when_single_ge_50)}。气压层云量不能当作云量使用（V2.5.5.13）`, ''] : []),
     '## Worldview 目视对照候选', '', '| 类型 | 城市 | 帧时刻 UTC | 卫星 | frac_cloud_v1 | Snapshot |', '| --- | --- | --- | --- | --- | --- |');
   for (const [kind, list] of [['有云', q.satellite_shadow.worldview_candidates.cloudy], ['晴空', q.satellite_shadow.worldview_candidates.clear]]) {
     for (const r of list) lines.push(`| ${kind} | ${r.city} | ${r.frame_time_utc} | ${r.satellite} | ${r.frac_cloud_v1} | ${r.snapshot_id} |`);

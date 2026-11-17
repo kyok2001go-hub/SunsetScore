@@ -1,0 +1,322 @@
+{
+  "review_version": 1,
+  "reviewed_on": "2026-11-17",
+  "reviewer": "PROJECT_OWNER_SINGLE_NON_BLIND",
+  "scope": "GT>=2 Events with at least one Snapshot whose model total cloud (t_avg) is below 20%, DEV + H1 + H2",
+  "role": "EVALUATION_SUBGROUP_ONLY_NOT_GROUND_TRUTH",
+  "kinds": {
+    "LIT_CLOUD": "有明显被照亮的云",
+    "FAR_HORIZON": "云只在很远的地平线附近",
+    "CLEAR_GLOW": "基本无云（晴空渐变色）"
+  },
+  "events": [
+    {
+      "event_id": "evt_v1_e9cb15a25a8e8fbcdf3b_2026-09-17",
+      "event_date_local": "2026-09-17",
+      "city": "太原",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_21c67a0f0031b5cf50b2_2026-09-18",
+      "event_date_local": "2026-09-18",
+      "city": "广州",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_c44c75c26705cb8d8da3_2026-09-18",
+      "event_date_local": "2026-09-18",
+      "city": "深圳",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_c44c75c26705cb8d8da3_2026-09-19",
+      "event_date_local": "2026-09-19",
+      "city": "深圳",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_ab5018b63ed2c5bc8874_2026-09-20",
+      "event_date_local": "2026-09-20",
+      "city": "上海",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-09-24",
+      "event_date_local": "2026-09-24",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_21c67a0f0031b5cf50b2_2026-09-28",
+      "event_date_local": "2026-09-28",
+      "city": "广州",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_3e9c03e75a8689ccfeb9_2026-09-30",
+      "event_date_local": "2026-09-30",
+      "city": "香港",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_bed76125798d40edf77d_2026-10-04",
+      "event_date_local": "2026-10-04",
+      "city": "北京",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_74a59d8882a75f8b54af_2026-10-05",
+      "event_date_local": "2026-10-05",
+      "city": "武汉",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_74a59d8882a75f8b54af_2026-10-06",
+      "event_date_local": "2026-10-06",
+      "city": "武汉",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_9fb15d20a8c9372585fc_2026-10-06",
+      "event_date_local": "2026-10-06",
+      "city": "长沙",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-10-06",
+      "event_date_local": "2026-10-06",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_9fb15d20a8c9372585fc_2026-10-07",
+      "event_date_local": "2026-10-07",
+      "city": "长沙",
+      "gt_ordinal": 3,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-10-07",
+      "event_date_local": "2026-10-07",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_c9d2704303627023ae98_2026-10-07",
+      "event_date_local": "2026-10-07",
+      "city": "厦门",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_3b631a7b780ccf314c50_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "昆明",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_57a8f2849d1220cddbe5_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "西安",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_74a59d8882a75f8b54af_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "武汉",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_9bb958aa73a3bef9e0ef_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "杭州",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_9fb15d20a8c9372585fc_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "长沙",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-10-08",
+      "event_date_local": "2026-10-08",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_5ae67d2fbd810829599e_2026-10-09",
+      "event_date_local": "2026-10-09",
+      "city": "青岛",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_c9d2704303627023ae98_2026-10-09",
+      "event_date_local": "2026-10-09",
+      "city": "厦门",
+      "gt_ordinal": 3,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_21c67a0f0031b5cf50b2_2026-10-10",
+      "event_date_local": "2026-10-10",
+      "city": "广州",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_c9d2704303627023ae98_2026-10-10",
+      "event_date_local": "2026-10-10",
+      "city": "厦门",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_3b631a7b780ccf314c50_2026-10-11",
+      "event_date_local": "2026-10-11",
+      "city": "昆明",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_9fb15d20a8c9372585fc_2026-10-11",
+      "event_date_local": "2026-10-11",
+      "city": "长沙",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_57a8f2849d1220cddbe5_2026-10-12",
+      "event_date_local": "2026-10-12",
+      "city": "西安",
+      "gt_ordinal": 3,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_9fb15d20a8c9372585fc_2026-10-12",
+      "event_date_local": "2026-10-12",
+      "city": "长沙",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-10-12",
+      "event_date_local": "2026-10-12",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_74a59d8882a75f8b54af_2026-10-13",
+      "event_date_local": "2026-10-13",
+      "city": "武汉",
+      "gt_ordinal": 3,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_3e9c03e75a8689ccfeb9_2026-10-19",
+      "event_date_local": "2026-10-19",
+      "city": "香港",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_a0fa90fc8f526fc793ca_2026-10-21",
+      "event_date_local": "2026-10-21",
+      "city": "南宁",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_3b631a7b780ccf314c50_2026-10-22",
+      "event_date_local": "2026-10-22",
+      "city": "昆明",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_caa79892772073676373_2026-10-25",
+      "event_date_local": "2026-10-25",
+      "city": "南京",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_bed76125798d40edf77d_2026-10-26",
+      "event_date_local": "2026-10-26",
+      "city": "北京",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_21c67a0f0031b5cf50b2_2026-10-29",
+      "event_date_local": "2026-10-29",
+      "city": "广州",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_c44c75c26705cb8d8da3_2026-10-29",
+      "event_date_local": "2026-10-29",
+      "city": "深圳",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_c9d2704303627023ae98_2026-11-04",
+      "event_date_local": "2026-11-04",
+      "city": "厦门",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_bed76125798d40edf77d_2026-11-06",
+      "event_date_local": "2026-11-06",
+      "city": "北京",
+      "gt_ordinal": 2,
+      "kind": "FAR_HORIZON"
+    },
+    {
+      "event_id": "evt_v1_5ae67d2fbd810829599e_2026-11-09",
+      "event_date_local": "2026-11-09",
+      "city": "青岛",
+      "gt_ordinal": 2,
+      "kind": "CLEAR_GLOW"
+    },
+    {
+      "event_id": "evt_v1_21c67a0f0031b5cf50b2_2026-11-14",
+      "event_date_local": "2026-11-14",
+      "city": "广州",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    },
+    {
+      "event_id": "evt_v1_e9cb15a25a8e8fbcdf3b_2026-11-14",
+      "event_date_local": "2026-11-14",
+      "city": "太原",
+      "gt_ordinal": 2,
+      "kind": "LIT_CLOUD"
+    }
+  ]
+}

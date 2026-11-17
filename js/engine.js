@@ -121,8 +121,8 @@
 
   function cloudScores(v, cfg) {
     return {
-      high: valid(v.high) ? gauss(v.high, cfg.highCloudCenter, cfg.highCloudWidth) : null,
-      mid: valid(v.mid) ? gauss(v.mid, cfg.midCloudCenter, cfg.midCloudWidth) : null,
+      high: valid(v.high) ? gauss(v.high, cfg.highCloudCenter, cfg.highCloudWidth) * zeroFloorRamp(v.high, cfg) : null,
+      mid: valid(v.mid) ? gauss(v.mid, cfg.midCloudCenter, cfg.midCloudWidth) * zeroFloorRamp(v.mid, cfg) : null,
       lowGood: valid(v.low) ? clamp(100 - v.low, 0, 100) : null,      /* 低云少 = 好 */
       opening: valid(v.low) ? clamp(1 - v.low / 100, 0, 1) : null     /* 第 10.1 节 */
     };
@@ -165,7 +165,7 @@
 
     var lv = interpolateAt(localSample.forecast, input.solar.sunset);
     if (!lv) throw new Error('SUNSET_WEATHER_DATA_MISSING');
-    var ls = cloudScores(lv, cfg);
+    var ls = cloudScores(lv, cfg); /* V2.5.5.17（默认关闭）：云潜力，见文件末尾 cloudPotentialOf */ var hcp = cfg.horizonCloudPotential, potential = hcp ? cloudPotentialOf(input, hcp) : null, potentialFactor = potential ? potential.factor : 1;
 
     function valueAt(sample, key) {
       if (!sample.forecast) return null;
@@ -186,7 +186,7 @@
     /* ===== 9. Sky Canvas ===== */
     var canvas = cfg.canvasWeights.high * (ls.high || 0) +
       cfg.canvasWeights.mid * (ls.mid || 0) +
-      cfg.canvasWeights.low * (ls.lowGood || 0);
+      cfg.canvasWeights.low * (ls.lowGood || 0) * lowGoodFactorOf(cfg, hcp, potential);
 
     var farVals = input.samples
       .filter(function (s) { return s.point.distanceKm >= cfg.farCloudMinKm; })
@@ -784,7 +784,7 @@
     /* ===== 18. 最终公式（V1.7：天气型动态权重） ===== */
     var P, bonus;
     P = dynamicWeights.skyCanvas * skyCanvas +
-      dynamicWeights.horizon * horizon +
+      dynamicWeights.horizon * horizon * potentialFactor +
       dynamicWeights.illumination * illumination +
       dynamicWeights.atmosphere * atmosphere +
       dynamicWeights.weather * weather;
@@ -802,14 +802,14 @@
       var rawComponents = { skyCanvas: skyCanvas, horizon: horizon, illumination: illumination,
         atmosphere: atmosphere, weather: weather };
       var contributions = {};
-      Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; });
+      Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; }); if (hcp) contributions.horizon *= potentialFactor;
       var beforeClamp = P * Q * gate + bonus - pWeather;
       var clamped = clamp(beforeClamp, 0, 100);
       var gated = hardGates.length ? Math.min(clamped, cfg.hardGate.scoreCap) : clamped;
       if (illuminationTrace) illuminationTrace.contribution = { dynamic_weight: dynamicWeights.illumination,
         value: contributions.illumination, P: P, Q: Q, score_engine: score,
         structure_bonus: structureBonus, transition_bonus: transitionBonusVal, weather_penalty: pWeather };
-      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}),
+      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm } } : {}),
         components: rawComponents, dynamic_weights: dynamicWeights, contributions: contributions,
         P: P, Q: Q, horizon_gate: gate, structure_bonus: structureBonus, transition_bonus: transitionBonusVal,
         weather_penalty: pWeather, atmosphere_inputs: { visibility_km: visKm, aod: aod, pm25: pm25,
@@ -1037,5 +1037,35 @@
     if (typeof fix !== 'number' || !isFinite(fix) || point.distanceKm !== 0 || point.azimuthOffset != null) return point.azimuthOffset;
     if (site === 'structure' && sf.centerAzimuthOffsetScope === 'HORIZON') return point.azimuthOffset;
     return fix;
+  }
+  /* ===== V2.5.5.17 地平线贡献按云潜力条件化（离线验证用，默认关闭） =====
+     依据：ref_docs/PRD/V2.5.5.17--地平线贡献按云潜力条件化方案.md。js/config.js 不含这些键，缺失时所有数值与之前完全相同。
+     这些辅助函数放在文件末尾，使 tools/tuning/parameter-registry.mjs 登记的行号锚点保持不变。
+     - scoring.horizonCloudPotential = { f, k, radiusKm }（H-A）：C = 日落时刻 radiusKm 内天空节点（含中心）max(中云, 高云) 的平均；
+       P 中的地平线项乘以 g(C) = f + (1 − f) × min(1, C / k)；无有效节点时 g = 1。地平线组件分、闸门与其余各项不变。
+     - scoring.canvasZeroFloor = { rampPct }（H-B）：中高云得分乘以 min(1, 云量 / rampPct)；与 H-A 同时存在时，
+       "低云少"项乘以 min(1, C / k)。 */
+  function zeroFloorRamp(cover, cfg) {
+    return cfg.canvasZeroFloor ? Math.min(1, Math.max(0, cover) / cfg.canvasZeroFloor.rampPct) : 1;
+  }
+  function cloudPotentialOf(input, hcp) {
+    var field = input.cloudFieldSunset || input.cloudField, values = [];
+    function potOf(d) {
+      if (!d) return null;
+      var m = valid(d.cloud_cover_mid) ? d.cloud_cover_mid : null, h = valid(d.cloud_cover_high) ? d.cloud_cover_high : null;
+      return m == null && h == null ? null : Math.max(m == null ? 0 : m, h == null ? 0 : h);
+    }
+    if (field) {
+      if (field.center && field.center.hasData === true) { var c = potOf(field.center.data); if (c != null) values.push(c); }
+      (field.nodes || []).forEach(function (n) {
+        if (n.hasData === true && valid(n.distanceKm) && n.distanceKm <= hcp.radiusKm) { var v = potOf(n.data); if (v != null) values.push(v); }
+      });
+    }
+    if (!values.length) return { value: null, factor: 1 };
+    var value = avg(values);
+    return { value: value, factor: hcp.f + (1 - hcp.f) * Math.min(1, value / hcp.k) };
+  }
+  function lowGoodFactorOf(cfg, hcp, potential) {
+    return cfg.canvasZeroFloor && hcp && potential && potential.value != null ? Math.min(1, potential.value / hcp.k) : 1;
   }
 })(typeof window !== 'undefined' ? window : globalThis);

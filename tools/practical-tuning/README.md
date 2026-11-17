@@ -1,5 +1,22 @@
 # 轻量 component_weights 调优（V2.5.4.9）
 
+## 地平线条件化第二版（V2.5.5.18，Schema/Policy 15）
+
+```powershell
+npm run tuning:practical -- --search-space horizon-potential-v2
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+单一候选评估，不搜索、不改默认配置、不改 `js/`。需求见 [V2.5.5.18 PRD](../../../ref_docs/PRD/V2.5.5.18--地平线条件化第二版与评估口径调整方案.md)。
+
+- **数据：** 与 Policy 13 / 14 相同，按身份读取 DEV、H1、H2 三个冻结包，不接受 `--raw` / `--gt` / `--model`，拒绝 2026-11-16 起的日期。
+- **比较对象：** C0 = 2.5.5.11；L0 = C0 加训练折内重新选线；A2 = `horizonCloudPotential { f: 0.7, k: 5, radiusKm: 100 }` 加训练折内重新选线。参数固定，不在折内选择；另有三组灵敏度配置只报告点估计。
+- **评估口径：** ≥2 召回下限 0.65 只对"有云好晚霞"计算，照片复查判为晴空渐变色的 Event 不计入；全体 ≥2 召回另设 0.60 底线；产品损失、精确率、AUC 仍在全部 Event 上算。另报告不经过分数线的 Brier（P(GT≥2)，训练折内拟合 logistic）。
+- **复查类型表：** `tools/practical-tuning/data/clear-sky-review-v1.json`（44 个 Event）。它不是 GT，只用于召回分组；内容摘要固定在 Policy 里，文件缺失或内容不同即失败（换行和键顺序不影响）。
+- **复现与不变量：** DEV 复现 2.5.5.11 / 2.5.5.1 的固定签名，线上同版本行逐条一致；f = 1 与 C0 逐条一致；`HA_f0.7_k15` 在全部行上复现 V2.5.5.17 Run 的固定签名，且候选在 C = 0 或 C ≥ 15 的行上与它逐条相同。
+- **结论：** `evaluation.json` 按 PRD 第 5 节 G1–G5 机械生成（`WORTH_H3` / `LINES_SUFFICIENT` / `NO_GAIN`），只是开发证据，须项目负责人确认。
+- **复算：** 发布前新进程完整重算 payload；`verify` 同样重算。
+
 ## 黄金窗口云雨信号拆分评估（V2.5.5.6，Schema/Policy 12）
 
 ```powershell

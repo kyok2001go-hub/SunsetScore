@@ -4,6 +4,9 @@ import { codeIdentity, loadPool, checkInputs } from './data.mjs';
 import { replayCalculator, preflight, evaluateWeights } from './compute.mjs';
 import { digest, installWeights, POLICY, RECOGNITION_POLICY } from './policy.mjs';
 export async function verifyRequest(request, { compatibleV1Tools = false, compatibleTools = false } = {}) {
+  if (request.spec.practical_tuning_schema_version === 15 && request.spec.practical_tuning_policy_version === 15) return (await import('./horizon-potential-v2-workflow.mjs')).verifyHp2Request(request);
+  if (request.spec.practical_tuning_schema_version === 14 && request.spec.practical_tuning_policy_version === 14) return (await import('./horizon-potential-workflow.mjs')).verifyHpRequest(request);
+  if (request.spec.practical_tuning_schema_version === 13 && request.spec.practical_tuning_policy_version === 13) return (await import('./p0-pooled-workflow.mjs')).verifyPooledP0Request(request);
   if (request.spec.practical_tuning_schema_version === 12 && request.spec.practical_tuning_policy_version === 12) return (await import('./gw-split-workflow.mjs')).verifyGwRequest(request);
   if (request.spec.practical_tuning_schema_version === 11 && request.spec.practical_tuning_policy_version === 11) return (await import('./aod-shape-workflow.mjs')).verifyAodRequest(request);
   if (request.spec.practical_tuning_schema_version === 10 && request.spec.practical_tuning_policy_version === 10) return (await import('./horizon-fix-workflow.mjs')).verifyHorizonFixRequest(request);

@@ -8,6 +8,7 @@
  * 应用 V2.5.5.7（模型仍为 2.5.5.4）：自动采集时增加只记录、不计分的旁路采集（js/bypass_capture.js），评分配置不变。
  * 应用 V2.5.5.8：旁路对象增加 Band13 红外卫星影子采集（js/satellite_shadow.js），只记录、不计分。
  * 应用 V2.5.5.12（模型仍为 2.5.5.11）：全天空云场雷达图显示修复（js/radar_view.js），只改渲染，评分配置不变。
+ * 应用 V2.5.5.15（模型仍为 2.5.5.11）：旁路采集停用请求 A（33 个网格节点的气压层变量），远点与卫星影子照常，评分配置不变。
  * 依据：ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md、ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
@@ -16,10 +17,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.12',
+    app: '2.5.5.15',
     model: '2.5.5.11',
     schema: 3,
-    assetRevision: 'app25512',
+    assetRevision: 'app25515',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3

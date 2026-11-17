@@ -35,6 +35,38 @@ export const P0_POLICY = freeze({
   decision_rules_version: 1
 });
 
+// V2.5.5.14 pooled re-run (Practical Tuning Schema/Policy 13; v9–v12 are taken). PRD: ref_docs/PRD/V2.5.5.14--P0机制诊断合并数据重跑方案.md
+// Same frozen features, thresholds, support, bins, probes, logistic and bootstrap as Policy 9; only the data (DEV + H1 + H2),
+// the baseline (2.5.5.11), the H3 date guard, the handling of non-standard slots and two supplementary rules (§5) differ.
+const { practical_tuning_schema_version: _s, practical_tuning_policy_version: _p, search_space: _ss, dev: _dev, first_holdout_date: _h, baseline: _b, ...P0_SHARED } = P0_POLICY;
+export const P0_POOLED_POLICY = freeze({
+  ...P0_SHARED,
+  practical_tuning_schema_version: 13, practical_tuning_policy_version: 13, search_space: 'p0-diagnostics-pooled',
+  pools: freeze([
+    freeze({ name: 'DEV', raw: 'raw_v1_20260909_20261012_ea82b68bfe49', gt: 'gt_v3_ea82b68bfe49_49c9adac6188',
+      model: 'model_v2_ea82b68bfe49_49c9adac6188_f02dbabc357c', snapshots: 655, first_date: '2026-09-09', last_date: '2026-10-12' }),
+    freeze({ name: 'H1', raw: 'raw_v1_20261013_20261029_746b90031b27', gt: 'gt_v3_746b90031b27_8100bdd7e028',
+      model: 'model_v2_746b90031b27_8100bdd7e028_f8b2ac54193b', snapshots: 393, first_date: '2026-10-13', last_date: '2026-10-29' }),
+    freeze({ name: 'H2', raw: 'raw_v1_20261030_20261115_b9e8fffd7bf4', gt: 'gt_v3_b9e8fffd7bf4_8abdd390b201',
+      model: 'model_v2_b9e8fffd7bf4_8abdd390b201_a7e3d4d1758e', snapshots: 329, first_date: '2026-10-30', last_date: '2026-11-15' })
+  ]),
+  h3_first_date: '2026-11-16',
+  baseline: 'RELEASE_LINE_2.5.5.11', reference: 'RELEASE_LINE_2.5.5.1',
+  // Manual and catch-up captures (e.g. 1414, 1626) are kept but take no part in per-slot breakdowns.
+  other_slot: 'OTHER',
+  live_parity_model_versions: freeze(['2.5.5.4', '2.5.5.11']),
+  supplementary_rules: freeze({
+    version: 1,
+    // §5 rule 1: directions already tested and found NO_GAIN need evidence for a different, specific change.
+    already_tested: freeze({
+      P1_ATMOSPHERE_FUNCTION: freeze({ tested_by: 'V2.5.5.5 (AOD monotone response)', different_change_if: 'RH_SHAPE_MONOTONE' }),
+      P1_GW_LAYERED_BLOCKING_PROXY: freeze({ tested_by: 'V2.5.5.6 (golden-window cloud/rain split; layered proxy retired in the roadmap)', different_change_if: 'GWP2_DELTA_AUC_GE2_LOWER_ABOVE_0' })
+    }),
+    // §5 rule 2: a significant G1 severe-miss excess puts the mid/high response at PRIORITY_2 or better.
+    g1_severe_miss_item: 'P1_CONDITIONAL_MID_HIGH_RESPONSE', g1_severe_miss_max_rank: 2
+  })
+});
+
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const blocking = (s, share) => finite(s.low) && finite(s.mid) ? clamp(s.low + share * s.mid, 0, 100) : null;

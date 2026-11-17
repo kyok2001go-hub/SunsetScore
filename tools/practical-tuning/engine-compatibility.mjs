@@ -15,9 +15,12 @@ import { digest } from './policy.mjs';
 // V2.5.5.8 changes js/config.js again (app version 2.5.5.8 / app2558 only; model and scoring configuration unchanged).
 // V2.5.5.11 changes js/config.js again (version 2.5.5.11 / app25511, grade lines 19/49/66/90); explicit historical configs carry their own levels.
 // V2.5.5.12 changes js/config.js again (app version 2.5.5.12 / app25512 only; model and scoring configuration unchanged).
+// V2.5.5.15 changes js/config.js again (app version 2.5.5.15 / app25515 only; model and scoring configuration unchanged).
+// V2.5.5.17 changes js/engine.js (horizonCloudPotential / canvasZeroFloor, offline validation only); with both keys absent every engine value
+// is computed exactly as before, and js/config.js does not carry them.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
-  "js/config.js": "0ed2232d1a814997e43b48aae76ab0fcd18525a9931b5f0ad2f9d893b154be73",
+  "js/engine.js": "05e828863e3e7f47b2321f1e7ef48b5e47e4bc953d94a792343472055c7dbadd",
+  "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
@@ -166,6 +169,28 @@ const ORIGINS = Object.freeze([
     "files": {
       "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
       "js/config.js": "a2eb1dfaaccd402f8e79e76f1daf24f18ca59dfedeb02ce3727de666ce084896",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+    }
+  },
+  // V2.5.5.12 release (commit bfd65a2, app 2.5.5.12 / app25512); differs from the current pins in js/config.js and js/engine.js.
+  {
+    "engine": "7de6d1bb05f778d59ff9fe2369e74476884eb1003e075cb323283168654a6397",
+    "files": {
+      "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "0ed2232d1a814997e43b48aae76ab0fcd18525a9931b5f0ad2f9d893b154be73",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+    }
+  },
+  // V2.5.5.15 working tree (app 2.5.5.15 / app25515, engine before V2.5.5.17; used by the V2.5.5.14 Policy 13 Run).
+  {
+    "engine": "7f5adaf2017c4fed302fcb40253d7e59c71234bf776ea344d3714bee83dec649",
+    "files": {
+      "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"

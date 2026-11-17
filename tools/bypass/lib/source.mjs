@@ -11,6 +11,9 @@ const TRANSIENT = /ETIMEDOUT|ECONNRESET|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|\b503\
 // Wrangler reports an absent key as "The specified key does not exist" (R2 code 10007 / HTTP 404).
 const NOT_FOUND = /specified key does not exist|NoSuchKey|\b10007\b|\b404\b/i;
 
+// V2.5.5.15: read-only D1 queries retry NETWORK_TRANSIENT (classified by tools/dataset/lib/wrangler.mjs) after 5 / 15 / 30 s.
+export const D1_RETRY_DELAYS_MS = Object.freeze([5_000, 15_000, 30_000]);
+
 export function classifyR2Failure(diagnostic) {
   if (NOT_FOUND.test(diagnostic)) return 'MISSING';
   if (TRANSIENT.test(diagnostic)) return 'TRANSIENT';
@@ -27,7 +30,15 @@ function run(invocation, timeoutMs) {
 export function createBypassSource(options, tempDir, dependencies = {}) {
   const runner = dependencies.run || run, delay = dependencies.delay || (ms => new Promise(r => setTimeout(r, ms)));
   return {
-    query: sql => d1Rows(options.database, sql, options.config, { tempDir }),
+    async query(sql) {
+      for (let attempt = 0; ; attempt++) {
+        try { return await (dependencies.d1Rows || d1Rows)(options.database, sql, options.config, { tempDir }); }
+        catch (error) {
+          if (error?.code !== 'NETWORK_TRANSIENT' || attempt >= D1_RETRY_DELAYS_MS.length) throw error;
+          await delay(D1_RETRY_DELAYS_MS[attempt]);
+        }
+      }
+    },
     /** → { status: 'FOUND', bytes } | { status: 'MISSING' }; other failures throw DOWNLOAD_FAILED after 3 transient retries. */
     async getObject(key) {
       for (let attempt = 0; ; attempt++) {

@@ -14,10 +14,13 @@ try {
   }
   let result;
   if (command === 'run') {
-    if (['--model', '--raw', '--gt'].some(k => !flags[k]) || flags['--input']) fail('INVALID_ARGUMENTS');
+    // V2.5.5.14 Policy 13, V2.5.5.17 Policy 14 and V2.5.5.18 Policy 15 read their three frozen pools (DEV, H1, H2) by identity; --raw/--gt/--model are not accepted.
+    const pooled = ['p0-diagnostics-pooled', 'horizon-potential', 'horizon-potential-v2'].includes(flags['--search-space']);
+    if (pooled ? ['--model', '--raw', '--gt', '--baseline-run', '--max-candidates'].some(k => flags[k]) : ['--model', '--raw', '--gt'].some(k => !flags[k])) fail('INVALID_ARGUMENTS');
+    if (flags['--input']) fail('INVALID_ARGUMENTS');
     if (['high-cloud', 'mid-cloud', 'mechanism-targeted', 'sky-branch', 'illumination-targeted'].includes(flags['--search-space']) && !flags['--baseline-run']) fail('BASELINE_RUN_REQUIRED');
     if (flags['--baseline-run'] && !['high-cloud', 'mid-cloud', 'mechanism-targeted', 'sky-branch', 'illumination-targeted'].includes(flags['--search-space'])) fail('INVALID_ARGUMENTS');
-    result = await practicalRun({ model: path.resolve(flags['--model']), raw: path.resolve(flags['--raw']), gt: path.resolve(flags['--gt']),
+    result = await practicalRun({ ...(pooled ? {} : { model: path.resolve(flags['--model']), raw: path.resolve(flags['--raw']), gt: path.resolve(flags['--gt']) }),
       output: flags['--output'] ? path.resolve(flags['--output']) : undefined, resume: flags.resume === true,
       recognitionFirst: flags.recognitionFirst === true,
       searchSpace: flags['--search-space'], baselineRun: flags['--baseline-run'] ? path.resolve(flags['--baseline-run']) : undefined,
