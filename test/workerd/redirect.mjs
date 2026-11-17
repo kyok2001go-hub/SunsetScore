@@ -1,6 +1,8 @@
 import { onRequestGet as qweather } from '../../functions/api/qweather.js';
 import { onRequestGet as proxy } from '../../functions/api/proxy.js';
 import { onRequest as geocoding } from '../../functions/api/geocoding.js';
+import { onRequest as openMeteo } from '../../functions/api/open-meteo.js';
+import { EDGE_APP_VERSION } from '../../server/edge-log.js';
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -100,7 +102,7 @@ export const structuredErrorLogs = {
       check(records.length === 4, 'One log per failure; no success logs');
       for (const record of records) {
         check(typeof record === 'object', 'Structured object, not raw message');
-        check(record.event === 'edge_proxy_error' && record.appVersion === '2.4.6', 'Keep event/version');
+        check(record.event === 'edge_proxy_error' && record.appVersion === EDGE_APP_VERSION, 'Keep event/version');
         check(record.cfRay === '0123456789abcdef-HKG', 'Keep validated request correlation');
         check(record.stage === 'upstream_response', 'Keep failure stage');
         check(record.source === (record.adapter === 'qweather' ? 'qweather' : 'rainviewer'), 'Keep provider category');
@@ -115,5 +117,29 @@ export const structuredErrorLogs = {
     } finally {
       console.error = originalError;
     }
+  }
+};
+
+export const openMeteoRelay = {
+  async test() {
+    const call = latitude => openMeteo({ request: new Request('https://example.test/api/open-meteo?service=forecast&latitude=' + latitude + '&longitude=114.06&hourly=cloud_cover&timezone=auto',
+      { headers: { 'cf-ray': '0123456789abcdef-HKG' } }), waitUntil: () => {} });
+    const ok = await call('20.0');
+    check(ok.status === 200, 'Open-Meteo relay must succeed in workerd');
+    check((await ok.json()).hourly.cloud_cover[0] === 10, 'Open-Meteo body must survive the relay');
+    check(/s-maxage=600/.test(ok.headers.get('Cache-Control')), 'Open-Meteo success is edge-cacheable');
+    for (const latitude of ['30.1', '30.2', '30.7']) {
+      const response = await call(latitude);
+      check(response.status === 502 && !response.headers.has('Location'), 'Open-Meteo relay rejects redirects');
+      check(response.headers.get('Cache-Control') === 'no-store', 'Never cache a rejected redirect');
+      check(!JSON.stringify(await response.json()).includes('private-destination'), 'Never expose the redirect destination');
+    }
+    for (const [latitude, status] of [['42.9', 429], ['50.3', 503]]) {
+      const response = await call(latitude);
+      check(response.status === status, 'Open-Meteo relay keeps upstream ' + status);
+      await response.body?.cancel();
+    }
+    const invalid = await openMeteo({ request: new Request('https://example.test/api/open-meteo?service=forecast&latitude=1&longitude=1&url=https://outside.test/') });
+    check(invalid.status === 400, 'Open-Meteo relay is not an open proxy');
   }
 };

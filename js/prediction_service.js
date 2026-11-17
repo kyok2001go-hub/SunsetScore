@@ -386,7 +386,10 @@
 
     progress(options, '正在获取本地天气与时区…');
     var roughDate = SS.time.formatDate(nowUtcMs, location.timezone || 'UTC');
-    var localOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.localForecastTimeoutMs });
+    /* V2.5.5.20：各类 Open-Meteo 请求实际走的路径，只写入 performance_timing（调试面板），不进入 Snapshot / Replay。 */
+    var transport = timing.open_meteo_transport = { local: null, spatial: null, air_quality: null };
+    var localOptions = Object.assign({}, options, { timeoutMs: SS.transport.openMeteo.directTimeoutMs.localForecast,
+      onTransport: function (kind) { transport.local = kind; } });
     var forecastResult = await timed(timing, 'local_forecast_ms', function () {
       return fetchWithCache(
         SS.cacheKeys.forecast(roughDate, location.latitude, location.longitude),
@@ -395,6 +398,8 @@
         function () { return SS.data.fetchForecastWithRetry(location.latitude, location.longitude, 1500, localOptions); }, localOptions
       );
     });
+    if (forecastResult.status === 'STALE') transport.local = 'STALE_CACHE';
+    else if (forecastResult.status === 'FRESH') transport.local = 'CACHE';
     var localForecast = forecastResult.value;
     var offsetSeconds = localForecast.utc_offset_seconds || 0;
     var timezone = SS.time.normalizeTimezone(localForecast.timezone || location.timezone, 'UTC');
@@ -437,10 +442,12 @@
     var fetchMinutePrecip = SS.modelConfig.nowcast.enabled && time.minutesToSunset >= -SS.modelConfig.goldenWindow.afterSunsetMinutes &&
       time.minutesToSunset <= SS.modelConfig.nowcast.fetchBeforeSunsetMinutes;
     var batchAttempts = 0;
-    var airOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.airQualityTimeoutMs });
+    var airOptions = Object.assign({}, options, { timeoutMs: SS.modelConfig.network.airQualityTimeoutMs,
+      onTransport: function (kind) { transport.air_quality = kind; } });
     var spatialOptions = Object.assign({}, options, {
-      timeoutMs: SS.modelConfig.network.spatialBatchTimeoutMs,
-      onBatchAttempt: function () { batchAttempts++; }
+      timeoutMs: SS.transport.openMeteo.directTimeoutMs.spatialBatch,
+      onBatchAttempt: function () { batchAttempts++; },
+      onTransport: function (kind) { transport.spatial = kind; }
     });
 
     progress(options, fetchMinutePrecip
@@ -471,6 +478,10 @@
     var precipResult = settled[1].status === 'fulfilled' ? settled[1].value : null;
     if (settled[2].status === 'rejected') throw settled[2].reason;
     var spatial = settled[2].value;
+    // A cache hit sends no request: record it so the transport summary has no silent gaps.
+    if (settled[0].status === 'fulfilled' && transport.air_quality == null) transport.air_quality = settled[0].value.status === 'STALE' ? 'STALE_CACHE' : settled[0].value.status === 'FRESH' ? 'CACHE' : null;
+    if (transport.spatial == null && ['FRESH', 'STALE'].includes(spatial.cacheStatus)) transport.spatial = spatial.cacheStatus === 'STALE' ? 'STALE_CACHE' : 'CACHE';
+    else if (transport.spatial == null && spatial.cacheStatus === 'LOCAL') transport.spatial = 'LOCAL_ONLY';
 
     var context = SS.domain.createPredictionContext({
       query: normalizedQuery,

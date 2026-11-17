@@ -30,17 +30,24 @@ test('successful requests remove deadline timers and caller listeners', async ()
   controller.abort();
 });
 
-test('cancellation stops retry backoff and prevents the second fetch', async () => {
-  let calls = 0;
-  const first = deferred();
-  const SS = load(createRuntime({fetch: async () => { calls++; first.resolve(); throw new Error('offline'); }}), [...FILES,'js/data.js']);
+test('V2.5.5.20 local forecast: direct once, then the relay once; cancelling during the relay stops without a third request', async () => {
+  const urls = [];
+  const relay = deferred();
+  const SS = load(createRuntime({fetch: async (url, init) => {
+    urls.push(url);
+    if (urls.length === 1) throw new TypeError('Failed to fetch');
+    relay.resolve();
+    return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+  }}), [...FILES,'js/data.js']);
   const controller = new AbortController();
   const result = SS.data.fetchForecastWithRetry(22,114,10000,{signal:controller.signal});
   const rejected = assert.rejects(result, {name:'AbortError'});
-  await first.promise;
+  await relay.promise;
   controller.abort();
   await rejected;
-  assert.equal(calls,1);
+  assert.equal(urls.length,2);
+  assert.match(urls[0],/^https:\/\/api\.open-meteo\.com\/v1\/forecast\?latitude=22\.0000&longitude=114\.0000&/);
+  assert.match(urls[1],/^\/api\/open-meteo\?service=forecast&latitude=22\.0000&longitude=114\.0000&/);
 });
 
 test('cancelled image releases handlers and source, without waiting for onload', async () => {

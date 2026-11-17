@@ -11,14 +11,13 @@
   var EARTH_RADIUS_KM = 6371;
   var rad = Math.PI / 180;
 
-  function fetchJson(url, options) { return SS.network.json(url, options); }
+  /* V2.5.5.20：Open-Meteo 地址先直连、失败再走本站转发；其他地址（本站接口）照常请求。 */
+  function fetchJson(url, options) { return SS.network.openMeteoJson(url, options); }
 
-  /* 带一次重试的预报请求：保留供本地单点预报使用 */
+  /* 本地单点预报。V2.5.5.20 起不再等待后直连重试：直连一次，失败后改走本站转发一次（见 SS.network.openMeteoJson）。
+     retryDelayMs 保留参数位置以兼容调用方，不再使用。 */
   function fetchForecastWithRetry(lat, lon, retryDelayMs, options) {
-    return SS.data.fetchForecast(lat, lon, options).catch(function () {
-      SS.network.throwIfAborted(options && options.signal);
-      return SS.network.sleep(retryDelayMs, options).then(function () { return SS.data.fetchForecast(lat, lon, options); });
-    });
+    return SS.data.fetchForecast(lat, lon, options);
   }
 
   /* V2.4.3：totalAttempts 表示总请求次数，失败两次后立即交给上层降级。 */
@@ -28,7 +27,8 @@
       SS.network.throwIfAborted(options && options.signal);
       if (options && typeof options.onBatchAttempt === 'function') options.onBatchAttempt(attempt);
       try {
-        return await SS.data.fetchBatchForecast(nodes, options);
+        // V2.5.5.20：第一次直连（会话记忆生效时直接转发），第二次走本站转发。
+        return await SS.data.fetchBatchForecast(nodes, Object.assign({}, options, { openMeteoRoute: attempt === 1 ? 'PRIMARY' : 'PROXY' }));
       } catch (error) {
         SS.network.throwIfAborted(options && options.signal);
         if (attempt >= rc.totalAttempts) throw error;
@@ -121,7 +121,7 @@
       var language = /[\u3400-\u9fff]/.test(name) ? 'zh' : 'en';
       var url = SS.modelConfig.api.geocoding +
         '?name=' + encodeURIComponent(name) + '&count=' + SS.config.citySearch.requestCount + '&language=' + language + '&format=json';
-      return fetchJson(url, options).then(function (json) {
+      return fetchJson(url, Object.assign({ timeoutMs: SS.transport.openMeteo.directTimeoutMs.geocoding }, options)).then(function (json) {
         if (!json || json.error || (json.results != null && !Array.isArray(json.results))) throw new Error('城市检索服务返回异常，请稍后重试');
         return json.results || [];
       });

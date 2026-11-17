@@ -2,6 +2,14 @@
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+    // V2.5.5.20 Open-Meteo relay: latitude × 10 selects the upstream status (20 → 200, 30.2 → 302, 42.9 → 429, 50.3 → 503).
+    if (url.hostname === 'api.open-meteo.com') {
+      if (request.redirect !== 'manual') throw new Error('Open-Meteo relay must use manual redirects');
+      const status = Math.round(Number(url.searchParams.get('latitude')) * 10);
+      if (status >= 300 && status < 400) return new Response('must not expose this body', { status, headers: { Location: 'https://outside.test/private-destination' } });
+      if (status >= 400) return Response.json({ error: true, reason: 'status ' + status }, { status });
+      return Response.json({ latitude: 20, hourly: { time: ['2026-11-17T00:00'], cloud_cover: [10] } });
+    }
     const qweather = url.hostname.endsWith('.qweatherapi.com');
     if (qweather) {
       if (request.headers.get('X-QW-Api-Key') !== 'test-secret-only') throw new Error('Missing test credential');

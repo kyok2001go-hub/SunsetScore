@@ -97,7 +97,11 @@ test('Pinned default-engine compatibility requires exact allowed old/new files a
     'js/engine.js':'8e7cb69d24688aa1fb4cbe6549d0ee2aebb41056a5875c32cbbc4e9505635a9d',
     'js/model_config.js':'ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204',
     // Every engine before V2.5.5.2 ran this evolution.js.
-    'js/evolution.js':'690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc'};
+    'js/evolution.js':'690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc',
+    // V2.5.5.20 pins the Open-Meteo transport files; every engine before it ran these versions.
+    'js/network.js':'df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5',
+    'js/data.js':'118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73',
+    'js/nowcast.js':'311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee'};
   const old={...current,files,engine_sha256:m.digest(Object.fromEntries(m.REPLAY_RUNTIME_FILES.map(f=>[f,files[f]])))};
   assert.throws(()=>m.assertCompatibleEngine(current,old),/PRACTICAL_CODE_MISMATCH/);
   const proof=m.assertCompatibleEngine(current,old,{allowDefaultCompatibility:true});

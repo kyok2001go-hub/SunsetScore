@@ -30,7 +30,8 @@ export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horiz
 // V2.5.5.12 changes the app only (cloud-field radar display fix); model and scoring configuration stay 2.5.5.11.
 // V2.5.5.15 changes the app only (bypass capture stops request A); model and scoring configuration stay 2.5.5.11.
 // V2.5.5.19 changes the model: horizonCloudPotential is enabled (f 0.7, k 5); grade lines stay 19/49/66/90.
-export const RELEASE_VERSION=Object.freeze({app:'2.5.5.19',model:'2.5.5.19',assetRevision:'app25519'});
+// V2.5.5.20 changes the app only (Open-Meteo falls back to the /api/open-meteo relay); model and scoring configuration stay 2.5.5.19.
+export const RELEASE_VERSION=Object.freeze({app:'2.5.5.20',model:'2.5.5.19',assetRevision:'app25520'});
 // V2.5.5.11, rebuilt from production by removing the V2.5.5.19 key; the rebuilt configuration must hash exactly as the V2.5.5.11 release did.
 export const V25511_VERSION='2.5.5.11';
 export const V25511_SCORING_SHA256='83ceb5acaacc9ffb1fe88c4e8b9813a76e2a3bdabeda6e5f3752afbdf9bf282a';

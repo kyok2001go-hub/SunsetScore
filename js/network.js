@@ -111,12 +111,60 @@
     }, Object.assign({ timeoutMs: SS.modelConfig.network.tileTimeoutMs }, options));
   }
 
+  /* V2.5.5.20 Open-Meteo：先直连，失败（超时、网络错误、非 JSON、HTTP 5xx）后改走本站 /api/open-meteo 转发。
+     HTTP 4xx 与用户取消不回退。某个域名直连失败后，本页面 stickyMinutes 内对它直接走转发；只存内存，不写 LocalStorage。
+     options.openMeteoRoute：'AUTO'（默认，直连失败即转发）、'PRIMARY'（只发一次：直连，或会话记忆生效时转发）、'PROXY'（只走转发）。
+     options.onTransport(kind)：成功后报告实际路径 'DIRECT' / 'PROXY'。依据：ref_docs/PRD/V2.5.5.20--Open-Meteo请求超时修复方案.md */
+  var OPEN_METEO_HOSTS = { 'api.open-meteo.com': 'forecast', 'air-quality-api.open-meteo.com': 'air-quality', 'geocoding-api.open-meteo.com': 'geocoding' };
+  var directFailedAt = {};
+  function openMeteoRoute(url) {
+    var parsed;
+    try { parsed = new URL(url); } catch (e) { return null; }
+    var service = parsed.protocol === 'https:' && Object.prototype.hasOwnProperty.call(OPEN_METEO_HOSTS, parsed.hostname) ? OPEN_METEO_HOSTS[parsed.hostname] : null;
+    if (!service) return null;
+    return { host: parsed.hostname, service: service,
+      proxyUrl: SS.transport.openMeteo.proxyPath + '?service=' + service + (parsed.search ? '&' + parsed.search.slice(1) : '') };
+  }
+  function stickyActive(host) {
+    var at = directFailedAt[host];
+    return at != null && Date.now() - at < SS.transport.openMeteo.stickyMinutes * 60000;
+  }
+  function shouldFallBack(error, signal) {
+    if (signal && signal.aborted) return false;
+    if (!error || error.name === 'AbortError') return false;
+    if (error.name === 'HttpError') return !(error.status >= 400 && error.status < 500);
+    return true;
+  }
+  async function openMeteoJson(url, options) {
+    options = options || {};
+    var route = openMeteoRoute(url);
+    if (!route) return requestJson(url, options);
+    var mode = options.openMeteoRoute || 'AUTO', report = typeof options.onTransport === 'function' ? options.onTransport : null;
+    if (mode !== 'PROXY' && !stickyActive(route.host)) {
+      try {
+        var direct = await requestJson(url, options);
+        if (report) report('DIRECT');
+        return direct;
+      } catch (error) {
+        if (!shouldFallBack(error, options.signal)) throw error;
+        directFailedAt[route.host] = Date.now();
+        if (mode === 'PRIMARY') throw error;
+      }
+    }
+    var relayed = await requestJson(route.proxyUrl, Object.assign({}, options, { timeoutMs: SS.transport.openMeteo.proxyTimeoutMs }));
+    if (report) report('PROXY');
+    return relayed;
+  }
+  function requestJson(url, options) {
+    return request(url, options).then(function (result) { return result.data; });
+  }
+
   SS.network = {
     run: run, request: request, sleep: sleep, loadImage: loadImage,
+    openMeteoJson: openMeteoJson, openMeteoRoute: openMeteoRoute,
+    resetOpenMeteoRoutes: function () { directFailedAt = {}; },
     throwIfAborted: throwIfAborted,
-    json: function (url, options) {
-      return request(url, options).then(function (result) { return result.data; });
-    },
+    json: requestJson,
     text: function (url, options) {
       return request(url, Object.assign({}, options, { responseType: 'text' }))
         .then(function (result) { return result.data; });

@@ -1,5 +1,5 @@
 /** Request-scoped, allowlisted diagnostics. Never serialize an Error or Request. */
-export const EDGE_APP_VERSION = '2.5.5.19';
+export const EDGE_APP_VERSION = '2.5.5.20';
 
 const SOURCES = ['qweather', 'rainviewer', 'gibs', 'openmeteo'];
 const STAGES = ['configuration', 'validation', 'fetch', 'upstream_response', 'body_cancel', 'response_forward', 'body_parse'];
@@ -36,6 +36,28 @@ export function exceptionCode(error, stage) {
     : name === 'AbortError' ? 'UPSTREAM_ABORTED' : 'UPSTREAM_FETCH_ERROR';
 }
 
+/**
+ * V2.5.5.20: one allowlisted usage record per relay call, so the fallback rate and cache hit rate can be read from the logs.
+ * No URL, query, coordinate or header other than a validated cf-ray is written.
+ */
+export function logEdgeUsage(request, details) {
+  try {
+    const ray = request.headers.get('cf-ray'), elapsed = Date.now() - details.startedAt;
+    console.log({
+      event: 'edge_proxy_use', logSchema: 1, appVersion: EDGE_APP_VERSION,
+      adapter: allowed(details.adapter, ['open-meteo']),
+      service: allowed(details.service, ['forecast', 'air-quality', 'geocoding']),
+      cacheStatus: allowed(details.cacheStatus, ['HIT', 'MISS', 'BYPASS']),
+      upstreamStatus: statusOrNull(details.upstreamStatus),
+      responseStatus: statusOrNull(details.responseStatus),
+      elapsedMs: Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : null,
+      cfRay: typeof ray === 'string' && /^[a-f0-9]{16}(?:-[A-Z]{3})?$/.test(ray) ? ray : null
+    });
+  } catch {
+    // Diagnostics never replace the relay's response.
+  }
+}
+
 export function createEdgeErrorLogger(request, adapter) {
   const startedAt = Date.now();
   let emitted = false;
@@ -48,7 +70,7 @@ export function createEdgeErrorLogger(request, adapter) {
       const elapsed = Date.now() - startedAt;
       console.error({
         event: 'edge_proxy_error', logSchema: 1, appVersion: EDGE_APP_VERSION,
-        adapter: allowed(adapter, ['qweather', 'proxy', 'geocoding']),
+        adapter: allowed(adapter, ['qweather', 'proxy', 'geocoding', 'open-meteo']),
         source: allowed(details.source, SOURCES),
         stage: allowed(details.stage, STAGES),
         errorCode: allowed(details.errorCode, ERROR_CODES),

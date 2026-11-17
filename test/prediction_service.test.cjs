@@ -115,7 +115,7 @@ test('prediction service reproduces frozen 2.4.6 score and components without DO
   assert.equal(result.result_cache_status, 'MISS');
   assert.deepEqual(Object.keys(result.performance_timing).sort(), [
     'air_quality_ms', 'cache_check_ms', 'compute_ms', 'geocode_ms', 'local_forecast_ms',
-    'minute_precip_ms', 'nowcast_ms', 'spatial_batch_ms', 'total_ms'
+    'minute_precip_ms', 'nowcast_ms', 'open_meteo_transport', 'spatial_batch_ms', 'total_ms'
   ]);
   assert.equal(result.performance_timing.minute_precip_ms, null);
   assert.equal(result.performance_timing.nowcast_ms, null);

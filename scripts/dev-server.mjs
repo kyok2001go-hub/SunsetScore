@@ -1,5 +1,6 @@
 import { fetchWithDeadline } from '../server/network.js';
 import { handleGeo, geoQuery } from '../server/qweather-geo.js';
+import { handleOpenMeteo } from '../server/open-meteo-proxy.js';
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -107,6 +108,25 @@ async function proxyGeocoding(requestUrl, req, res) {
   } finally { res.removeListener('close', onClose); }
 }
 
+// V2.5.5.20: same relay as functions/api/open-meteo.js, without the edge cache.
+async function proxyOpenMeteo(requestUrl, req, res) {
+  const controller = new AbortController();
+  function onClose() { if (!res.writableEnded) controller.abort(); }
+  res.once('close', onClose);
+  try {
+    const response = await handleOpenMeteo(new Request(requestUrl, { method: req.method }), {
+      fetchImpl: (url, init) => fetch(url, { ...init, signal: AbortSignal.any([init.signal, controller.signal]) })
+    });
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!res.destroyed) {
+      res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(body);
+    }
+  } catch {
+    if (!res.destroyed) json(res, 502, { error: 'Open-Meteo relay unavailable' });
+  } finally { res.removeListener('close', onClose); }
+}
+
 async function serveStatic(requestUrl, res) {
   let pathname;
   try {
@@ -150,6 +170,10 @@ const server = http.createServer(async (req, res) => {
     await proxyGeocoding(requestUrl, req, res);
     return;
   }
+  if (requestUrl.pathname === '/api/open-meteo') {
+    await proxyOpenMeteo(requestUrl, req, res);
+    return;
+  }
   if (requestUrl.pathname === '/api/qweather') {
     if (req.method !== 'GET') {
       res.writeHead(405, { Allow: 'GET' }).end('Method Not Allowed');
@@ -162,7 +186,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`SunsetScore V2.5.5.19 local server: http://${host}:${port}`);
+  console.log(`SunsetScore V2.5.5.20 local server: http://${host}:${port}`);
   console.log('QWeather key source: QweatherKey.txt (server-side only)');
 });
 

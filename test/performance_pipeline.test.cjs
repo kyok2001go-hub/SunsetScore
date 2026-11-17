@@ -166,7 +166,8 @@ test('prediction passes each per-attempt timeout to its source', async () => {
     return { samples: nodes.map(point => ({ point, forecast: fc })) };
   };
   await SS.prediction.predict('31.23,121.47', { nowUtcMs: Date.parse('2026-08-26T02:00:00Z') });
-  assert.deepEqual(seen, { local: 10000, air: 5000, spatial: 10000 });
+  // V2.5.5.20: Open-Meteo direct timeouts come from SS.transport (6 s local, 8 s batch); air quality keeps 5 s.
+  assert.deepEqual(seen, { local: 6000, air: 5000, spatial: 8000 });
 });
 
 test('stable result index never reuses a result across the location local-date boundary', async () => {

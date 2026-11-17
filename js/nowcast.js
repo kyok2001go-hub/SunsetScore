@@ -26,7 +26,8 @@
     return s / arr.length;
   }
   function fetchJson(url, options) {
-    return SS.network.json(url, Object.assign({ timeoutMs: SS.modelConfig.network.observationTimeoutMs }, options));
+    // V2.5.5.20：Open-Meteo 分钟降水同样先直连、失败再走本站转发；QWeather 等本站接口照常请求。
+    return SS.network.openMeteoJson(url, Object.assign({ timeoutMs: SS.modelConfig.network.observationTimeoutMs }, options));
   }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   function fmtHM(utcMs, offsetSeconds) {

@@ -141,8 +141,10 @@ test('QWeather diagnostics survive fallback, cache and fusion for HTTP, business
 
 test('both-source failure retains the original QWeather cause and retries after negative-cache cooldown', async () => {
   let recovered = false, calls = 0;
+  const relayed = [];
   const { SS, clock, ctx } = runtime(async url => {
     calls++;
+    if (url.startsWith('/api/open-meteo')) relayed.push(url);
     if (recovered) return qwResponse();
     return new Response('unavailable', { status: url.startsWith('/api/qweather') ? 502 : 503 });
   });
@@ -153,12 +155,14 @@ test('both-source failure retains the original QWeather cause and retries after 
   clock.now += 30000;
   result = await SS.nowcast.run(ctx());
   assert.equal(result.sourcesStatus.qweather.httpStatus, 502);
-  assert.equal(calls, 2);
+  // V2.5.5.20: the Open-Meteo 5xx falls back once to the /api/open-meteo relay (QWeather, Open-Meteo direct, relay).
+  assert.equal(calls, 3);
+  assert.equal(relayed.length, 1); assert.match(relayed[0], /^\/api\/open-meteo\?service=forecast&latitude=/);
   recovered = true; clock.now = base + minute;
   result = await SS.nowcast.run(ctx());
   assert.equal(result.detail.precip.source, 'qweather');
   assert.equal(result.sourcesStatus.qweather.error, null);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
 });
 
 test('source deadline during fallback retains the already-observed QWeather HTTP error', async () => {

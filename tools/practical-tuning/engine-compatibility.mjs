@@ -20,12 +20,18 @@ import { digest } from './policy.mjs';
 // is computed exactly as before, and js/config.js does not carry them.
 // V2.5.5.19 changes js/config.js (model 2.5.5.19 / app25519, horizonCloudPotential enabled) and js/engine.js (clear_sky output and trace fields,
 // computed only when the key is configured); explicit historical configs do not carry the key, so every engine value is computed exactly as before.
+// V2.5.5.20 changes js/config.js (app 2.5.5.20 / app25520, network timeouts, Open-Meteo relay settings), js/network.js, js/data.js and js/nowcast.js
+// (Open-Meteo direct-then-relay transport). Replay feeds captured inputs to the engine and never calls these transports, so scores are unchanged;
+// the three files are pinned from here on and every origin records the version it was verified with.
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
-  "js/config.js": "50d011fbc8851839a7f771ff040da92de11bb51fb4a3121ee594118e15977057",
+  "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-  "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+  "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+  "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+  "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+  "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
 });
 const ORIGINS = Object.freeze([
 {
@@ -35,7 +41,10 @@ const ORIGINS = Object.freeze([
     "js/config.js": "cabf185bb0946fc9ad968bd1c24fa8b93d8c2567f2c9d7d87f93b34cb2491ecf",
     "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
     "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+    "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+    "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+    "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
   }
 },
 {
@@ -45,7 +54,10 @@ const ORIGINS = Object.freeze([
     "js/config.js": "6b762d0fa8cfd6d106b593ba5edd9af5d6caf99f7b5d6f0b544d1339d53abb77",
     "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
     "js/model_config.js": "a406bc1005d21b2371383cd51e1f4e9d3a75e0e638b8c4bf311284d48d918868",
-    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+    "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+    "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+    "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
   }
 },
   {
@@ -55,7 +67,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "7b7ea9e324ca50eadbcd881448a858615646953aa18cc2e7e329c1662bbcac14",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204",
-    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   {
@@ -65,7 +80,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "76725e9e0a1408efff22f4e805a11e40ec5912f5adf7e6a642941ea71f75ad46",
       "js/sky_state.js": "03410f3126c19a12d90ecf4701e60293ed3ff4153dbc51bdbff17a2dcd158bdb",
       "js/model_config.js": "ba84a59f1028cc33867479ddcb98925ea4663d07e70554d7ca67a0a2dac0f204",
-    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   {
@@ -75,7 +93,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "2f76204d03baa9b003d148a92cc371b21f6b49b011ac7d52497369ce10cb2419",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+    "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   {
@@ -85,7 +106,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "0b02767059e93cd3a9ee6b5461d4fd6ae1b9b98b7fa8ee197e9e90e1e94e38c1",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc"
+      "js/evolution.js": "690eb87afe8743d016b99dbd18d213bb2008d42f9bdd138fa0caa72b74cb89bc",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.2 release line (e.g. Policy 9 P0 run practical_tuning_v9_561f773d7e43a9045dc3); differs from the current pins only in js/engine.js.
@@ -96,7 +120,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.4 working tree (e.g. Policy 10 run practical_tuning_v10_029b2a3afcd389326426); differs from the current pins only in js/engine.js.
@@ -107,7 +134,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.5 working tree (e.g. Policy 11 run practical_tuning_v11_81d6faf13f3e42fe645d); differs from the current pins only in js/evolution.js.
@@ -118,7 +148,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c"
+      "js/evolution.js": "285a3cf19105b41f5bc1d1d12eb6124c615e57705fd49700a0b195e6ca833b9c",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.6 working tree before the V2.5.5.4 release (e.g. Policy 12 run practical_tuning_v12_f307106bf58943ec80e5); differs from the current pins only in js/config.js.
@@ -129,7 +162,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "77fc4265f54df8445097999295ffc097955dfd75713f72529c6c2c3d3aa7b531",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.4 release (commit a0dfa99); differs from the current pins only in js/config.js.
@@ -140,7 +176,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "531941d184569904e7c717826e05a45bc94b644d1d5e9c704f9d7af49f2bd5d3",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.7 release (bypass capture V1); differs from the current pins only in js/config.js.
@@ -151,7 +190,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "d45accc7350fb64d893b4f2f93555f5e2053986828824d7e19737cca7aa69e5d",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.8 release (satellite shadow capture); differs from the current pins only in js/config.js.
@@ -162,7 +204,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "466197d5dbd77ee68761270db1b4ccfe04ed26da7a72415b2560bc9ffad3c68d",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.11 release (commit 2585df3, grade lines 19/49/66/90); differs from the current pins only in js/config.js.
@@ -173,7 +218,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "a2eb1dfaaccd402f8e79e76f1daf24f18ca59dfedeb02ce3727de666ce084896",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.12 release (commit bfd65a2, app 2.5.5.12 / app25512); differs from the current pins in js/config.js and js/engine.js.
@@ -184,7 +232,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "0ed2232d1a814997e43b48aae76ab0fcd18525a9931b5f0ad2f9d893b154be73",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.15 working tree (app 2.5.5.15 / app25515, engine before V2.5.5.17; used by the V2.5.5.14 Policy 13 Run).
@@ -195,7 +246,10 @@ const ORIGINS = Object.freeze([
       "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   },
   // V2.5.5.15 release (commit ca5c982; V2.5.5.17 engine with the keys off; used by the V2.5.5.17 / V2.5.5.18 Policy 14 / 15 Runs).
@@ -206,7 +260,24 @@ const ORIGINS = Object.freeze([
       "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
-      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
+    }
+  },
+  // V2.5.5.19 release (commit 64f5f42, model 2.5.5.19 / app25519); differs from the current pins in js/config.js, js/network.js, js/data.js and js/nowcast.js.
+  {
+    "engine": "0aad8f697a7562ef85587524d345d979d2b5580289984a9b6ee93a103ebc959e",
+    "files": {
+      "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
+      "js/config.js": "50d011fbc8851839a7f771ff040da92de11bb51fb4a3121ee594118e15977057",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
+      "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
+      "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
     }
   }
 ]);
