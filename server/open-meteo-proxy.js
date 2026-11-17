@@ -12,7 +12,8 @@ export const MAX_COORDINATES = 40;
 const MAX_QUERY_LENGTH = 4000;
 
 const NUMBER_LIST = /^-?\d{1,3}(?:\.\d{1,6})?(?:,-?\d{1,3}(?:\.\d{1,6})?)*$/;
-const VARIABLE_LIST = /^[a-z0-9_]{1,40}(?:,[a-z0-9_]{1,40}){0,39}$/;
+// Variable names include upper case (e.g. wind_speed_850hPa): letters of both cases, digits and underscores.
+const VARIABLE_LIST = /^[A-Za-z0-9_]{1,40}(?:,[A-Za-z0-9_]{1,40}){0,39}$/;
 const INTEGER = /^\d{1,3}$/;
 const TIMEZONE = /^(?:auto|[A-Za-z]{1,32}(?:\/[A-Za-z0-9_+-]{1,32}){0,2})$/;
 const FORECAST_PARAMS = Object.freeze({

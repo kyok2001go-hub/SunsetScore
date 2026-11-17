@@ -104,6 +104,39 @@ test('relay: rejects 3xx without Location, keeps 4xx/5xx, maps timeouts to 504 a
   assert.equal(bad.value.status, 400); assert.equal(fetched, false);
 });
 
+// V2.5.5.20 hotfix: the relay rejected the real forecast query (wind_speed_850hPa has an upper-case P). Every URL the app
+// actually builds must pass the relay allowlist and reach the same upstream query.
+test('every Open-Meteo URL the app builds is accepted by the relay and forwarded unchanged', async () => {
+  const { openMeteoTarget } = await relay(), { CORE_FILES } = require('./helpers.cjs'), direct = [], relayed = [];
+  const SS = load(createRuntime({ fetch: async url => {
+    url = String(url);
+    if (!url.startsWith('/api/open-meteo?')) { direct.push(url); return new Response('busy', { status: 503 }); }
+    relayed.push(url);
+    const q = new URL(url, 'https://site.example').searchParams, lat = q.get('latitude');
+    if (q.get('service') === 'geocoding') return Response.json({ results: [] });
+    if (q.has('minutely_15')) return Response.json({ utc_offset_seconds: 0, minutely_15: { time: [], precipitation: [] } });
+    return Response.json(lat && lat.includes(',') ? lat.split(',').map(() => ({})) : {});
+  } }), [...new Set([...CORE_FILES, 'js/cloud_field.js', 'js/nowcast.js'])]);
+  SS.network.sleep = async () => {};
+  const grid = SS.cloudField.generateGridNodes(22.5431, 114.0579).filter(n => n.distanceKm > 0);
+  assert.equal(grid.length, 32);
+  await SS.data.fetchForecast(22.5431, 114.0579); SS.network.resetOpenMeteoRoutes();
+  await SS.data.fetchBatchForecastWithRetry(grid, {}); SS.network.resetOpenMeteoRoutes();
+  await SS.data.fetchAirQuality(22.5431, 114.0579);
+  for (const name of ['Shenzhen', '深圳', "St. John's", 'Saint-Étienne']) { SS.network.resetOpenMeteoRoutes(); await SS.data.searchLocations(name); }
+  SS.network.resetOpenMeteoRoutes();
+  await SS.nowcast.fetchMinutePrecip(22.5431, 114.0579, {}).catch(() => {});
+  assert.ok(SS.modelConfig.scoring.hourlyVariables.includes('wind_speed_850hPa'), 'the real variable list has upper-case names');
+  assert.equal(relayed.length, 8, 'forecast, batch, air quality, four geocoding queries, minute precipitation');
+  for (const url of relayed) {
+    const target = openMeteoTarget(new URL(url, 'https://site.example'));
+    assert.ok(target, 'relay must accept ' + url.slice(0, 120));
+    const original = direct.map(d => new URL(d)).find(d => d.hostname === target.upstream.hostname &&
+      [...d.searchParams].sort().join('&') === [...target.upstream.searchParams].sort().join('&'));
+    assert.ok(original, 'upstream query must equal the direct query for ' + target.service);
+  }
+});
+
 // ---------- browser transport ----------
 const FILES = ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/data.js'];
 function browser(handler, clock = { now: Date.parse('2026-11-17T08:00:00Z') }) {
