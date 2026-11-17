@@ -10,7 +10,8 @@ import {preflight,replayCalculator,gradeThresholdsOf} from '../practical-tuning/
 import {digest} from '../practical-tuning/policy.mjs';
 import {productMetrics,weightedRows} from '../product-evaluation/metrics.mjs';
 import {gradeScore} from '../evaluation/metrics.mjs';
-import {loadProduction,previousReleaseScoring,candidateReleaseScoring,v2552Scoring,v2554Scoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
+import {loadProduction,previousReleaseScoring,candidateReleaseScoring,v2552Scoring,v2554Scoring,v25511Scoring,differences,safeOutput,SOURCE_RUN,RELEASE_VERSION} from './release.mjs';
+import {parseCsv} from '../dataset/lib/csv.mjs';
 
 export const HOLDOUT_POLICY=Object.freeze({
   // Version 2 (V2.5.5.4 PRD §3.5) adds the V2.5.5.4 candidate before H1 is first used; version 1 was never executed.
@@ -47,19 +48,44 @@ export const H2_POLICY=Object.freeze({
   ]),
   decision_owner:'PROJECT_OWNER'
 });
-export const POLICIES=Object.freeze({H1:HOLDOUT_POLICY,H2:H2_POLICY});
+// H3 (PRD V2.5.5.19 §4) checks the released horizon conditioning on Events from 2026-11-16, none of which informed it.
+// Registered before any H3 label or prediction was read. Main comparison: 2.5.5.19 against 2.5.5.11 (same grade lines).
+// R1: the product-loss interval excludes zero on the worse side. R2: the candidate's >=2 recall is below 0.60 while the control's is not
+// (if both are below the floor, rolling back would not help: no automatic suggestion, flagged for the project owner).
+// The lines-only member (2.5.5.11 scores graded 15/49/66/90, the V2.5.5.17 recommendation) is reported next to them and never triggers a rollback.
+export const H3_POLICY=Object.freeze({
+  version:1,name:'H3_HORIZON_POTENTIAL_CHECK',
+  first_holdout_date:'2026-11-16',
+  thresholds:Object.freeze({dates:15,events:100,ge2_events:25,ge3_events:8}),
+  cohort:'PRIMARY_LAST_CLOSEST_SNAPSHOT_TO_SUNSET_PER_EVENT',
+  bootstrap:Object.freeze({replicates:2000,block:'event_date_local',seed:'H3_HORIZON_POTENTIAL_CHECK_1'}),
+  versions:Object.freeze(['2.5.5.11','2.5.5.19','2.5.5.11-LINES-15-49-66-90']),
+  derived_versions:Object.freeze({'2.5.5.11-LINES-15-49-66-90':Object.freeze({base:'2.5.5.11',thresholds:Object.freeze([15,49,66,90])})}),
+  comparisons:Object.freeze([
+    Object.freeze({id:'V25519_VS_V25511',candidate:'2.5.5.19',control:'2.5.5.11',rollback_rule:'PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_PUSHED_BELOW_0_60'}),
+    Object.freeze({id:'LINES_ONLY_VS_V25511',candidate:'2.5.5.11-LINES-15-49-66-90',control:'2.5.5.11',rollback_rule:'REPORT_ONLY'})
+  ]),
+  ge2_recall_floor:.6,
+  outcome_rule:'ROLLBACK_IF_SUGGESTED_ELSE_CONFIRMED_IF_PRODUCT_LOSS_CI_BELOW_ZERO_ELSE_KEPT_UNCONFIRMED',
+  // Report only (PRD §4.3): per-slot metrics, the days that carry the clear-sky hint, and the cloud-type >=2 recall from back-fill type tags.
+  report_only:Object.freeze({slots:true,hint_version:'2.5.5.19',type_tags:Object.freeze({source:'rednote_manual',exempt:'CLEAR_GLOW',
+    prefixes:Object.freeze({'晴空渐变':'CLEAR_GLOW','远处云':'FAR_HORIZON','云霞':'LIT_CLOUD'})})}),
+  decision_owner:'PROJECT_OWNER'
+});
+export const POLICIES=Object.freeze({H1:HOLDOUT_POLICY,H2:H2_POLICY,H3:H3_POLICY});
+const TITLES=Object.freeze({H1_RELEASE_LINE_CHECK:'H1 前向留出核验（发布线）',H2_GRADE_LINE_CHECK:'H2 前向留出核验（等级分数线）',H3_HORIZON_POTENTIAL_CHECK:'H3 前向留出核验（地平线条件化）'});
 export const LEDGER=path.join(APP_ROOT,'dataset/holdout/usage.jsonl');
 const DEFAULT_KEYS=['version','illuminationModel.bankShare','illuminationModel.twilightSaturationMinutes','skyState.factorCoefficients.arrivalRiskSlope'];
 
-// The release-line configurations, rebuilt from the current production config (2.5.5.11 since its release).
+// The release-line configurations, rebuilt from the current production config (2.5.5.19 since its release).
 export async function releaseConfigs(root=APP_ROOT) {
   const production=await loadProduction(root);
   if(production.version.model!==RELEASE_VERSION.model)fail('HOLDOUT_PRODUCTION_VERSION_MISMATCH');
-  const v25511=production.scoring,v2554=v2554Scoring(v25511),v2552=v2552Scoring(v2554),v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
+  const v25519=production.scoring,v25511=v25511Scoring(v25519),v2554=v2554Scoring(v25511),v2552=v2552Scoring(v2554),v2551=previousReleaseScoring(v2552),v2550=structuredClone(v2551);
   v2550.version='2.5.5.0';v2550.skyState.factorRange=[0.65,1.15];
   // Adding the fix back to the rebuilt 2.5.5.2 must give production exactly (no other default drifted).
   if(differences(candidateReleaseScoring(v2552),v2554).length)fail('HOLDOUT_V2554_RECONSTRUCTION_MISMATCH');
-  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':v2554,'2.5.5.11':v25511};
+  return {'2.5.5.0':v2550,'2.5.5.1':v2551,'2.5.5.2':v2552,'2.5.5.4':v2554,'2.5.5.11':v25511,'2.5.5.19':v25519};
 }
 // V2.5.5.0 is the V6 selected configuration plus already-proved default-equivalent fields.
 export function assertV2550(selected,v2550) {
@@ -100,9 +126,67 @@ export function versionMetrics(rows,version,thresholds) {
 }
 export function rollbackSuggested(rule,candidate,control,bootstrap=null) {
   if(rule==='PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_BELOW_0_60')return bootstrap.product_loss.ci95[0]>0||candidate.ge2_recall<.6;
+  if(rule==='PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_PUSHED_BELOW_0_60')return bootstrap.product_loss.ci95[0]>0||(candidate.ge2_recall<.6&&control.ge2_recall>=.6);
+  if(rule==='REPORT_ONLY')return null;
   if(rule==='AUC_GE3_NOT_HIGHER_OR_PRODUCT_LOSS_HIGHER')return !(candidate.auc_ge3_primary_last>control.auc_ge3_primary_last)||candidate.product_loss>control.product_loss;
   if(rule==='PRODUCT_LOSS_HIGHER_OR_GE2_RECALL_DROP_OVER_0_05')return candidate.product_loss>control.product_loss||candidate.ge2_recall<control.ge2_recall-.05;
   fail('UNKNOWN_ROLLBACK_RULE');
+}
+// H3 outcome (PRD V2.5.5.19 §4.2): rollback when suggested; confirmed when the loss interval lies below zero; otherwise kept, unconfirmed.
+export function outcomeOf(rollback,candidate,control,bootstrap,floor) {
+  return {outcome:rollback?'ROLLBACK_SUGGESTED':bootstrap.product_loss.ci95[1]<0?'CONFIRMED':'KEPT_UNCONFIRMED',
+    owner_review:candidate.ge2_recall<floor&&control.ge2_recall<floor?'BOTH_VERSIONS_BELOW_GE2_RECALL_FLOOR':null};
+}
+// A member that keeps the base scores and only moves the grade lines (labels unchanged).
+export function derivedConfig(base,thresholds) {
+  const next=structuredClone(base),mins=[...thresholds].reverse();
+  if(!Array.isArray(next.levels)||next.levels.length!==5||mins.length!==4)fail('HOLDOUT_DERIVED_LEVELS_INVALID');
+  next.levels=next.levels.map((l,i)=>({...l,min:i<4?mins[i]:0}));
+  return next;
+}
+export const slotGroup=slot=>['1213','1613'].includes(slot)?slot:['1720','1729','1755'].includes(slot)?'EVENING':'OTHER';
+// Back-fill type tags: the comment of a manual Observation starts with 云霞 / 远处云 / 晴空渐变 (brackets and spaces before it are ignored).
+export function typeTagOf(comment,prefixes) {
+  const text=String(comment??'').replace(/^[\s【\[（(「《]+/,'');
+  for(const [prefix,kind]of Object.entries(prefixes))if(text.startsWith(prefix))return kind;
+  return null;
+}
+export function eventTypeTags(observations,spec) {
+  const seen=new Map();
+  for(const o of observations){if(o.source!==spec.source)continue;const kind=typeTagOf(o.comment,spec.prefixes);if(!kind)continue;
+    if(!seen.has(o.event_id))seen.set(o.event_id,new Set());seen.get(o.event_id).add(kind);}
+  return new Map([...seen].map(([id,kinds])=>[id,kinds.size===1?[...kinds][0]:'CONFLICT']));
+}
+// >=2 recall over GT>=2 rows whose Event is not tagged as the exempt kind; untagged and conflicting Events count as cloud-type.
+export function cloudTypeRecall(rows,version,thresholds,tags,exempt) {
+  let hit=0,all=0;
+  for(const r of rows)if(r.gt_ordinal>=2&&tags.get(r.event_id)!==exempt){all+=r.event_normalized_weight;if(gradeScore(r[`score_${version}`],thresholds)>=2)hit+=r.event_normalized_weight;}
+  return all?hit/all:null;
+}
+async function readTypeTags(rawRoot,spec) {
+  const manifest=JSON.parse(await readFile(path.join(rawRoot,'manifest.json'),'utf8')),file='raw/sunset_observations.csv',bytes=await readFile(path.join(rawRoot,file));
+  if(manifest.files?.[file]?.sha256!==hash(bytes))fail('HOLDOUT_OBSERVATIONS_HASH_MISMATCH');
+  const cells=parseCsv(bytes.toString('utf8')),names=cells.shift().map(c=>c.value);
+  if(!names.includes('comment'))return {status:'NOT_AVAILABLE',reason_code:'RAW_EXPORTED_WITHOUT_COMMENTS',tags:new Map()};
+  return {status:'AVAILABLE',source_sha256:hash(bytes),tags:eventTypeTags(cells.map(r=>Object.fromEntries(names.map((k,i)=>[k,r[i].value]))),spec)};
+}
+async function reportOnlyOf(rows,policy,thresholds,rawRoot) {
+  const spec=policy.report_only,out={};
+  if(spec.slots)out.by_slot=Object.fromEntries(['1213','1613','EVENING','OTHER'].map(g=>[g,rows.filter(r=>slotGroup(r.scheduled_slot)===g)]).filter(([,s])=>s.length)
+    .map(([g,s])=>[g,{snapshots:s.length,metrics:Object.fromEntries(policy.versions.map(v=>[v,versionMetrics(s,v,thresholds[v])]))}]));
+  if(spec.hint_version){
+    const last=primaryLast(rows),hinted=last.filter(r=>r.clear_sky_hint===true),dist=fn=>[0,1,2,3,4].map(o=>hinted.filter(r=>fn(r)===o).length);
+    out.hint_days={version:spec.hint_version,events:last.length,hint_events:hinted.length,hint_snapshots:rows.filter(r=>r.clear_sky_hint===true).length,gt_distribution:dist(r=>r.gt_ordinal),
+      predicted_distribution:Object.fromEntries(policy.versions.map(v=>[v,dist(r=>gradeScore(r[`score_${v}`],thresholds[v]))]))};
+  }
+  if(spec.type_tags){
+    const read=await readTypeTags(rawRoot,spec.type_tags),events=new Map(rows.filter(r=>r.gt_ordinal>=2).map(r=>[r.event_id,read.tags.get(r.event_id)??null]));
+    const count=k=>[...events.values()].filter(v=>v===k).length;
+    out.type_tags={status:read.status,...(read.reason_code?{reason_code:read.reason_code}:{}),...(read.source_sha256?{source_sha256:read.source_sha256}:{}),gt_ge2_events:events.size,
+      tagged:Object.fromEntries([...new Set(Object.values(spec.type_tags.prefixes)),'CONFLICT'].map(k=>[k,count(k)])),untagged:count(null),
+      cloud_type_ge2_recall:read.status==='AVAILABLE'?Object.fromEntries(policy.versions.map(v=>[v,cloudTypeRecall(rows,v,thresholds[v],read.tags,spec.type_tags.exempt)])):null};
+  }
+  return out;
 }
 // Deterministic date-block bootstrap of candidate − control differences.
 export function bootstrapDeltas(rows,thresholdsByVersion,policy=HOLDOUT_POLICY) {
@@ -138,27 +222,33 @@ export async function holdoutCheck(sources,output,{root=APP_ROOT,progress=()=>{}
   const guard=independence(loaded.rows,dev,policy);if(!guard.independent)fail('HOLDOUT_OVERLAPS_DEV',{detail:canonicalJson(guard)});
   const before=readiness(loaded.rows,policy);if(!before.ready)fail('HOLDOUT_BELOW_THRESHOLD',{detail:canonicalJson(before.shortfalls)});
   const configs=await releaseConfigs(root);assertV2550(dev.selected,configs['2.5.5.0']);
+  for(const [name,d]of Object.entries(policy.derived_versions??{}))configs[name]=derivedConfig(configs[d.base],d.thresholds);
+  const label=policy.name.slice(0,2),hintVersion=policy.report_only?.hint_version;
   const thresholds=Object.fromEntries(policy.versions.map(v=>[v,gradeThresholdsOf(configs[v])]));
   const calculator=replayCalculator(code.engine_sha256),checked=await preflight(loaded,configs['2.5.5.0'],calculator,progress);
   const ready=readiness(checked.rows,policy);if(!ready.ready)fail('HOLDOUT_BELOW_THRESHOLD_AFTER_REPLAY_EXCLUSIONS',{detail:canonicalJson(ready.shortfalls)});
   const rows=[];
   for(const [i,row]of checked.rows.entries()){
     const scored={snapshot_id:row.snapshot_id,event_id:row.event_id,event_date_local:row.event_date_local,city:row.city??null,gt_ordinal:row.gt_ordinal,gt_confidence:row.gt_confidence,
-      event_normalized_weight:row.event_normalized_weight,lead_time_minutes:row.lead_time_minutes,location_key:row.location_key,model_version:row.model_version??null};
+      event_normalized_weight:row.event_normalized_weight,lead_time_minutes:row.lead_time_minutes,location_key:row.location_key,model_version:row.model_version??null,scheduled_slot:row.scheduled_slot??null};
     for(const v of policy.versions)scored[`score_${v}`]=(await calculator.calculate(row,configs[v])).score;
+    // Same flag the page shows: read from the engine trace of the released configuration.
+    if(hintVersion)scored.clear_sky_hint=(await calculator.calculate(row,configs[hintVersion],true)).trace?.horizon_cloud_potential?.hint===true;
     rows.push(scored);
-    if((i+1)%100===0||i+1===checked.rows.length)progress(`H1 核验 ${i+1}/${checked.rows.length}：各版本重算`);
+    if((i+1)%100===0||i+1===checked.rows.length)progress(`${label} 核验 ${i+1}/${checked.rows.length}：各版本重算`);
   }
   const metrics=Object.fromEntries(policy.versions.map(v=>[v,versionMetrics(rows,v,thresholds[v])]));
   progress(`按日期整块抽样（${policy.bootstrap.replicates} 次）`);
   const deltas=bootstrapDeltas(rows,thresholds,policy);
   const comparisons=policy.comparisons.map(c=>({...c,rollback_suggested:rollbackSuggested(c.rollback_rule,metrics[c.candidate],metrics[c.control],deltas[c.id]),
+    ...(policy.outcome_rule&&c.rollback_rule!=='REPORT_ONLY'?outcomeOf(rollbackSuggested(c.rollback_rule,metrics[c.candidate],metrics[c.control],deltas[c.id]),metrics[c.candidate],metrics[c.control],deltas[c.id],policy.ge2_recall_floor):{}),
     point_difference:Object.fromEntries(Object.keys(metrics[c.candidate]).map(k=>[k,metrics[c.candidate][k]==null||metrics[c.control][k]==null?null:metrics[c.candidate][k]-metrics[c.control][k]])),
     bootstrap:deltas[c.id]}));
   await checkInputs(loaded);if((await codeIdentity()).sha256!==code.sha256)fail('CODE_CHANGED_DURING_HOLDOUT');
   const result={status:'COMPLETE',scope:'FORWARD_HOLDOUT_SINGLE_USE; DECISION_BY_PROJECT_OWNER',policy,source_ids:loaded.source_ids,
     snapshot_count:rows.length,excluded_count:checked.exclusions.length,readiness:ready,independence:guard,grade_thresholds:thresholds,
     config_sha256:Object.fromEntries(policy.versions.map(v=>[v,hash(canonicalJson(configs[v]))])),metrics,comparisons,
+    ...(policy.report_only?{report_only:await reportOnlyOf(rows,policy,thresholds,loaded.roots.raw)}:{}),
     predictions_sha256:digest(rows.map(r=>[r.snapshot_id,...policy.versions.map(v=>r[`score_${v}`])])),code_sha256:code.sha256,engine_sha256:code.engine_sha256};
   await mkdir(output,{recursive:true});
   await writeFile(path.join(output,'holdout_result.json'),canonicalJson(result)+'\n');
@@ -172,16 +262,31 @@ export async function holdoutCheck(sources,output,{root=APP_ROOT,progress=()=>{}
 }
 function report(r) {
   const versions=r.policy.versions,f=x=>x==null?'—':Number(x).toFixed(3),row=(label,k)=>`| ${label} | ${versions.map(v=>f(r.metrics[v][k])).join(' | ')} |`;
-  const c0=r.readiness.counts,lines=['# H1 前向留出核验（发布线）','',
+  const c0=r.readiness.counts,lines=[`# ${TITLES[r.policy.name]??r.policy.name}`,'',
     `数据：${r.snapshot_count} 条 Snapshot，${c0.events} 个 Event，${c0.dates} 天；GT≥2 Event ${c0.ge2_events}，GT≥3 Event ${c0.ge3_events}。各版本按自身等级线判级。结论由项目负责人决定。`,'',
     `| 指标 | ${versions.join(' | ')} |`,`| --- |${versions.map(()=>' --- |').join('')}`,row('产品损失','product_loss'),row('≥2 召回','ge2_recall'),row('≥2 精确','ge2_precision'),
     row('≥3 召回','ge3_recall'),row('≥3 精确','ge3_precision'),row('AUC≥2（最近一条）','auc_ge2_primary_last'),row('AUC≥3（最近一条）','auc_ge3_primary_last'),''];
   for(const c of r.comparisons){
-    lines.push(`## ${c.candidate} 对 ${c.control}`,'',`回退规则：${c.rollback_rule}。**${c.rollback_suggested?'建议回退':'不触发回退'}**。`,'','| 差值（候选 − 对照） | 点估计 | 95% 区间 | 变好的概率 |','| --- | --- | --- | --- |');
+    const verdict=c.rollback_rule==='REPORT_ONLY'?'只报告，不参与回退判断':c.rollback_suggested?'建议回退':'不触发回退';
+    const outcome=c.outcome?`结果：${{ROLLBACK_SUGGESTED:'回退',CONFIRMED:'确认',KEPT_UNCONFIRMED:'保留、未确认'}[c.outcome]}${c.owner_review?'；两个版本的 ≥2 召回都低于底线，需项目负责人单独判断':''}。`:'';
+    lines.push(`## ${c.candidate} 对 ${c.control}`,'',`回退规则：${c.rollback_rule}。**${verdict}**。${outcome}`,'','| 差值（候选 − 对照） | 点估计 | 95% 区间 | 变好的概率 |','| --- | --- | --- | --- |');
     for(const [k,label] of [['product_loss','产品损失'],['ge2_recall','≥2 召回'],['auc_ge2_primary_last','AUC≥2'],['auc_ge3_primary_last','AUC≥3']])
       lines.push(`| ${label} | ${f(c.point_difference[k])} | ${f(c.bootstrap[k].ci95[0])} ~ ${f(c.bootstrap[k].ci95[1])} | ${f(c.bootstrap[k].probability_better)} |`);
     lines.push('');
   }
+  const ro=r.report_only;
+  if(ro?.by_slot){
+    lines.push('## 按时段（只报告）','',`| 时段 | Snapshot | ${versions.map(v=>`${v} 损失 | ${v} ≥2 召回`).join(' | ')} |`,`| --- | --- |${versions.map(()=>' --- | --- |').join('')}`);
+    for(const [g,s]of Object.entries(ro.by_slot))lines.push(`| ${g} | ${s.snapshots} | ${versions.map(v=>`${f(s.metrics[v].product_loss)} | ${f(s.metrics[v].ge2_recall)}`).join(' | ')} |`);
+    lines.push('');
+  }
+  if(ro?.hint_days){const h=ro.hint_days;
+    lines.push('## 带无云日提示的日子（只报告，每个 Event 取最接近日落的一条）','',`${h.events} 个 Event 中 ${h.hint_events} 个带提示（${h.hint_snapshots} 条 Snapshot）。实际等级 0–4：${h.gt_distribution.join(' / ')}。`,'',
+      ...versions.map(v=>`- ${v} 的预测等级 0–4：${h.predicted_distribution[v].join(' / ')}`),'');}
+  if(ro?.type_tags){const t=ro.type_tags;
+    lines.push('## 有云好晚霞的 ≥2 召回（只报告）','',t.status==='AVAILABLE'
+      ?`GT≥2 共 ${t.gt_ge2_events} 个 Event：${Object.entries(t.tagged).map(([k,n])=>`${k} ${n}`).join('、')}，未标记 ${t.untagged}（未标记与冲突按有云计）。${versions.map(v=>`${v}：${f(t.cloud_type_ge2_recall[v])}`).join('；')}。`
+      :`补录留言不可用（${t.reason_code}），本项未计算。导出 Raw 时加 --include-comments。`,'');}
   return lines.join('\n');
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){

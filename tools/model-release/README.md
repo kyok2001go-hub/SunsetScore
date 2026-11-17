@@ -1,6 +1,23 @@
-# V2.5.5.4 地平线中心节点方位修正发布验收
+# V2.5.5.19 地平线条件化上线发布验收
 
-当前 app/model/config.version 为 2.5.5.4，assetRevision=app2554，npm package 仍为 2.5.5。相对 V2.5.5.2 的评分改动只有一处：
+当前 app/model/config.version 为 2.5.5.19，assetRevision=app25519，npm package 仍为 2.5.5。相对 V2.5.5.11 的评分改动只有一处：
+
+- `horizonCloudPotential: { f: 0.7, k: 5, radiusKm: 100, hintTotalCloudBelowPct: 20 }`：日落时刻 100 km 内中高云平均 C 低于 5% 时，地平线项在总分中的贡献乘以 0.7 + 0.3 × min(1, C / 5)。`hintTotalCloudBelowPct` 只用于界面的无云日提示，不参与评分。等级分数线不变（19/49/66/90）。
+
+```powershell
+npm run model:release -- prepare '../.tmp/<任务名>/release_out' --raw <DEV raw目录> --gt <DEV gt目录> --model <DEV model目录>
+```
+
+- **配置核对：** 以 V6 selected 配置为来源，只允许十四处差异：原有十处，加 `horizonCloudPotential` 的四个字段。
+- **前版本复现：** `v25511Scoring()` 从生产配置去掉 `horizonCloudPotential` 得到 2.5.5.11，重建结果的 Hash 必须等于 `V25511_SCORING_SHA256`（`83ceb5ac…`，即 V2.5.5.11 发布时的评分配置）；再依次重建 2.5.5.4、2.5.5.2、2.5.5.1。DEV 655 条上各版本的签名、产品损失与变化数须等于各自的参照。
+- **本期结果：** 2.5.5.19 的签名、产品损失、相对 2.5.5.11 的变化数须等于 `V25519_REFERENCE`（`47474e62…`，损失 0.773346310219，174 条分数、61 条等级变化）。该参照在键写入 `js/config.js` 之前由 Policy 15 Run 的 `HA_f0.7_k5` 分数独立算出。另外核对没有任何一条分数升高。
+- **结论范围：** 只证明发布配置与已评估配置一致，属于复用开发数据，不是独立 TEST。独立确认依赖下文的 H3 核验。
+
+需求、回退规则与部署步骤见 [V2.5.5.19 PRD](../../../ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md)。以下依次为 V2.5.5.4、V2.5.5.2、V2.5.5.1 与 V2.5.5.0 的原说明，保留作历史记录。
+
+## V2.5.5.4 地平线中心节点方位修正发布验收（历史）
+
+当时 app/model/config.version 为 2.5.5.4，assetRevision=app2554，npm package 仍为 2.5.5。相对 V2.5.5.2 的评分改动只有一处：
 
 - `spatialField.centerAzimuthOffset: 0`：走廊中心节点补齐方位偏移，horizon 的 ±30° 云幕区与中心点恢复生效，云幕对比度与空间梯度同步使用有效偏移（`js/engine.js` 的 `offsetFor`）。等级分数线与黄金窗口不变。
 
@@ -36,6 +53,27 @@ npm run model:release -- prepare '../ref_docs/Dev_version_record/V2.5.5.2发布�
 - **结论范围：** 只证明发布配置与已测配置一致，属于复用开发数据，不是独立 TEST。
 
 需求与发布 / 回退步骤见 [V2.5.5.2 PRD](../../../ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md)。以下为 V2.5.5.1 与 V2.5.5.0 的原说明，保留作历史记录。
+
+## H3 前向留出核验（V2.5.5.19，`--policy H3`）
+
+发布后的事后确认，规则在读取任何 H3 标签和预测之前登记（[V2.5.5.19 PRD](../../../ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md) 第 4 节）。只能执行一次。
+
+```powershell
+npm run model:holdout -- status --raw <Raw 包> --gt <GT 包> --model <Model 包> --policy H3
+npm run model:holdout -- check  --raw <Raw 包> --gt <GT 包> --model <Model 包> --output <仓库外目录> --policy H3
+```
+
+- **数据：** Event 日期 ≥ 2026-11-16；门槛 15 天 / 100 个 Event / GT≥2 25 个 / GT≥3 8 个。
+- **主比较：** 2.5.5.19 对 2.5.5.11，两者都用 Replay 在全部 H3 Snapshot 上重算，分数线同为 19/49/66/90。
+- **回退规则（满足任一条）：**
+  - R1：产品损失差值（2.5.5.19 − 2.5.5.11）的 95% 区间下限 > 0；
+  - R2：2.5.5.19 的 ≥2 召回 < 0.60，而 2.5.5.11 在同一批数据上 ≥ 0.60。两个版本都低于 0.60 时不自动建议回退，结果里标记 `BOTH_VERSIONS_BELOW_GE2_RECALL_FLOOR`，由项目负责人判断。
+- **三种结果：** `ROLLBACK_SUGGESTED`；`CONFIRMED`（不触发回退，且损失差值的区间上限 < 0）；`KEPT_UNCONFIRMED`（不触发回退，区间跨 0）。
+- **只报告：**
+  - "只调线"对照 `2.5.5.11-LINES-15-49-66-90`（2.5.5.11 的分数配 15/49/66/90），不参与回退判断；
+  - 按时段（12:13 / 16:13 / 晚间 / 其他）的指标；
+  - 带无云日提示的日子：个数、实际等级分布、各版本的预测等级分布（提示标记取自引擎 trace，与页面显示一致）；
+  - 有云好晚霞的 ≥2 召回：补录留言开头写 `云霞`、`远处云` 或 `晴空渐变`，标为晴空渐变的 Event 不计入。Raw 导出时须加 `--include-comments`，否则本项为 `NOT_AVAILABLE`。未标记与冲突的 Event 按有云计。
 
 ## H1 前向留出核验（`holdout.mjs`）
 

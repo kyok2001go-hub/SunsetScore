@@ -165,7 +165,7 @@
 
     var lv = interpolateAt(localSample.forecast, input.solar.sunset);
     if (!lv) throw new Error('SUNSET_WEATHER_DATA_MISSING');
-    var ls = cloudScores(lv, cfg); /* V2.5.5.17（默认关闭）：云潜力，见文件末尾 cloudPotentialOf */ var hcp = cfg.horizonCloudPotential, potential = hcp ? cloudPotentialOf(input, hcp) : null, potentialFactor = potential ? potential.factor : 1;
+    var ls = cloudScores(lv, cfg); /* V2.5.5.17（默认关闭）：云潜力，见文件末尾 cloudPotentialOf */ var hcp = cfg.horizonCloudPotential, potential = hcp ? cloudPotentialOf(input, hcp) : null, potentialFactor = potential ? potential.factor : 1, clearSky = hcp ? clearSkyOf(input, hcp, potential) : null;
 
     function valueAt(sample, key) {
       if (!sample.forecast) return null;
@@ -809,7 +809,7 @@
       if (illuminationTrace) illuminationTrace.contribution = { dynamic_weight: dynamicWeights.illumination,
         value: contributions.illumination, P: P, Q: Q, score_engine: score,
         structure_bonus: structureBonus, transition_bonus: transitionBonusVal, weather_penalty: pWeather };
-      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm } } : {}),
+      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm, total_cloud: clearSky.total_cloud, hint: clearSky.hint } } : {}),
         components: rawComponents, dynamic_weights: dynamicWeights, contributions: contributions,
         P: P, Q: Q, horizon_gate: gate, structure_bonus: structureBonus, transition_bonus: transitionBonusVal,
         weather_penalty: pWeather, atmosphere_inputs: { visibility_km: visKm, aod: aod, pm25: pm25,
@@ -933,7 +933,7 @@
       },
 
       regime: regime,
-      regime_label: (cfg.regimeLabels[regime] || regime) + (regimeStrong ? '（强）' : ''),
+      regime_label: (cfg.regimeLabels[regime] || regime) + (regimeStrong ? '（强）' : ''), ...(clearSky ? { clear_sky: clearSky } : {}),
       bonus: bonus,
       transition_bonus: transitionBonusVal,
       penalty: Math.round(pWeather),
@@ -1038,8 +1038,9 @@
     if (site === 'structure' && sf.centerAzimuthOffsetScope === 'HORIZON') return point.azimuthOffset;
     return fix;
   }
-  /* ===== V2.5.5.17 地平线贡献按云潜力条件化（离线验证用，默认关闭） =====
-     依据：ref_docs/PRD/V2.5.5.17--地平线贡献按云潜力条件化方案.md。js/config.js 不含这些键，缺失时所有数值与之前完全相同。
+  /* ===== V2.5.5.17 地平线贡献按云潜力条件化；V2.5.5.19 起 horizonCloudPotential 在 js/config.js 中启用（f 0.7、k 5） =====
+     依据：ref_docs/PRD/V2.5.5.17--地平线贡献按云潜力条件化方案.md、ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md。
+     键缺失时（显式的历史配置）所有数值与之前完全相同；canvasZeroFloor 仍只用于离线验证，js/config.js 不含它。
      这些辅助函数放在文件末尾，使 tools/tuning/parameter-registry.mjs 登记的行号锚点保持不变。
      - scoring.horizonCloudPotential = { f, k, radiusKm }（H-A）：C = 日落时刻 radiusKm 内天空节点（含中心）max(中云, 高云) 的平均；
        P 中的地平线项乘以 g(C) = f + (1 − f) × min(1, C / k)；无有效节点时 g = 1。地平线组件分、闸门与其余各项不变。
@@ -1067,5 +1068,13 @@
   }
   function lowGoodFactorOf(cfg, hcp, potential) {
     return cfg.canvasZeroFloor && hcp && potential && potential.value != null ? Math.min(1, potential.value / hcp.k) : 1;
+  }
+  /* V2.5.5.19 无云日提示（只输出，不参与评分）：只有配置了 horizonCloudPotential 时结果才带 clear_sky。
+     hint = C < k（评分确实打了折）且日落时刻全天空平均总云量 < hintTotalCloudBelowPct；没有可用节点或未配置阈值时为 false。 */
+  function clearSkyOf(input, hcp, potential) {
+    var field = input.cloudFieldSunset || input.cloudField, limit = hcp.hintTotalCloudBelowPct;
+    var total = field && field.summary && valid(field.summary.avgCloudCover) ? field.summary.avgCloudCover : null;
+    return { cloud_potential: potential.value == null ? null : Math.round(potential.value * 10) / 10, horizon_factor: Math.round(potential.factor * 1000) / 1000, total_cloud: total,
+      hint: valid(limit) && potential.value != null && potential.value < hcp.k && total != null && total < limit };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

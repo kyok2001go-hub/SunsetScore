@@ -410,6 +410,7 @@
     setText('r-blue-hour', result.blue_hour || '—'); setText('r-azimuth', result.sunset_azimuth + '°');
     setText('r-viewing', result.best_viewing ? result.best_viewing.start + ' – ' + result.best_viewing.end + '（峰值 ' + result.best_viewing.peak + '）' : '—');
     setText('r-regime', result.regime_label + (result.regime_state && result.regime_state.strength != null ? ' · 强度 ' + Math.round(result.regime_state.strength * 100) + '%' : ''));
+    var clearSkyHint = $('r-clear-sky-hint'); if (clearSkyHint) clearSkyHint.hidden = !(result.clear_sky && result.clear_sky.hint === true);
     renderSkyEvolution(result); renderNowcast(result); renderBars(result);
     renderList('r-reasons', result.reasons, false); renderList('r-warnings', result.warnings, true); renderDetails(result);
     if (SS.radarView) SS.radarView.render(result);

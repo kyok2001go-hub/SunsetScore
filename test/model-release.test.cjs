@@ -9,20 +9,30 @@ const serviceFiles=[...CORE_FILES,'js/vendor/suncalc.js','js/solar.js','js/cache
   'js/sampling.js','js/corridor.js','js/nowcast.js','js/replay_service.js','js/prediction_service.js',
   'js/event_service.js','js/snapshot_service.js','js/feedback_service.js'];
 
-test('release loads real production aliases, admits only ten declared metadata/default/sky-off/V2.5.5.2/V2.5.5.4/V2.5.5.11 diffs, hashes real Replay config',async()=>{
+test('release loads real production aliases, admits only fourteen declared metadata/default/sky-off/V2.5.5.2/V2.5.5.4/V2.5.5.11/V2.5.5.19 diffs, hashes real Replay config',async()=>{
   const m=await import('../tools/model-release/release.mjs'),p=await m.loadProduction();
   const source=JSON.parse(await fs.readFile(path.join(__dirname,'fixtures/model-2550-selected-config.json'),'utf8'));
-  assert.equal(p.version.app,'2.5.5.15');assert.equal(p.version.model,'2.5.5.11');assert.equal(p.version.assetRevision,'app25515');assert.equal(p.scoring.spatialField.centerAzimuthOffset,0);
+  assert.equal(p.version.app,'2.5.5.19');assert.equal(p.version.model,'2.5.5.19');assert.equal(p.version.assetRevision,'app25519');assert.equal(p.scoring.spatialField.centerAzimuthOffset,0);
   assert.equal(p.model.scoring,p.SS.config);assert.equal(p.model.goldenWindow,p.model.scoring.goldenWindow);
-  assert.equal(m.compareSelected(source,p.scoring).length,10);
+  assert.equal(m.compareSelected(source,p.scoring).length,14);
+  assert.deepEqual(JSON.parse(JSON.stringify(p.scoring.horizonCloudPotential)),{f:.7,k:5,radiusKm:100,hintTotalCloudBelowPct:20});
   assert.equal(p.scoring.evolution.openCoverageThreshold,35);assert.equal(p.scoring.evolution.satelliteOpenThreshold,40);assert.equal(p.scoring.goldenWindow.reference,.826654);
   assert.deepEqual(JSON.parse(JSON.stringify(p.scoring.levels)).map(l=>l.min),[90,66,49,19,0]);
-  for(const [key,value] of [['evolution.openCoverageThreshold',20],['goldenWindow.reference',undefined],['levels',JSON.parse(JSON.stringify(m.LEGACY_LEVELS))],['spatialField.centerAzimuthOffset',undefined]]){
+  for(const [key,value] of [['evolution.openCoverageThreshold',20],['goldenWindow.reference',undefined],['levels',JSON.parse(JSON.stringify(m.LEGACY_LEVELS))],['spatialField.centerAzimuthOffset',undefined],['horizonCloudPotential',undefined],['horizonCloudPotential.k',15],['horizonCloudPotential.hintTotalCloudBelowPct',undefined]]){
     const back=structuredClone(p.scoring),parts=key.split('.');const parent=parts.length===2?back[parts[0]]:back;if(value===undefined)delete parent[parts.at(-1)];else parent[parts.at(-1)]=value;
     assert.throws(()=>m.compareSelected(source,back),/UNEXPECTED_RELEASE|RELEASE_PARAMETER/,key);
   }
-  // V2.5.5.4 is production with its own grade lines (nothing else differs); V2.5.5.2 is that without the V2.5.5.4 key, and adding it back gives V2.5.5.4 exactly.
-  const v2554=m.v2554Scoring(p.scoring);assert.deepEqual(m.differences(v2554,p.scoring).map(d=>d.path).sort(),['levels','version']);
+  // V2.5.5.11 is production without the V2.5.5.19 key (nothing else differs) and must hash exactly as the V2.5.5.11 release did.
+  const {hash,canonicalJson}=await import('../tools/dataset/lib/common.mjs');
+  const v25511=m.v25511Scoring(p.scoring),hcp=['f','hintTotalCloudBelowPct','k','radiusKm'].map(k=>'horizonCloudPotential.'+k);
+  assert.deepEqual(m.differences(v25511,p.scoring).map(d=>d.path).sort(),[...hcp,'version']);assert.equal(v25511.version,'2.5.5.11');assert.equal('horizonCloudPotential' in v25511,false);
+  assert.equal(hash(canonicalJson(v25511)),m.V25511_SCORING_SHA256);assert.equal(m.V25511_SCORING_SHA256,'83ceb5acaacc9ffb1fe88c4e8b9813a76e2a3bdabeda6e5f3752afbdf9bf282a');
+  assert.throws(()=>m.v25511Scoring(v25511),/RELEASE_V25511_BASE_MISMATCH/);
+  const otherK=structuredClone(p.scoring);otherK.horizonCloudPotential.k=15;assert.throws(()=>m.v25511Scoring(otherK),/RELEASE_V25511_BASE_MISMATCH/);
+  const drifted=structuredClone(p.scoring);drifted.midCloudCenter+=1;assert.throws(()=>m.v25511Scoring(drifted),/RELEASE_V25511_RECONSTRUCTION_MISMATCH/);
+  // V2.5.5.4 is V2.5.5.11 with its own grade lines (nothing else differs); V2.5.5.2 is that without the V2.5.5.4 key, and adding it back gives V2.5.5.4 exactly.
+  const v2554=m.v2554Scoring(p.scoring);assert.deepEqual(m.differences(v2554,v25511).map(d=>d.path).sort(),['levels','version']);
+  assert.deepEqual(m.differences(m.v2554Scoring(v25511),v2554),[]);assert.deepEqual(m.differences(v2554,p.scoring).map(d=>d.path).sort(),[...hcp,'levels','version']);
   assert.deepEqual(JSON.parse(JSON.stringify(v2554.levels)).map(l=>l.min),[90,66,47,22,0]);assert.throws(()=>m.v2554Scoring(v2554),/RELEASE_V2554_BASE_MISMATCH/);
   const v2552=m.v2552Scoring(p.scoring);assert.equal(v2552.version,'2.5.5.2');assert.equal('centerAzimuthOffset' in v2552.spatialField,false);
   assert.deepEqual(m.differences(m.v2552Scoring(v2554),v2552),[]);assert.deepEqual(m.differences(m.candidateReleaseScoring(v2552),v2554),[]);assert.throws(()=>m.v2552Scoring(v2552),/RELEASE_V2552_BASE_MISMATCH/);
@@ -35,14 +45,14 @@ test('release loads real production aliases, admits only ten declared metadata/d
     assert.notEqual(p.SS.modelConfigKey(),before,key);parent[k]-=.001;
   }
   const effective=await m.captureEffective(p.SS);
-  assert.equal(effective.effective_config.scoring.version,'2.5.5.11');assert.equal(effective.effective_config.scoring.spatialField.centerAzimuthOffset,0);
+  assert.equal(effective.effective_config.scoring.version,'2.5.5.19');assert.deepEqual(JSON.parse(JSON.stringify(effective.effective_config.scoring.horizonCloudPotential)),{f:.7,k:5,radiusKm:100,hintTotalCloudBelowPct:20});assert.equal(effective.effective_config.scoring.spatialField.centerAzimuthOffset,0);
   assert.equal(effective.effective_config.goldenWindow.reference,.826654);assert.deepEqual(JSON.parse(JSON.stringify(effective.effective_config.scoring.levels.map(l=>l.min))),[90,66,49,19,0]);
   assert.deepEqual(JSON.parse(JSON.stringify(effective.effective_config.scoring.skyState.factorRange)),[1,1]);
   assert.equal(effective.effective_config.scoring.goldenWindow.floor,.507692307692);
   assert.equal(effective.config_hash,await p.SS.replayService.sha256(p.SS.replayService.canonicalJson(effective.effective_config)));
   const html=await fs.readFile(path.join(__dirname,'../index.html'),'utf8');
-  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.5.5.15-app25515')));
-  assert.match(html,/sunset-score-v2\.5\.5\.11/);
+  assert.ok(Array.from(html.matchAll(/(?:src|href)="((?:js|css)\/[^"]+)"/g),x=>x[1]).every(x=>x.endsWith('?v=2.5.5.19-app25519')));
+  assert.match(html,/sunset-score-v2\.5\.5\.19/);
 });
 
 test('new production default has independent component, normalized weight and final score expectations',()=>{
@@ -69,7 +79,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   SS.data.fetchForecastWithRetry=async()=>fc;SS.data.fetchAirQuality=async()=>null;
   SS.data.gather=async nodes=>({samples:nodes.map(point=>({point,forecast:fc})),successCount:nodes.length});
   const opts={location,nowUtcMs:Date.parse('2026-08-26T17:00:00Z')},query=()=>SS.prediction.predict('31.23,121.47',opts);
-  const first=await query();assert.equal(first.app_version,'2.5.5.15');assert.equal(first.model_version,'2.5.5.11');assert.equal(first.sky_evolution_factor,1);assert.equal((await query()).result_cache_status,'HIT');
+  const first=await query();assert.equal(first.app_version,'2.5.5.19');assert.equal(first.model_version,'2.5.5.19');assert.equal(typeof first.clear_sky.hint,'boolean');assert.equal(first.sky_evolution_factor,1);assert.equal((await query()).result_cache_status,'HIT');
   const index=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),cached=SS.cache.get(index.resultKey);
   SS.cache.set(index.resultKey,{...cached,model_version:'2.4.6'},60);assert.equal((await query()).result_cache_status,'MISS');
   const currentIndex=SS.cache.get(SS.cacheKeys.resultIndex(SS.citySearch.toLocation(location))),currentCache=SS.cache.get(currentIndex.resultKey);
@@ -77,7 +87,8 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   SS.config.weights.skyCanvas+=.001;assert.equal((await query()).result_cache_status,'MISS');assert.equal((await query()).result_cache_status,'HIT');SS.config.weights.skyCanvas-=.001;
   SS.config.midCloudCenter+=1;assert.equal((await query()).result_cache_status,'MISS');SS.config.midCloudCenter-=1;
   const captured=await SS.prediction.predict('31.23,121.47',{...opts,captureReplay:true}),replay=captured.replay_payload;
-  assert.equal(replay.context.app_version,'2.5.5.15');assert.equal(replay.identity.model_version,'2.5.5.11');assert.equal(replay.context.asset_revision,'app25515');
+  assert.equal(replay.context.app_version,'2.5.5.19');assert.equal(replay.identity.model_version,'2.5.5.19');assert.equal(replay.context.asset_revision,'app25519');
+  assert.deepEqual(JSON.parse(JSON.stringify(replay.effective_config.scoring.horizonCloudPotential)),{f:.7,k:5,radiusKm:100,hintTotalCloudBelowPct:20});
   assert.equal(replay.effective_config.goldenWindow.reference,.826654);assert.equal(replay.effective_config.evolution.openCoverageThreshold,35);
   assert.deepEqual(JSON.parse(JSON.stringify(replay.effective_config.skyState.factorRange)),[1,1]);
   assert.equal(replay.effective_config.scoring.midCloudCenter,54);assert.equal(replay.effective_config.scoring.weights.weather,0);
@@ -87,7 +98,7 @@ test('actual prediction, cache, golden-window, Snapshot and Replay carry the rel
   assert.equal(replay.identity.config_hash,(await captureEffective((await loadProduction()).SS)).config_hash);
   const payload=await SS.snapshotService.buildPayload(captured,{source:'github_schedule',scheduledSlot:'1213',nowUtcMs:opts.nowUtcMs});
   const row=await (await import('../server/event-dataset.js')).buildSnapshotRow(payload);
-  assert.equal(row.app_version,'2.5.5.15');assert.equal(row.model_version,'2.5.5.11');assert.equal(row.sky_evolution_factor,1);await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
+  assert.equal(row.app_version,'2.5.5.19');assert.equal(row.model_version,'2.5.5.19');assert.equal(row.sky_evolution_factor,1);await (await import('../server/replay-schema.js')).validateReplayPayload(replay,row);
   assert.equal(captured.nowcast_active,true);assert.ok(captured.sky_evolution);
   assert.equal(captured.score,Math.round(SS.domain.clamp(captured.base_score*captured.sky_evolution_factor*captured.sky_evolution.gwFactor,0,100)));
   const range=SS.evolution.goldenWindowFactorRange();near(range[0],.507692307692/.826654);near(range[1],1/.826654);
@@ -114,6 +125,7 @@ test('V2.5.5.2 grade boundaries have one source per model version; legacy gradin
   for(const v of ['2.4.6','2.5.5.0','2.5.5.1',null,'','legacy'])assert.deepEqual([...m.gradeThresholdsForModelVersion(v)],[20,40,60,90],String(v));
   assert.deepEqual([...m.gradeThresholdsForModelVersion('2.5.5.2')],[22,47,66,90]);
   assert.deepEqual([...m.gradeThresholdsForModelVersion('2.5.5.11')],[19,49,66,90]);
+  assert.deepEqual([...m.gradeThresholdsForModelVersion('2.5.5.19')],[19,49,66,90]);
   assert.throws(()=>m.gradeThresholdsForModelVersion('2.5.5.3'),/UNKNOWN_MODEL_VERSION_GRADE_THRESHOLDS/);
   assert.throws(()=>m.gradeThresholdsForModelVersion('2.6'),/UNKNOWN_MODEL_VERSION_GRADE_THRESHOLDS/);
   const lines=m.gradeThresholdsForModelVersion('2.5.5.2');
@@ -165,11 +177,47 @@ test('H1 holdout rules: independence by date and DEV members, PRIMARY_LAST cohor
   assert.equal(h.rollbackSuggested(h2,m(1.05,.65,0),m(1,.7,0),ci(.01,.09)),true);
   assert.equal(h.rollbackSuggested(h2,m(.9,.59,0),m(1,.7,0),ci(-.2,-.05)),true);
   assert.deepEqual([...h.H2_POLICY.versions],['2.5.5.4','2.5.5.11']);assert.equal(h.H2_POLICY.first_holdout_date,'2026-10-30');assert.equal(h.POLICIES.H2,h.H2_POLICY);
+  // H3 (V2.5.5.19 §4): R1 as H2; R2 fires only when the candidate falls below 0.60 while the control stays at or above it.
+  const h3='PRODUCT_LOSS_CI_ABOVE_ZERO_OR_GE2_RECALL_PUSHED_BELOW_0_60';
+  assert.equal(h.rollbackSuggested(h3,m(1.05,.65,0),m(1,.7,0),ci(.01,.09)),true,'R1');
+  assert.equal(h.rollbackSuggested(h3,m(1.01,.65,0),m(1,.7,0),ci(-.01,.05)),false,'a higher point estimate alone does not trigger');
+  assert.equal(h.rollbackSuggested(h3,m(.9,.59,0),m(1,.62,0),ci(-.2,-.05)),true,'R2: pushed below the floor');
+  assert.equal(h.rollbackSuggested(h3,m(.9,.59,0),m(1,.6,0),ci(-.2,-.05)),true,'R2: the control exactly at the floor counts as above');
+  assert.equal(h.rollbackSuggested(h3,m(.9,.55,0),m(1,.58,0),ci(-.2,-.05)),false,'both below the floor: no automatic suggestion');
+  assert.equal(h.rollbackSuggested(h3,m(.9,.6,0),m(1,.7,0),ci(-.2,-.05)),false);
+  assert.equal(h.rollbackSuggested('REPORT_ONLY',m(2,.1,0),m(1,.7,0),ci(.5,.9)),null);
+  assert.throws(()=>h.rollbackSuggested('X',m(1,1,1),m(1,1,1),ci(0,0)),/UNKNOWN_ROLLBACK_RULE/);
+  assert.deepEqual(h.outcomeOf(true,m(1,.59,0),m(1,.7,0),ci(.01,.09),.6),{outcome:'ROLLBACK_SUGGESTED',owner_review:null});
+  assert.deepEqual(h.outcomeOf(false,m(.9,.65,0),m(1,.7,0),ci(-.2,-.05),.6),{outcome:'CONFIRMED',owner_review:null});
+  assert.deepEqual(h.outcomeOf(false,m(.98,.65,0),m(1,.7,0),ci(-.06,.02),.6),{outcome:'KEPT_UNCONFIRMED',owner_review:null});
+  assert.deepEqual(h.outcomeOf(false,m(.9,.55,0),m(1,.58,0),ci(-.2,-.05),.6),{outcome:'CONFIRMED',owner_review:'BOTH_VERSIONS_BELOW_GE2_RECALL_FLOOR'});
+  const p3=h.H3_POLICY;assert.equal(h.POLICIES.H3,p3);
+  assert.deepEqual([p3.version,p3.name,p3.first_holdout_date,p3.ge2_recall_floor,p3.bootstrap.replicates],[1,'H3_HORIZON_POTENTIAL_CHECK','2026-11-16',.6,2000]);
+  assert.deepEqual({...p3.thresholds},{dates:15,events:100,ge2_events:25,ge3_events:8});
+  assert.deepEqual([...p3.versions],['2.5.5.11','2.5.5.19','2.5.5.11-LINES-15-49-66-90']);
+  assert.deepEqual(p3.comparisons.map(c=>[c.id,c.candidate,c.control,c.rollback_rule]),[['V25519_VS_V25511','2.5.5.19','2.5.5.11',h3],['LINES_ONLY_VS_V25511','2.5.5.11-LINES-15-49-66-90','2.5.5.11','REPORT_ONLY']]);
+  assert.equal(h.independence([{snapshot_id:'a',event_id:'e1',event_date_local:'2026-11-15'}],dev,p3).before_first_date,1);
+  assert.equal(h.independence([{snapshot_id:'a',event_id:'e1',event_date_local:'2026-11-16'}],dev,p3).independent,true);
+  // Report-only helpers: slot groups, back-fill type tags and the cloud-type recall.
+  assert.deepEqual(['1213','1613','1720','1729','1755','1414',null].map(h.slotGroup),['1213','1613','EVENING','EVENING','EVENING','OTHER','OTHER']);
+  const spec=p3.report_only.type_tags;
+  assert.deepEqual(['晴空渐变，很淡','【晴空渐变】','云霞 西边一片',' [远处云] 地平线上','(云霞)','普通的一天','',null].map(c=>h.typeTagOf(c,spec.prefixes)),['CLEAR_GLOW','CLEAR_GLOW','LIT_CLOUD','FAR_HORIZON','LIT_CLOUD',null,null,null]);
+  const tags=h.eventTypeTags([{event_id:'e1',source:'rednote_manual',comment:'晴空渐变'},{event_id:'e2',source:'rednote_manual',comment:'云霞'},{event_id:'e2',source:'user',comment:'晴空渐变'},
+    {event_id:'e3',source:'rednote_manual',comment:'云霞'},{event_id:'e3',source:'rednote_manual',comment:'远处云'},{event_id:'e4',source:'rednote_manual',comment:'没写类型'}],spec);
+  assert.deepEqual([...tags],[['e1','CLEAR_GLOW'],['e2','LIT_CLOUD'],['e3','CONFLICT']]);
+  // GT>=2 rows: e1 is exempt; e2 (weight 1, predicted >=2), e3 (weight .5, missed), e4 (weight .5, predicted >=2); the GT 1 row is ignored.
+  const tagged=[['e1',2,60,1],['e2',2,55,1],['e3',3,40,.5],['e4',2,49,.5],['e5',1,80,1]].map(([event_id,gt_ordinal,score,w])=>({event_id,gt_ordinal,score_x:score,event_normalized_weight:w}));
+  near(h.cloudTypeRecall(tagged,'x',[19,49,66,90],tags,'CLEAR_GLOW'),1.5/2);
+  assert.equal(h.cloudTypeRecall(tagged.slice(0,1),'x',[19,49,66,90],tags,'CLEAR_GLOW'),null);
   const source=JSON.parse(await fs.readFile(path.join(__dirname,'fixtures/model-2550-selected-config.json'),'utf8')),configs=await h.releaseConfigs();
   h.assertV2550(source,configs['2.5.5.0']);
   assert.deepEqual(JSON.parse(JSON.stringify(configs['2.5.5.0'].skyState.factorRange)),[0.65,1.15]);assert.deepEqual(JSON.parse(JSON.stringify(configs['2.5.5.1'].skyState.factorRange)),[1,1]);
   assert.equal(configs['2.5.5.1'].evolution.openCoverageThreshold,20);assert.equal(configs['2.5.5.2'].evolution.openCoverageThreshold,35);
   assert.deepEqual(JSON.parse(JSON.stringify(configs['2.5.5.4'].levels)).map(l=>l.min),[90,66,47,22,0]);assert.deepEqual(JSON.parse(JSON.stringify(configs['2.5.5.11'].levels)).map(l=>l.min),[90,66,49,19,0]);
+  assert.equal('horizonCloudPotential' in configs['2.5.5.11'],false);assert.equal(configs['2.5.5.19'].horizonCloudPotential.k,5);assert.equal(configs['2.5.5.19'].version,'2.5.5.19');
+  const lines=h.derivedConfig(configs['2.5.5.11'],[15,49,66,90]);
+  assert.deepEqual(lines.levels.map(l=>l.min),[90,66,49,15,0]);assert.deepEqual(lines.levels.map(l=>l.label),JSON.parse(JSON.stringify(configs['2.5.5.11'].levels)).map(l=>l.label));
+  assert.deepEqual((await import('../tools/model-release/release.mjs')).differences(lines,configs['2.5.5.11']).map(d=>d.path),['levels']);
   const bad=structuredClone(configs['2.5.5.0']);bad.midCloudCenter+=1;assert.throws(()=>h.assertV2550(source,bad),/HOLDOUT_V2550_CONFIG_MISMATCH/);
 });
 
@@ -199,4 +247,38 @@ test('H1 holdout check (Policy 2) recomputes four release versions with their ow
   assert.match(await fs.readFile(path.join(out,'report.md'),'utf8'),/H1 前向留出核验/);
   await assert.rejects(h.holdoutCheck(sources,path.join(root,'h1b'),{dev,policy,ledger}),/HOLDOUT_ALREADY_USED/);
   await assert.rejects(h.holdoutCheck(sources,path.join(root,'h1c'),{dev:{...dev,events:new Set([rows[0].event_id])},policy,ledger:path.join(root,'other.jsonl')}),/HOLDOUT_OVERLAPS_DEV/);
+});
+test('H3 holdout check compares 2.5.5.19 with 2.5.5.11, reports the lines-only member, slots, hint days and type tags, and is single-use',{timeout:600000},async t=>{
+  const h=await import('../tools/model-release/holdout.mjs');
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'h3-holdout-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const date=i=>'2026-11-'+String(16+i).padStart(2,'0');
+  const fixture=await require('./evaluation-fixture.cjs').createSyntheticPipeline(root,{date,cutoff:'2026-11-19T00:00:00.000Z'});t.after(fixture.close);
+  const sources={raw:fixture.rawDir,gt:fixture.gtDir,model:fixture.modelDir};
+  const selected=JSON.parse(await fs.readFile(path.join(__dirname,'fixtures/model-2550-selected-config.json'),'utf8'));
+  const dev={snapshots:new Set(),events:new Set(),selected};
+  const policy={...h.H3_POLICY,thresholds:{dates:3,events:10,ge2_events:2,ge3_events:1},bootstrap:{...h.H3_POLICY.bootstrap,replicates:40}};
+  assert.equal((await h.holdoutStatus(sources,{dev,policy})).independence.independent,true);
+  assert.equal((await h.holdoutStatus(sources,{dev,policy:{...policy,first_holdout_date:'2026-11-17'}})).independence.independent,false);
+  const ledger=path.join(root,'ledger.jsonl'),out=path.join(root,'h3');
+  await assert.rejects(h.holdoutCheck(sources,out,{dev,ledger,policy:h.H3_POLICY}),/HOLDOUT_BELOW_THRESHOLD/);
+  const done=await h.holdoutCheck(sources,out,{dev,policy,ledger});
+  assert.equal(done.status,'COMPLETE');assert.deepEqual(Object.keys(done.rollback_suggested),['V25519_VS_V25511','LINES_ONLY_VS_V25511']);
+  assert.equal(typeof done.rollback_suggested.V25519_VS_V25511,'boolean');assert.equal(done.rollback_suggested.LINES_ONLY_VS_V25511,null);
+  const result=JSON.parse(await fs.readFile(path.join(out,'holdout_result.json'),'utf8'));
+  assert.deepEqual(result.grade_thresholds,{'2.5.5.11':[19,49,66,90],'2.5.5.19':[19,49,66,90],'2.5.5.11-LINES-15-49-66-90':[15,49,66,90]});
+  const main=result.comparisons[0],linesOnly=result.comparisons[1];
+  assert.ok(['ROLLBACK_SUGGESTED','CONFIRMED','KEPT_UNCONFIRMED'].includes(main.outcome));assert.equal(main.outcome==='ROLLBACK_SUGGESTED',main.rollback_suggested);
+  assert.equal('outcome' in linesOnly,false);assert.equal(linesOnly.rollback_suggested,null);
+  const csv=(await fs.readFile(path.join(out,'holdout_predictions.csv'),'utf8')).trim().split(/\r?\n/),head=csv[0].split(','),rows=csv.slice(1).map(l=>Object.fromEntries(l.split(',').map((v,i)=>[head[i],v])));
+  assert.equal(rows.length,result.snapshot_count);
+  // The lines-only member shares its scores with 2.5.5.11; the released version never scores higher than 2.5.5.11.
+  assert.ok(rows.every(r=>r['score_2.5.5.11-LINES-15-49-66-90']===r['score_2.5.5.11']&&+r['score_2.5.5.19']<=+r['score_2.5.5.11']));
+  assert.ok(rows.every(r=>['true','false'].includes(r.clear_sky_hint)));
+  const ro=result.report_only;
+  assert.equal(Object.values(ro.by_slot).reduce((s,g)=>s+g.snapshots,0),rows.length);
+  assert.equal(ro.hint_days.hint_snapshots,rows.filter(r=>r.clear_sky_hint==='true').length);assert.equal(ro.hint_days.gt_distribution.reduce((a,b)=>a+b,0),ro.hint_days.hint_events);
+  assert.ok(['AVAILABLE','NOT_AVAILABLE'].includes(ro.type_tags.status));assert.equal(ro.type_tags.untagged+Object.values(ro.type_tags.tagged).reduce((a,b)=>a+b,0),ro.type_tags.gt_ge2_events);
+  const report=await fs.readFile(path.join(out,'report.md'),'utf8');
+  assert.match(report,/H3 前向留出核验（地平线条件化）/);assert.match(report,/只报告，不参与回退判断/);assert.match(report,/结果：(?:回退|确认|保留、未确认)/);assert.match(report,/带无云日提示的日子/);
+  await assert.rejects(h.holdoutCheck(sources,path.join(root,'h3b'),{dev,policy,ledger}),/HOLDOUT_ALREADY_USED/);
 });

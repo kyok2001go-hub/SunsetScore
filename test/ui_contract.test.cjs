@@ -106,7 +106,8 @@ test('static resources, edge logs and server identifiers match the app version a
   assert.equal(pkg.version, '2.5.5');
   // V2.5.5.12 keeps npm at 2.5.5; the runtime adds the fourth release part (app 2.5.5.12, model 2.5.5.11).
   assert.match(SS.version.app, new RegExp('^' + pkg.version.replace(/\./g, '\\.') + '\\.\\d+$'));
-  assert.equal(SS.version.model, '2.5.5.11');
+  // V2.5.5.19 changes the model as well (horizonCloudPotential enabled).
+  assert.equal(SS.version.model, '2.5.5.19');
   assert.equal(SS.config.version, SS.version.model);
   assert.ok(html.includes('sunset-score-v' + SS.version.model));
   const { EDGE_APP_VERSION } = await import('../server/edge-log.js');

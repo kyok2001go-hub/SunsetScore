@@ -19,7 +19,9 @@ export const VERSIONED_GRADE_THRESHOLDS = Object.freeze({
   // V2.5.5.6 keeps them too (golden-window cloud/rain split only).
   '2.5.5.6': Object.freeze([22, 47, 66, 90]),
   // V2.5.5.11 recalibrates the grade lines only (PRD V2.5.5.11); scores are unchanged from V2.5.5.4.
-  '2.5.5.11': Object.freeze([19, 49, 66, 90])
+  '2.5.5.11': Object.freeze([19, 49, 66, 90]),
+  // V2.5.5.19 keeps the V2.5.5.11 grade lines (horizon contribution scaled by cloud potential; PRD V2.5.5.19).
+  '2.5.5.19': Object.freeze([19, 49, 66, 90])
 });
 const FIRST_VERSIONED_MODEL = [2, 5, 5, 2];
 

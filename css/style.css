@@ -385,6 +385,9 @@ body {
 .info-line { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; }
 .info-label { color: var(--text-dim); flex-shrink: 0; }
 .info-value { font-weight: 600; text-align: right; }
+/* V2.5.5.19 无云日提示：【天气型】下方单独一行 */
+.info-hint { margin-top: -4px; font-size: 0.85rem; line-height: 1.5; color: var(--text-dim); text-align: right; }
+.info-hint[hidden] { display: none; }
 
 /* ---------- 条形图 ---------- */
 .bars { display: flex; flex-direction: column; gap: 12px; }

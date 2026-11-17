@@ -18,9 +18,11 @@ import { digest } from './policy.mjs';
 // V2.5.5.15 changes js/config.js again (app version 2.5.5.15 / app25515 only; model and scoring configuration unchanged).
 // V2.5.5.17 changes js/engine.js (horizonCloudPotential / canvasZeroFloor, offline validation only); with both keys absent every engine value
 // is computed exactly as before, and js/config.js does not carry them.
+// V2.5.5.19 changes js/config.js (model 2.5.5.19 / app25519, horizonCloudPotential enabled) and js/engine.js (clear_sky output and trace fields,
+// computed only when the key is configured); explicit historical configs do not carry the key, so every engine value is computed exactly as before.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "05e828863e3e7f47b2321f1e7ef48b5e47e4bc953d94a792343472055c7dbadd",
-  "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
+  "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
+  "js/config.js": "50d011fbc8851839a7f771ff040da92de11bb51fb4a3121ee594118e15977057",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
@@ -190,6 +192,17 @@ const ORIGINS = Object.freeze([
     "engine": "7f5adaf2017c4fed302fcb40253d7e59c71234bf776ea344d3714bee83dec649",
     "files": {
       "js/engine.js": "183ce80e953d6f1a4bca2285647f7feb4b08620085d8596785e9542840c70f73",
+      "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258"
+    }
+  },
+  // V2.5.5.15 release (commit ca5c982; V2.5.5.17 engine with the keys off; used by the V2.5.5.17 / V2.5.5.18 Policy 14 / 15 Runs).
+  {
+    "engine": "b92721fc4c1c9088e921713667162639f650ada8ccb36e076f3e946a32239182",
+    "files": {
+      "js/engine.js": "05e828863e3e7f47b2321f1e7ef48b5e47e4bc953d94a792343472055c7dbadd",
       "js/config.js": "bdc17b6c4da2cbaa67a164c40c1631302164dbc57b245f0851ddd3b4850c4e4c",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",

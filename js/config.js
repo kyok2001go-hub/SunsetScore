@@ -1,6 +1,8 @@
 /* ============================================================
- * SunsetScore Model V2.5.5.11 - 等级分数线重新校准（19/49/66/90）
- * 在 V2.5.5.4 基础上只改等级分数线，分数不变。
+ * SunsetScore Model V2.5.5.19 - 地平线贡献按云潜力缩放 + 无云日提示
+ * 在 V2.5.5.11 基础上：日落时刻 100 km 内中高云平均 C 低于 5% 时，地平线项在总分中的贡献乘以 0.7 + 0.3 × min(1, C / 5)；
+ * C < 5% 且全天空平均总云量 < 20% 时界面显示无云日提示（只显示，不计分）。等级分数线不变（19/49/66/90）。
+ * 模型 V2.5.5.11 - 等级分数线重新校准（19/49/66/90）：在 V2.5.5.4 基础上只改等级分数线，分数不变。
  * 模型 V2.5.5.4 - 地平线中心节点方位修正：
  * 在 V2.5.5.2（黄金窗口开放阈值 35 / 卫星 40、因子以 1 为中心、等级分数线 22/47/66/90）基础上：
  * 走廊中心节点补齐方位偏移（spatialField.centerAzimuthOffset = 0），horizon 的 ±30° 云幕区与中心点恢复生效，
@@ -9,7 +11,7 @@
  * 应用 V2.5.5.8：旁路对象增加 Band13 红外卫星影子采集（js/satellite_shadow.js），只记录、不计分。
  * 应用 V2.5.5.12（模型仍为 2.5.5.11）：全天空云场雷达图显示修复（js/radar_view.js），只改渲染，评分配置不变。
  * 应用 V2.5.5.15（模型仍为 2.5.5.11）：旁路采集停用请求 A（33 个网格节点的气压层变量），远点与卫星影子照常，评分配置不变。
- * 依据：ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md、ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
+ * 依据：ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md、ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md、ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -17,10 +19,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.15',
-    model: '2.5.5.11',
+    app: '2.5.5.19',
+    model: '2.5.5.19',
     schema: 3,
-    assetRevision: 'app25515',
+    assetRevision: 'app25519',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3
@@ -68,6 +70,12 @@
         contrastBonusMax: 20   /* 对比奖励上限（文档示例：contrast=70 → +20） */
       }
     },
+
+    /* ---------- V2.5.5.19 地平线贡献按云潜力缩放 + 无云日提示 ----------
+       C = 日落时刻 radiusKm 内天空节点（含中心）max(中云, 高云) 的平均。P 中的地平线项乘以
+       g(C) = f + (1 − f) × min(1, C / k)；C ≥ k 或没有可用节点时不变（地平线组件分本身不变）。
+       hintTotalCloudBelowPct：C < k 且日落时刻全天空平均总云量低于该值时，结果带 clear_sky.hint，界面显示无云日提示；只显示，不计分。 */
+    horizonCloudPotential: { f: 0.7, k: 5, radiusKm: 100, hintTotalCloudBelowPct: 20 },
 
     /* ---------- Spatial Cloud Field 增强（增强方案 四~八 章） ---------- */
     spatialEvolution: {
