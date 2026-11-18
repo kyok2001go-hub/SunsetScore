@@ -14,8 +14,8 @@ try {
   }
   let result;
   if (command === 'run') {
-    // V2.5.5.14 Policy 13, V2.5.5.17 Policy 14 and V2.5.5.18 Policy 15 read their three frozen pools (DEV, H1, H2) by identity; --raw/--gt/--model are not accepted.
-    const pooled = ['p0-diagnostics-pooled', 'horizon-potential', 'horizon-potential-v2'].includes(flags['--search-space']);
+    // V2.5.5.14 Policy 13, V2.5.5.17 Policy 14, V2.5.5.18 Policy 15, V2.5.5.21 Policy 16 and V2.5.5.22 Policy 17 read their three frozen pools (DEV, H1, H2) by identity; --raw/--gt/--model are not accepted.
+    const pooled = ['p0-diagnostics-pooled', 'horizon-potential', 'horizon-potential-v2', 'redundancy', 'penalty-weights'].includes(flags['--search-space']);
     if (pooled ? ['--model', '--raw', '--gt', '--baseline-run', '--max-candidates'].some(k => flags[k]) : ['--model', '--raw', '--gt'].some(k => !flags[k])) fail('INVALID_ARGUMENTS');
     if (flags['--input']) fail('INVALID_ARGUMENTS');
     if (['high-cloud', 'mid-cloud', 'mechanism-targeted', 'sky-branch', 'illumination-targeted'].includes(flags['--search-space']) && !flags['--baseline-run']) fail('BASELINE_RUN_REQUIRED');

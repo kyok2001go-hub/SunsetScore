@@ -772,7 +772,7 @@
     }
     if (visKm != null && visKm < 10) {
       pWeather += clamp(5 + (10 - visKm) * 1.5, cfg.penalty.haze[0], cfg.penalty.haze[1]);
-    }
+    } if (valid(cfg.penaltyScale)) pWeather *= cfg.penaltyScale; /* V2.5.5.22（离线验证用，默认关闭）：天气扣分整体乘数；js/config.js 不含此键 */
 
     /* ===== 17. Hard Gate ===== */
     var hardGates = [];

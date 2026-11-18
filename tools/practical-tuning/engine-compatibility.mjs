@@ -23,8 +23,10 @@ import { digest } from './policy.mjs';
 // V2.5.5.20 changes js/config.js (app 2.5.5.20 / app25520, network timeouts, Open-Meteo relay settings), js/network.js, js/data.js and js/nowcast.js
 // (Open-Meteo direct-then-relay transport). Replay feeds captured inputs to the engine and never calls these transports, so scores are unchanged;
 // the three files are pinned from here on and every origin records the version it was verified with.
+// V2.5.5.22 changes js/engine.js (penaltyScale, offline validation only); with the key absent every engine value is computed exactly as before,
+// and js/config.js does not carry it.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
+  "js/engine.js": "ae958d11b897a9011bf8b9939a5f6dd2da0b5a04b0c793cbcd0b4531363ef242",
   "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
@@ -278,6 +280,20 @@ const ORIGINS = Object.freeze([
       "js/network.js": "df39a58852670a2589c8741d6432c6cf4e972451999b9b91bb839426422077e5",
       "js/data.js": "118e9ac9903074d28c4340f263b57f765faf280fa2f06a29407984bb89e03e73",
       "js/nowcast.js": "311ef1eec18a197f806fce95f0106639f1b0b3e8e84a36480ae4570a611a17ee"
+    }
+  },
+  // V2.5.5.20 release (commit f1f6d74, app 2.5.5.20 / model 2.5.5.19; used by the V2.5.5.21 Policy 16 Run); differs from the current pins only in js/engine.js.
+  {
+    "engine": "f4299a5f0e82d7bfc9fd5e9908040026b212286b66803d073b1dd83629a6089d",
+    "files": {
+      "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
+      "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+      "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+      "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
     }
   }
 ]);

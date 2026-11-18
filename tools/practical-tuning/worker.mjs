@@ -4,6 +4,8 @@ import { codeIdentity, loadPool, checkInputs } from './data.mjs';
 import { replayCalculator, preflight, evaluateWeights } from './compute.mjs';
 import { digest, installWeights, POLICY, RECOGNITION_POLICY } from './policy.mjs';
 export async function verifyRequest(request, { compatibleV1Tools = false, compatibleTools = false } = {}) {
+  if (request.spec.practical_tuning_schema_version === 17 && request.spec.practical_tuning_policy_version === 17) return (await import('./penalty-weights-workflow.mjs')).verifyPwRequest(request);
+  if (request.spec.practical_tuning_schema_version === 16 && request.spec.practical_tuning_policy_version === 16) return (await import('./redundancy-workflow.mjs')).verifyRdRequest(request);
   if (request.spec.practical_tuning_schema_version === 15 && request.spec.practical_tuning_policy_version === 15) return (await import('./horizon-potential-v2-workflow.mjs')).verifyHp2Request(request);
   if (request.spec.practical_tuning_schema_version === 14 && request.spec.practical_tuning_policy_version === 14) return (await import('./horizon-potential-workflow.mjs')).verifyHpRequest(request);
   if (request.spec.practical_tuning_schema_version === 13 && request.spec.practical_tuning_policy_version === 13) return (await import('./p0-pooled-workflow.mjs')).verifyPooledP0Request(request);
