@@ -186,7 +186,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`SunsetScore V2.5.5.20 local server: http://${host}:${port}`);
+  console.log(`SunsetScore V2.5.5.26 local server: http://${host}:${port}`);
   console.log('QWeather key source: QweatherKey.txt (server-side only)');
 });
 

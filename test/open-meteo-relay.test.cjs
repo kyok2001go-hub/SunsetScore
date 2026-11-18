@@ -50,7 +50,7 @@ test('relay: 200 is forwarded and cached under an order-independent key; the sec
   assert.equal((await first.value.json()).length, 2);
   assert.equal(first.value.headers.get('Cache-Control'), 'public, max-age=300, s-maxage=600');
   assert.equal(calls.length, 1); assert.equal(calls[0].init.redirect, 'manual');
-  assert.match(calls[0].init.headers['User-Agent'], /^SunsetScore-Relay\/2\.5\.5\.20/);
+  assert.match(calls[0].init.headers['User-Agent'], /^SunsetScore-Relay\/2\.5\.5\.26/);
   assert.equal(new URL(calls[0].url).hostname, 'api.open-meteo.com');
   const reordered = 'timezone=auto&service=forecast&forecast_days=2&hourly=cloud_cover,cloud_cover_mid&longitude=121.4700,121.0200&latitude=31.2300,31.6800';
   const second = await quietly(() => handleOpenMeteo(req(reordered), { cache, fetchImpl }));

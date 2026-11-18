@@ -833,10 +833,8 @@
       if (score >= cfg.levels[li].min) { level = cfg.levels[li].label; break; }
     }
 
-    /* ===== 20. Confidence ===== */
-    var available = [ls.high, ls.mid, ls.lowGood, visKm, aod, pm25];
-    var present = available.filter(function (v) { return v != null; }).length;
-    var completeness = present / available.length * 100;
+    /* ===== 20. Confidence（V2.5.5.26：0.50 云数据 + 0.05 辅助数据 + 0.30 提前量 + 0.15 新鲜度；只反映数据完整度与提前量，不进入分数；ref_docs/PRD/V2.5.5.26--置信度修正方案.md）===== */
+    var cloudLayersPresent = [ls.high, ls.mid, ls.lowGood].filter(function (v) { return v != null; }).length / 3, auxPresent = [visKm, aod, pm25].filter(function (v) { return v != null; }).length / 3;
 
     var fetched = input.samples.filter(function (s) { return !!s.forecast; }).length;
     /* V1.8：优先使用加权完整度（核心节点权重高），未传入时回退简单比例 */
@@ -848,19 +846,21 @@
     var spatialVariance = (input.cloudField && input.cloudField.summary && input.cloudField.summary.spatialVariance != null)
       ? input.cloudField.summary.spatialVariance
       : stdDev(lowArr);
-    var consistency = clamp(100 - spatialVariance * 1.5, 0, 100);
 
     var hoursToSunset = (input.solar.sunset.valueOf() - nowUtc.valueOf()) / 3600000;
-    var proximity = hoursToSunset < 0 ? 60 : (hoursToSunset <= 24 ? 100 : clamp(100 - (hoursToSunset - 24) * 5, 0, 100));
-    var freshness = 90; /* 小时级预报默认为新鲜数据 */
+    var leadScore = confidenceLeadScore(hoursToSunset);
+    var freshness = 90; /* 小时级预报默认为新鲜数据（data_freshness 输出保持原口径） */
     /* V1.8：STALE 缓存回退数据的新鲜度衰减（仅影响 confidence，不影响 score） */
     if (input.cacheStatus === 'STALE' && valid(input.dataAgeMinutes)) {
       freshness = clamp(90 - Math.max(0, input.dataAgeMinutes - cfg.cacheTtlMinutes) / 60 * 10, 30, 90);
     }
-
-    var confidence = Math.round(
-      0.30 * completeness + 0.15 * freshness + 0.20 * spatial + 0.20 * consistency + 0.15 * proximity
-    );
+    var freshnessScore = freshness / 90 * 100;
+    var spatialFallback = spatialFallbackOf(input), spatialShare = confidenceSpatialShare(input, spatial / 100, spatialFallback);
+    var cloudData = 100 * (0.6 * spatialShare + 0.4 * cloudLayersPresent);
+    var confidence = Math.round(0.50 * cloudData + 0.05 * 100 * auxPresent + 0.30 * leadScore + 0.15 * freshnessScore);
+    var confidenceBreakdown = { cloud_data: Math.round(cloudData * 10) / 10, aux_data: Math.round(auxPresent * 1000) / 10,
+      lead: Math.round(leadScore * 10) / 10, freshness: Math.round(freshnessScore * 10) / 10, spatial_share: Math.round(spatialShare * 1000) / 1000,
+      spatial_fallback: spatialFallback };
 
     /* ===== 原因与风险提示 ===== */
     var reasons = [], warnings = [];
@@ -889,7 +889,7 @@
     if (valid(aod) && aod > 0.5) warnings.push('气溶胶偏多，可能影响夕阳色彩');
     if (valid(pm25) && pm25 > 50) warnings.push('大气透明度一般（PM2.5 偏高）');
     if (rainProb >= 50) warnings.push('日落时段存在降水风险（概率 ' + Math.round(rainProb) + '%）');
-    hardGates.forEach(function (g) { warnings.push('硬限制：' + g); });
+    hardGates.forEach(function (g) { warnings.push('硬限制：' + g); }); if (spatialFallback) warnings.push('全天空云场暂时无法获取，只用了部分数据，参考价值有限');
     if (!reasons.length) reasons.push('整体条件一般，可留意临近时段的变化');
 
     /* ===== 结果对象（第 27 章格式） ===== */
@@ -903,7 +903,7 @@
       sunset_azimuth: Math.round(input.solar.sunsetAzimuthDeg),
 
       score: score,
-      confidence: confidence,
+      confidence: confidence, confidence_breakdown: confidenceBreakdown,
       level: level,
 
       /* V1.8 数据层元信息（方案 9、15、17 章），仅供展示与升级决策 */
@@ -1081,6 +1081,33 @@
     if (a && valid(a.gamma) && a.gamma !== 0 && valid(corridorOpening)) f *= Math.pow(clamp(corridorOpening, 0, 100) / 100, a.gamma);
     if (v && valid(v.alpha) && v.alpha !== 0 && valid(lv.low)) f *= clamp(1 - v.alpha * clamp(lv.low, 0, 100) / 100, 0, 1);
     return f;
+  }
+  /* V2.5.5.26 置信度辅助。提前量：距日落小时数分段线性（≤1 h 100、3 h 90、6 h 75、24 h 45、≥48 h 20），日落后 60。
+     空间：全天空用加权完整度；主动判定的浓厚阴天（LOCAL_ONLY 且 cacheStatus 'LOCAL'）为 1；取数失败兜底按 13 点 0.8、7 点 0.5、只剩本地 0.2；
+     未提供 samplingMode 时与旧口径相同。 */
+  function confidenceLeadScore(h) {
+    if (!valid(h)) return 100;
+    if (h < 0) return 60;
+    var pts = [[1, 100], [3, 90], [6, 75], [24, 45], [48, 20]];
+    if (h <= pts[0][0]) return pts[0][1];
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (h <= pts[i + 1][0]) return pts[i][1] + (pts[i + 1][1] - pts[i][1]) * (h - pts[i][0]) / (pts[i + 1][0] - pts[i][0]);
+    }
+    return pts[pts.length - 1][1];
+  }
+  function spatialFallbackOf(input) {
+    var mode = input.samplingMode;
+    if (mode === 'FULL' || mode === 'STANDARD') return mode;
+    if (mode === 'LOCAL_ONLY' && input.cacheStatus !== 'LOCAL') return 'LOCAL_ONLY';
+    return null;
+  }
+  function confidenceSpatialShare(input, completeness, fallback) {
+    var c = clamp(valid(completeness) ? completeness : 1, 0, 1);
+    if (input.samplingMode === 'LOCAL_ONLY' && input.cacheStatus === 'LOCAL') return 1;
+    if (fallback === 'FULL') return 0.8 * c;
+    if (fallback === 'STANDARD') return 0.5 * c;
+    if (fallback === 'LOCAL_ONLY') return 0.2;
+    return c;
   }
   function clearSkyOf(input, hcp, potential) {
     var field = input.cloudFieldSunset || input.cloudField, limit = hcp.hintTotalCloudBelowPct;

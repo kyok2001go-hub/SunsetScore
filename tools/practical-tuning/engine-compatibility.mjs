@@ -27,9 +27,11 @@ import { digest } from './policy.mjs';
 // and js/config.js does not carry it.
 // V2.5.5.24 changes js/engine.js (canvasLightAccess / gradientDirection / viewOcclusion, offline validation only); with the three keys absent
 // every engine value is computed exactly as before, and js/config.js does not carry them.
+// V2.5.5.26 changes js/engine.js (confidence block, confidence_breakdown, fetch-failure warning; scores unchanged) and js/config.js
+// (app 2.5.5.26 / app25526 only; model and scoring configuration unchanged).
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "bc9ad3991c863dc2f13d819493136205d4fd66368f202f49cb1da9c9f2cd5be6",
-  "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
+  "js/engine.js": "c036a0c410f85c143690dcf173d546d04303eca889d11ec119deb4921c8d0edc",
+  "js/config.js": "30866390d408f74f0ce3fc6e31e6a0d685fd7be6c041a5b19f4c36555d90198a",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
@@ -303,6 +305,20 @@ const ORIGINS = Object.freeze([
     "engine": "5158f86c0c4cb1735b1538a6b5fa1dd7709d81a7c510419265a48c7c11878609",
     "files": {
       "js/engine.js": "ae958d11b897a9011bf8b9939a5f6dd2da0b5a04b0c793cbcd0b4531363ef242",
+      "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+      "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+      "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
+    }
+  },
+  // V2.5.5.24 (commit 8e86b6e, canvasLightAccess / gradientDirection / viewOcclusion; used by the V2.5.5.24 Policy 18 Run); differs from the current pins in js/engine.js and js/config.js.
+  {
+    "engine": "750274eea98bac2fe854258c5ffa2e679f36b48100b20310f9083a70c7a0fda0",
+    "files": {
+      "js/engine.js": "bc9ad3991c863dc2f13d819493136205d4fd66368f202f49cb1da9c9f2cd5be6",
       "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
