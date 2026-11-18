@@ -25,8 +25,10 @@ import { digest } from './policy.mjs';
 // the three files are pinned from here on and every origin records the version it was verified with.
 // V2.5.5.22 changes js/engine.js (penaltyScale, offline validation only); with the key absent every engine value is computed exactly as before,
 // and js/config.js does not carry it.
+// V2.5.5.24 changes js/engine.js (canvasLightAccess / gradientDirection / viewOcclusion, offline validation only); with the three keys absent
+// every engine value is computed exactly as before, and js/config.js does not carry them.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "ae958d11b897a9011bf8b9939a5f6dd2da0b5a04b0c793cbcd0b4531363ef242",
+  "js/engine.js": "bc9ad3991c863dc2f13d819493136205d4fd66368f202f49cb1da9c9f2cd5be6",
   "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
@@ -287,6 +289,20 @@ const ORIGINS = Object.freeze([
     "engine": "f4299a5f0e82d7bfc9fd5e9908040026b212286b66803d073b1dd83629a6089d",
     "files": {
       "js/engine.js": "ba0239d913733f48511794a029048714d1ab68d62b81c683a1cdbbb8db76472c",
+      "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+      "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+      "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
+    }
+  },
+  // V2.5.5.21 / V2.5.5.22 (commit ee91e52, penaltyScale; used by the V2.5.5.22 Policy 17 Run); differs from the current pins only in js/engine.js.
+  {
+    "engine": "5158f86c0c4cb1735b1538a6b5fa1dd7709d81a7c510419265a48c7c11878609",
+    "files": {
+      "js/engine.js": "ae958d11b897a9011bf8b9939a5f6dd2da0b5a04b0c793cbcd0b4531363ef242",
       "js/config.js": "a0246ed215602e3a6a39897534b10b5ce3efc42d7a37fbc73695e2d521eb4e8f",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",

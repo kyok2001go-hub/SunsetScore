@@ -408,7 +408,7 @@
 
     /* CloudStructureScore = 0.6×Continuity + 0.4×GradientScore */
     var cloudStructureScore = spatialEvolution.structure.continuityWeight * continuity +
-      spatialEvolution.structure.gradientWeight * clamp(gradientVal != null ? gradientVal : 0, 0, 100);
+      spatialEvolution.structure.gradientWeight * clamp(gradientVal != null ? gradientSign(cfg) * gradientVal : 0, 0, 100); /* V2.5.5.24 gradientDirection（离线验证用，默认关闭）：NEUTRAL 0 / REVERSED −1 */
 
     /* SkyCanvas V1.61 = 0.30×Local + 0.30×CloudBank + 0.15×FarField
        + 0.15×CloudStructure + 0.10×AntiSunset（有反向云场时使用反向指标，否则保留本地近似） */
@@ -419,9 +419,9 @@
       canvasWeights.antiSunset * antiSunsetScore;
 
     /* 结构加分：远方连续云幕形成（方案 4.4 节） */
-    var structureBonus = (gradientVal != null &&
+    var structureBonus = (gradientVal != null && (cfg.gradientDirection === 'NEUTRAL' ? false : cfg.gradientDirection === 'REVERSED' ? gradientVal < -spatialEvolution.structure.bonusGradientMin :
       gradientVal > spatialEvolution.structure.bonusGradientMin &&
-      continuity > spatialEvolution.structure.bonusContinuityMin)
+      continuity > spatialEvolution.structure.bonusContinuityMin))
       ? spatialEvolution.structure.bonusValue : 0;
 
     /* Illumination = SolarAngle × CloudBankPotential × IlluminationDataFactor */
@@ -686,7 +686,7 @@
     var currentCondition = clamp(cfg.regimeScore[regime] -
       10 * clamp(curRain / 4, 0, 1) - 15 * (rainProb / 100), 0, 100);
     /* Trend：清空锋面 + 空间梯度（负梯度 = 云层逼近 → 低分） */
-    var gradientTrend = clamp(50 + (gradientVal != null ? gradientVal : 0) * 0.5, 0, 100);
+    var gradientTrend = clamp(50 + (gradientVal != null ? gradientSign(cfg) * gradientVal : 0) * 0.5, 0, 100);
     var trendScore = 0.6 * clearingScore + 0.4 * gradientTrend;
     /* Stability：日落前 stabilityHours 小时云量/降水/风速的恶化程度 */
     var hourlyLocal = localSample.forecast.hourly;
@@ -782,10 +782,10 @@
     if (regime === 'STORM_APPROACHING') hardGates.push('强天气系统正在逼近');
 
     /* ===== 18. 最终公式（V1.7：天气型动态权重） ===== */
-    var P, bonus;
-    P = dynamicWeights.skyCanvas * skyCanvas +
+    var P, bonus, accessFactor = canvasAccessFactorOf(cfg, corridorOpening, lv); /* V2.5.5.24 canvasLightAccess / viewOcclusion（离线验证用，默认关闭）：键缺失时为 1 */
+    P = dynamicWeights.skyCanvas * skyCanvas * accessFactor +
       dynamicWeights.horizon * horizon * potentialFactor +
-      dynamicWeights.illumination * illumination +
+      dynamicWeights.illumination * illumination * accessFactor +
       dynamicWeights.atmosphere * atmosphere +
       dynamicWeights.weather * weather;
     /* 加分拆解：空间结构加分 + regime 过渡加分（天气型直接加分已移除） */
@@ -802,14 +802,14 @@
       var rawComponents = { skyCanvas: skyCanvas, horizon: horizon, illumination: illumination,
         atmosphere: atmosphere, weather: weather };
       var contributions = {};
-      Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; }); if (hcp) contributions.horizon *= potentialFactor;
+      Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; }); if (hcp) contributions.horizon *= potentialFactor; contributions.skyCanvas *= accessFactor; contributions.illumination *= accessFactor;
       var beforeClamp = P * Q * gate + bonus - pWeather;
       var clamped = clamp(beforeClamp, 0, 100);
       var gated = hardGates.length ? Math.min(clamped, cfg.hardGate.scoreCap) : clamped;
       if (illuminationTrace) illuminationTrace.contribution = { dynamic_weight: dynamicWeights.illumination,
         value: contributions.illumination, P: P, Q: Q, score_engine: score,
         structure_bonus: structureBonus, transition_bonus: transitionBonusVal, weather_penalty: pWeather };
-      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm, total_cloud: clearSky.total_cloud, hint: clearSky.hint } } : {}),
+      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(structureDirectionConfigured(cfg) ? { structure_direction: { corridor_opening: corridorOpening, local_low: valid(lv.low) ? lv.low : null, gradient: gradientVal, access_factor: accessFactor } } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm, total_cloud: clearSky.total_cloud, hint: clearSky.hint } } : {}),
         components: rawComponents, dynamic_weights: dynamicWeights, contributions: contributions,
         P: P, Q: Q, horizon_gate: gate, structure_bonus: structureBonus, transition_bonus: transitionBonusVal,
         weather_penalty: pWeather, atmosphere_inputs: { visibility_km: visKm, aod: aod, pm25: pm25,
@@ -1071,6 +1071,17 @@
   }
   /* V2.5.5.19 无云日提示（只输出，不参与评分）：只有配置了 horizonCloudPotential 时结果才带 clear_sky。
      hint = C < k（评分确实打了折）且日落时刻全天空平均总云量 < hintTotalCloudBelowPct；没有可用节点或未配置阈值时为 false。 */
+  /* V2.5.5.24（离线验证用，默认关闭；js/config.js 不含这三个键）。依据：ref_docs/PRD/V2.5.5.24--必要条件结构与方向纠正评估方案.md
+     gradientDirection：NEUTRAL 时近远云量差不再参与云结构分、结构加分与天气趋势；REVERSED 时三处方向取反。
+     canvasLightAccess.gamma：画布与光照贡献 × (走廊开阔度/100)^gamma；viewOcclusion.alpha：× (1 − alpha × 本地低云/100)。缺测时因子为 1。 */
+  function gradientSign(cfg) { return cfg.gradientDirection === 'NEUTRAL' ? 0 : cfg.gradientDirection === 'REVERSED' ? -1 : 1; }
+  function structureDirectionConfigured(cfg) { return cfg.canvasLightAccess != null || cfg.viewOcclusion != null || cfg.gradientDirection != null; }
+  function canvasAccessFactorOf(cfg, corridorOpening, lv) {
+    var f = 1, a = cfg.canvasLightAccess, v = cfg.viewOcclusion;
+    if (a && valid(a.gamma) && a.gamma !== 0 && valid(corridorOpening)) f *= Math.pow(clamp(corridorOpening, 0, 100) / 100, a.gamma);
+    if (v && valid(v.alpha) && v.alpha !== 0 && valid(lv.low)) f *= clamp(1 - v.alpha * clamp(lv.low, 0, 100) / 100, 0, 1);
+    return f;
+  }
   function clearSkyOf(input, hcp, potential) {
     var field = input.cloudFieldSunset || input.cloudField, limit = hcp.hintTotalCloudBelowPct;
     var total = field && field.summary && valid(field.summary.avgCloudCover) ? field.summary.avgCloudCover : null;
