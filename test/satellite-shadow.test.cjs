@@ -110,7 +110,8 @@ test('Bypass capture v2 carries the shadow; a browser-less tile failure is recor
   const SS = load(createRuntime({ fetch }), [...FILES, 'js/time.js', 'js/data.js', 'js/cloud_field.js', 'js/bypass_capture.js']);
   const solar = { sunset: new Date('2026-10-28T09:10:00Z'), sunsetAzimuthDeg: 255 };
   const bypass = plain(await SS.bypassCapture.capture({ location: SHANGHAI.location, solar, nowUtcMs: now }));
-  assert.equal(bypass.bypass_schema_version, 2); assert.deepEqual([bypass.requests.A.status, bypass.requests.B.status], ['NOT_REQUESTED', 'RATE_LIMITED']);
+  assert.equal(bypass.bypass_schema_version, 3);
+  assert.deepEqual(['A', 'B', 'C', 'D'].map(id => bypass.requests[id].status), ['NOT_REQUESTED', 'RATE_LIMITED', 'RATE_LIMITED', 'RATE_LIMITED']);
   assert.equal(bypass.satellite_shadow.status, 'TILES_FAILED', 'no createImageBitmap in Node: every tile fails and is recorded, not read as clear');
   assert.doesNotThrow(() => schema.validateBypassPayload(bypass, { prediction_time_utc: new Date(now).toISOString(),
     sunset_time_utc: solar.sunset.toISOString(), ...SHANGHAI.location }));

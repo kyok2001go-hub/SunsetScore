@@ -4,20 +4,32 @@ import { ValidationError } from './event-dataset.js';
 import { canonicalJson } from './replay-schema.js';
 
 // v1 (V2.5.5.7): satellite_shadow must be null. v2 (V2.5.5.8): null or the Band13 shadow object below.
-export const BYPASS_SCHEMA_VERSION = 2;
-export const BYPASS_SCHEMA_VERSIONS = Object.freeze([1, 2]);
+// v3 (V2.5.5.29): v2 plus requests C / D, ray_nodes, ray_aod and quality.ray_*. PRD: ref_docs/PRD/V2.5.5.29--光路剖面旁路采集方案.md §4
+export const BYPASS_SCHEMA_VERSION = 3;
+export const BYPASS_SCHEMA_VERSIONS = Object.freeze([1, 2, 3]);
 export const MAX_BYPASS_UNCOMPRESSED_BYTES = 512 * 1024;
 export const BYPASS_LEVELS = Object.freeze([925, 850, 700, 500, 300, 250]);
 export const BYPASS_GRID_VARIABLES = Object.freeze(['dew_point_2m', 'boundary_layer_height',
   ...BYPASS_LEVELS.flatMap((level) => ['cloud_cover', 'relative_humidity', 'geopotential_height'].map((name) => `${name}_${level}hPa`))]);
 export const BYPASS_FAR_VARIABLES = Object.freeze(['cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', ...BYPASS_GRID_VARIABLES]);
-const UNIT_OF = (name) => name === 'dew_point_2m' ? 'celsius'
-  : name === 'boundary_layer_height' || name.startsWith('geopotential_height_') ? 'meter' : 'percent';
-const RANGE_OF = (name) => UNIT_OF(name) === 'percent' ? [0, 100] : name === 'dew_point_2m' ? [-90, 60] : [-1000, 20000];
+export const BYPASS_RAY_LEVELS = Object.freeze([925, 850, 700, 600, 500, 400, 300, 250, 200]);
+export const BYPASS_RAY_VARIABLES = Object.freeze([
+  ...BYPASS_RAY_LEVELS.flatMap((level) => ['temperature', 'relative_humidity', 'geopotential_height'].map((name) => `${name}_${level}hPa`)),
+  'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high']);
+export const BYPASS_AOD_VARIABLES = Object.freeze(['aerosol_optical_depth']);
+export const BYPASS_RAY_DISTANCES_KM = Object.freeze([0, 50, 100, 200, 300, 400, 550]);
+const UNIT_OF = (name) => name === 'dew_point_2m' || name.startsWith('temperature_') ? 'celsius'
+  : name === 'boundary_layer_height' || name.startsWith('geopotential_height_') ? 'meter'
+    : name === 'aerosol_optical_depth' ? 'dimensionless' : 'percent';
+const RANGE_OF = (name) => UNIT_OF(name) === 'percent' ? [0, 100] : name === 'dew_point_2m' ? [-90, 60]
+  : name.startsWith('temperature_') ? [-100, 60] : name === 'aerosol_optical_depth' ? [0, 10] : [-1000, 20000];
 
 const TOP_FIELDS = new Set(['bypass_schema_version', 'record_only', 'snapshot_id', 'prediction_time_utc', 'sunset_time_utc',
   'sunset_azimuth_deg', 'latitude', 'longitude', 'source', 'requests', 'time_axis', 'units', 'grid_nodes', 'far_nodes', 'quality',
   'satellite_shadow']);
+const TOP_FIELDS_V3 = new Set([...TOP_FIELDS, 'ray_nodes', 'ray_aod']);
+const RAY_REQUEST_FIELDS = new Set(['status', 'reason_code', 'model', 'variables']);
+const RAY_AOD_FIELDS = new Set(['key', 'distance_km', 'time_utc', 'aerosol_optical_depth']);
 const SOURCE_FIELDS = new Set(['api', 'model', 'fetched_at_utc', 'issue_time_utc', 'issue_time_status']);
 const REQUEST_FIELDS = new Set(['status', 'reason_code', 'variables']);
 const REQUEST_STATUS = new Set(['OK', 'FAILED', 'RATE_LIMITED', 'NOT_REQUESTED']);
@@ -47,8 +59,8 @@ function sameList(actual, expected, label) {
   if (!Array.isArray(actual) || actual.length !== expected.length || actual.some((v, i) => v !== expected[i])) fail(label + ' 变量列表不符');
 }
 
-function nodes(list, fields, variables, max, label) {
-  if (!Array.isArray(list) || list.length > max) fail(label + ' 数量非法');
+function nodes(list, fields, variables, max, label, exact = false) {
+  if (!Array.isArray(list) || list.length > max || (exact && list.length !== max)) fail(label + ' 数量非法');
   for (const [index, node] of list.entries()) {
     const where = `${label}[${index}]`;
     object(node, where); exactKeys(node, fields, where);
@@ -152,14 +164,50 @@ export function validateSatelliteShadow(shadow) {
 }
 
 // expected: { prediction_time_utc, sunset_time_utc, latitude, longitude } taken from the validated Replay of the same request.
+function request(value, id, fields, variables) {
+  const label = 'bypass.requests.' + id;
+  object(value, label); exactKeys(value, fields, label);
+  if (!REQUEST_STATUS.has(value.status)) fail(label + '.status 非法');
+  string(value.reason_code, label + '.reason_code', 40, true);
+  sameList(value.variables, variables, label);
+}
+
+function qualityCounts(counts, reasons, known, label) {
+  object(counts, label + '.null_counts'); object(reasons, label + '.missing_reason');
+  for (const [name, count] of Object.entries(counts)) { if (!known.has(name)) fail('bypass.quality 未知变量：' + name); finite(count, label + '.null_counts', 0, 1e6); }
+  for (const [name, reason] of Object.entries(reasons)) { if (!known.has(name) || !MISSING_REASONS.has(reason)) fail(label + '.missing_reason 非法：' + name); }
+}
+
+// v3 light-path profile: exactly 7 points on the sunset ray in fixed order; ray_aod mirrors ray_nodes.
+function validateRay(bypass) {
+  nodes(bypass.ray_nodes, FAR_NODE_FIELDS, BYPASS_RAY_VARIABLES, BYPASS_RAY_DISTANCES_KM.length, 'bypass.ray_nodes', true);
+  bypass.ray_nodes.forEach((node, i) => {
+    if (node.key !== 'RAY_' + BYPASS_RAY_DISTANCES_KM[i] || node.distance_km !== BYPASS_RAY_DISTANCES_KM[i]) fail(`bypass.ray_nodes[${i}] 点位非法`);
+  });
+  const list = bypass.ray_aod;
+  if (!Array.isArray(list) || list.length !== BYPASS_RAY_DISTANCES_KM.length) fail('bypass.ray_aod 数量非法');
+  list.forEach((node, i) => {
+    const where = `bypass.ray_aod[${i}]`;
+    object(node, where); exactKeys(node, RAY_AOD_FIELDS, where);
+    if (node.key !== 'RAY_' + BYPASS_RAY_DISTANCES_KM[i] || node.distance_km !== BYPASS_RAY_DISTANCES_KM[i]) fail(where + ' 点位非法');
+    if (!Array.isArray(node.time_utc) || node.time_utc.length > 96) fail(where + ' 时间序列长度非法');
+    node.time_utc.forEach((time, t) => iso(time, `${where}.time_utc[${t}]`));
+    const values = node.aerosol_optical_depth;
+    if (!Array.isArray(values) || values.length !== node.time_utc.length) fail(where + ' 变量长度与时间轴不一致：aerosol_optical_depth');
+    values.forEach((value, t) => finite(value, `${where}.aerosol_optical_depth[${t}]`, 0, 10, true));
+  });
+}
+
 export function validateBypassPayload(bypass, expected) {
-  object(bypass, 'bypass'); exactKeys(bypass, TOP_FIELDS, 'bypass');
+  object(bypass, 'bypass');
   if (!BYPASS_SCHEMA_VERSIONS.includes(bypass.bypass_schema_version)) fail('bypass_schema_version 不受支持');
+  const v3 = bypass.bypass_schema_version === 3;
+  exactKeys(bypass, v3 ? TOP_FIELDS_V3 : TOP_FIELDS, 'bypass');
   if (bypass.record_only !== true) fail('bypass.record_only 必须为 true');
   if (bypass.snapshot_id !== null) fail('bypass.snapshot_id 由服务端写入，提交时必须为 null');
   // v1 reserved satellite_shadow (always null); v2 defines it (V2.5.5.8).
   if (bypass.bypass_schema_version === 1 && bypass.satellite_shadow !== null) fail('BYPASS_SATELLITE_SHADOW_NOT_DEFINED');
-  if (bypass.bypass_schema_version === 2 && bypass.satellite_shadow !== null) validateSatelliteShadow(bypass.satellite_shadow);
+  if (bypass.bypass_schema_version >= 2 && bypass.satellite_shadow !== null) validateSatelliteShadow(bypass.satellite_shadow);
   iso(bypass.prediction_time_utc, 'bypass.prediction_time_utc'); iso(bypass.sunset_time_utc, 'bypass.sunset_time_utc');
   finite(bypass.latitude, 'bypass.latitude', -90, 90); finite(bypass.longitude, 'bypass.longitude', -180, 180);
   finite(bypass.sunset_azimuth_deg, 'bypass.sunset_azimuth_deg', 0, 360, true);
@@ -169,24 +217,26 @@ export function validateBypassPayload(bypass, expected) {
   if (bypass.source.api !== 'open-meteo/forecast' || bypass.source.model !== 'best_match') fail('bypass.source 非法');
   iso(bypass.source.fetched_at_utc, 'bypass.source.fetched_at_utc');
   if (bypass.source.issue_time_utc !== null || bypass.source.issue_time_status !== 'NOT_PROVIDED_BY_API') fail('bypass.source.issue_time 非法');
-  object(bypass.requests, 'bypass.requests'); exactKeys(bypass.requests, new Set(['A', 'B']), 'bypass.requests');
-  for (const [id, variables] of [['A', BYPASS_GRID_VARIABLES], ['B', BYPASS_FAR_VARIABLES]]) {
-    const request = object(bypass.requests[id], 'bypass.requests.' + id);
-    exactKeys(request, REQUEST_FIELDS, 'bypass.requests.' + id);
-    if (!REQUEST_STATUS.has(request.status)) fail('bypass.requests.' + id + '.status 非法');
-    string(request.reason_code, 'bypass.requests.' + id + '.reason_code', 40, true);
-    sameList(request.variables, variables, 'bypass.requests.' + id);
+  object(bypass.requests, 'bypass.requests'); exactKeys(bypass.requests, new Set(v3 ? ['A', 'B', 'C', 'D'] : ['A', 'B']), 'bypass.requests');
+  request(bypass.requests.A, 'A', REQUEST_FIELDS, BYPASS_GRID_VARIABLES);
+  request(bypass.requests.B, 'B', REQUEST_FIELDS, BYPASS_FAR_VARIABLES);
+  if (v3) {
+    request(bypass.requests.C, 'C', RAY_REQUEST_FIELDS, BYPASS_RAY_VARIABLES);
+    request(bypass.requests.D, 'D', RAY_REQUEST_FIELDS, BYPASS_AOD_VARIABLES);
+    if (bypass.requests.C.model !== 'ecmwf_ifs025' || bypass.requests.D.model !== 'cams') fail('bypass.requests 模式非法');
   }
   if (bypass.time_axis !== 'utc_iso8601') fail('bypass.time_axis 非法');
-  object(bypass.units, 'bypass.units'); exactKeys(bypass.units, new Set(BYPASS_FAR_VARIABLES), 'bypass.units');
-  for (const name of BYPASS_FAR_VARIABLES) if (bypass.units[name] !== UNIT_OF(name)) fail('bypass 单位非法：' + name);
+  const unitNames = v3 ? [...new Set([...BYPASS_FAR_VARIABLES, ...BYPASS_RAY_VARIABLES, ...BYPASS_AOD_VARIABLES])] : BYPASS_FAR_VARIABLES;
+  object(bypass.units, 'bypass.units'); exactKeys(bypass.units, new Set(unitNames), 'bypass.units');
+  for (const name of unitNames) if (bypass.units[name] !== UNIT_OF(name)) fail('bypass 单位非法：' + name);
   nodes(bypass.grid_nodes, GRID_NODE_FIELDS, BYPASS_GRID_VARIABLES, 33, 'bypass.grid_nodes');
   nodes(bypass.far_nodes, FAR_NODE_FIELDS, BYPASS_FAR_VARIABLES, 2, 'bypass.far_nodes');
-  object(bypass.quality, 'bypass.quality'); exactKeys(bypass.quality, new Set(['null_counts', 'missing_reason']), 'bypass.quality');
-  const known = new Set(BYPASS_FAR_VARIABLES);
-  object(bypass.quality.null_counts, 'bypass.quality.null_counts'); object(bypass.quality.missing_reason, 'bypass.quality.missing_reason');
-  for (const [name, count] of Object.entries(bypass.quality.null_counts)) { if (!known.has(name)) fail('bypass.quality 未知变量：' + name); finite(count, 'bypass.quality.null_counts', 0, 1e6); }
-  for (const [name, reason] of Object.entries(bypass.quality.missing_reason)) { if (!known.has(name) || !MISSING_REASONS.has(reason)) fail('bypass.quality.missing_reason 非法：' + name); }
+  if (v3) validateRay(bypass);
+  object(bypass.quality, 'bypass.quality');
+  exactKeys(bypass.quality, new Set(v3 ? ['null_counts', 'missing_reason', 'ray_null_counts', 'ray_missing_reason'] : ['null_counts', 'missing_reason']), 'bypass.quality');
+  qualityCounts(bypass.quality.null_counts, bypass.quality.missing_reason, new Set(BYPASS_FAR_VARIABLES), 'bypass.quality');
+  if (v3) qualityCounts(bypass.quality.ray_null_counts, bypass.quality.ray_missing_reason,
+    new Set([...BYPASS_RAY_VARIABLES, ...BYPASS_AOD_VARIABLES]), 'bypass.quality.ray');
   if (new TextEncoder().encode(canonicalJson(bypass)).byteLength > MAX_BYPASS_UNCOMPRESSED_BYTES) fail('BYPASS_TOO_LARGE');
   return bypass;
 }

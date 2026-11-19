@@ -8,7 +8,11 @@
  * V2.5.5.15：停用请求 A（33 个网格节点）。它占旁路 Open-Meteo 计费的九成以上，而其中的气压层云量由相对湿度估算、
  * 高层几乎恒为 0，其余变量在 V2.5.5.13 中也没有增量。requests.A 记为 NOT_REQUESTED / DISABLED，grid_nodes 为空数组；
  * 对象格式不变（仍为 v2），服务端校验不变。请求 B（远点）与卫星影子照常采集。
- * 依据：ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.15--旁路质量报告修正与气压层云量核查方案.md
+ * V2.5.5.29：对象升为 v3，新增请求 C（光路剖面：日落方位 0° 射线上 0–550 km 共 7 点，显式指定 models=ecmwf_ifs025，
+ * 925–200 hPa 九层的温度 / 相对湿度 / 位势高度及同模式低中高云量）与请求 D（同 7 点的 550 nm AOD，空气质量接口）。
+ * 两者与请求 B、卫星影子并行，各只发一次；C、D 的缺测统计单独记在 quality.ray_*（与 B 同名的变量来自不同模式，不合并）。
+ * 依据：ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.15--旁路质量报告修正与气压层云量核查方案.md、
+ * ref_docs/PRD/V2.5.5.29--光路剖面旁路采集方案.md
  * ============================================================ */
 (function (root) {
   'use strict';
@@ -21,16 +25,25 @@
     LEVEL_VARIABLES.forEach(function (name) { GRID_VARIABLES.push(name + '_' + level + 'hPa'); });
   });
   var FAR_VARIABLES = ['cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high'].concat(GRID_VARIABLES);
-  /* Open-Meteo 返回的单位符号与记录用的规范名 */
-  var UNIT_NAMES = { '%': 'percent', 'm': 'meter', '°C': 'celsius' };
+  /* V2.5.5.29 请求 C、D：光路剖面与上游 AOD */
+  var RAY_LEVELS = [925, 850, 700, 600, 500, 400, 300, 250, 200];
+  var RAY_VARIABLES = [];
+  RAY_LEVELS.forEach(function (level) {
+    ['temperature', 'relative_humidity', 'geopotential_height'].forEach(function (name) { RAY_VARIABLES.push(name + '_' + level + 'hPa'); });
+  });
+  RAY_VARIABLES.push('cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high');
+  var AOD_VARIABLES = ['aerosol_optical_depth'];
+  /* Open-Meteo 返回的单位符号与记录用的规范名（AOD 无量纲，接口返回空字符串） */
+  var UNIT_NAMES = { '%': 'percent', 'm': 'meter', '°C': 'celsius', '': 'dimensionless' };
   function expectedSymbol(name) {
-    if (name === 'dew_point_2m') return '°C';
+    if (name === 'dew_point_2m' || name.indexOf('temperature_') === 0) return '°C';
+    if (name === 'aerosol_optical_depth') return '';
     if (name === 'boundary_layer_height' || name.indexOf('geopotential_height_') === 0) return 'm';
     return '%';
   }
 
   var CONFIG = Object.freeze({
-    bypassSchemaVersion: 2,
+    bypassSchemaVersion: 3,
     api: 'open-meteo/forecast',
     model: 'best_match',
     levels: Object.freeze(LEVELS.slice()),
@@ -38,23 +51,31 @@
     farVariables: Object.freeze(FAR_VARIABLES.slice()),
     farDistancesKm: Object.freeze([400, 550]),
     gridRequestEnabled: false,
+    rayDistancesKm: Object.freeze([0, 50, 100, 200, 300, 400, 550]),
+    rayLevels: Object.freeze(RAY_LEVELS.slice()),
+    rayModel: 'ecmwf_ifs025',
+    rayVariables: Object.freeze(RAY_VARIABLES.slice()),
+    aodModel: 'cams',
+    aodVariables: Object.freeze(AOD_VARIABLES.slice()),
     timeoutMs: 15000
   });
 
   function finiteOrNull(value) { return typeof value === 'number' && isFinite(value) ? value : null; }
 
-  function buildUrl(nodes, variables) {
-    return SS.modelConfig.api.forecast +
+  /* target：省略为预报接口（默认模式）；{ model } 显式指定模式；{ airQuality: true } 为空气质量接口 */
+  function buildUrl(nodes, variables, target) {
+    target = target || {};
+    return (target.airQuality ? SS.modelConfig.api.airQuality : SS.modelConfig.api.forecast) +
       '?latitude=' + nodes.map(function (n) { return n.latitude.toFixed(4); }).join(',') +
       '&longitude=' + nodes.map(function (n) { return n.longitude.toFixed(4); }).join(',') +
-      '&hourly=' + variables.join(',') + '&forecast_days=2&timezone=auto';
+      '&hourly=' + variables.join(',') + (target.model ? '&models=' + target.model : '') + '&forecast_days=2&timezone=auto';
   }
 
   /* 只请求一次：429 记为 RATE_LIMITED，其他失败记为 FAILED，均不重试。上层取消照常抛出。 */
-  async function fetchOnce(nodes, variables, options) {
+  async function fetchOnce(nodes, variables, options, target) {
     if (!nodes.length) return { status: 'NOT_REQUESTED', reason_code: 'NO_NODES', forecasts: [] };
     try {
-      var json = await SS.network.json(buildUrl(nodes, variables),
+      var json = await SS.network.json(buildUrl(nodes, variables, target),
         { signal: options && options.signal, timeoutMs: CONFIG.timeoutMs });
       var forecasts = Array.isArray(json) ? json : [json];
       if (forecasts.length !== nodes.length) return { status: 'FAILED', reason_code: 'NODE_COUNT_MISMATCH', forecasts: [] };
@@ -102,7 +123,7 @@
     });
   }
 
-  /* context: { location, solar, nowUtcMs, signal }；返回 bypass_schema_version 2 对象（snapshot_id 由服务端写入）。
+  /* context: { location, solar, nowUtcMs, signal }；返回 bypass_schema_version 3 对象（snapshot_id 由服务端写入）。
    * options.gridRequest 只供测试构造 V2.5.5.14 及以前的对象；线上调用不传，按 CONFIG.gridRequestEnabled（false）。 */
   async function capture(context, options) {
     var gridRequest = options && typeof options.gridRequest === 'boolean' ? options.gridRequest : CONFIG.gridRequestEnabled;
@@ -123,15 +144,24 @@
       : Promise.resolve(null);
     var gridPromise = gridRequest ? fetchOnce(grid, GRID_VARIABLES, context)
       : Promise.resolve({ status: 'NOT_REQUESTED', reason_code: 'DISABLED', forecasts: [] });
-    var results = await Promise.all([gridPromise, fetchOnce(far, FAR_VARIABLES, context), shadowPromise]);
-    var mismatchA = {}, mismatchB = {};
+    var ray = CONFIG.rayDistancesKm.map(function (distance) {
+      var p = SS.data.destinationPoint(lat, lon, azimuth, distance);
+      return { key: 'RAY_' + distance, bearing_deg: azimuth, distance_km: distance, latitude: p.latitude, longitude: p.longitude };
+    });
+    var results = await Promise.all([gridPromise, fetchOnce(far, FAR_VARIABLES, context), shadowPromise,
+      fetchOnce(ray, RAY_VARIABLES, context, { model: CONFIG.rayModel }), fetchOnce(ray, AOD_VARIABLES, context, { airQuality: true })]);
+    var mismatchA = {}, mismatchB = {}, mismatchC = {}, mismatchD = {};
     var gridNodes = grid.map(function (n, i) { return nodeRecord(n, results[0].forecasts[i], GRID_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchA); });
     var farNodes = far.map(function (n, i) { return nodeRecord(n, results[1].forecasts[i], FAR_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchB); });
+    var rayNodes = ray.map(function (n, i) { return nodeRecord(n, results[3].forecasts[i], RAY_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchC); });
+    var aodNodes = ray.map(function (n, i) { return nodeRecord(n, results[4].forecasts[i], AOD_VARIABLES, nowUtcMs, sunsetUtcMs, mismatchD); });
     var units = {};
-    FAR_VARIABLES.forEach(function (name) { units[name] = UNIT_NAMES[expectedSymbol(name)]; });
-    var q = { null_counts: {}, missing_reason: {} };
+    FAR_VARIABLES.concat(RAY_VARIABLES, AOD_VARIABLES).forEach(function (name) { units[name] = UNIT_NAMES[expectedSymbol(name)]; });
+    var q = { null_counts: {}, missing_reason: {} }, rq = { null_counts: {}, missing_reason: {} };
     if (gridRequest) quality(gridNodes, GRID_VARIABLES, results[0], mismatchA, q);
     quality(farNodes, FAR_VARIABLES, results[1], mismatchB, q);
+    quality(rayNodes, RAY_VARIABLES, results[3], mismatchC, rq);
+    quality(aodNodes, AOD_VARIABLES, results[4], mismatchD, rq);
     return {
       bypass_schema_version: CONFIG.bypassSchemaVersion, record_only: true,
       snapshot_id: null, prediction_time_utc: new Date(nowUtcMs).toISOString(), sunset_time_utc: new Date(sunsetUtcMs).toISOString(),
@@ -139,10 +169,14 @@
       source: { api: CONFIG.api, model: CONFIG.model, fetched_at_utc: fetchedAt, issue_time_utc: null, issue_time_status: 'NOT_PROVIDED_BY_API' },
       requests: {
         A: { status: results[0].status, reason_code: results[0].reason_code, variables: GRID_VARIABLES.slice() },
-        B: { status: results[1].status, reason_code: results[1].reason_code, variables: FAR_VARIABLES.slice() }
+        B: { status: results[1].status, reason_code: results[1].reason_code, variables: FAR_VARIABLES.slice() },
+        C: { status: results[3].status, reason_code: results[3].reason_code, model: CONFIG.rayModel, variables: RAY_VARIABLES.slice() },
+        D: { status: results[4].status, reason_code: results[4].reason_code, model: CONFIG.aodModel, variables: AOD_VARIABLES.slice() }
       },
-      time_axis: 'utc_iso8601', units: units, grid_nodes: gridNodes, far_nodes: farNodes, quality: q,
-      satellite_shadow: results[2]
+      time_axis: 'utc_iso8601', units: units, grid_nodes: gridNodes, far_nodes: farNodes,
+      quality: { null_counts: q.null_counts, missing_reason: q.missing_reason, ray_null_counts: rq.null_counts, ray_missing_reason: rq.missing_reason },
+      satellite_shadow: results[2], ray_nodes: rayNodes,
+      ray_aod: aodNodes.map(function (r) { return { key: r.key, distance_km: r.distance_km, time_utc: r.time_utc, aerosol_optical_depth: r.variables.aerosol_optical_depth }; })
     };
   }
 

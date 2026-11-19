@@ -5,8 +5,10 @@ import { compare, fail } from '../../dataset/lib/common.mjs';
 // v1 thresholds are part of every v1 report and must never change (bypass:validate recomputes old reports).
 export const THRESHOLDS = Object.freeze({ requestOk: 0.95, shadowOk: 0.9, maxFrameAgeMinutes: 120, maxUncompressedBytes: 150 * 1024 });
 // V2.5.5.15 report v2 (PRD: ref_docs/PRD/V2.5.5.15--旁路质量报告修正与气压层云量核查方案.md §3).
-export const QUALITY_VERSION = 2;
+// V2.5.5.29 report v3 adds requests C / D (light-path profile, upstream AOD); v2 reports are still rebuilt with version 2.
+export const QUALITY_VERSION = 3;
 export const THRESHOLDS_V2 = Object.freeze({ ...THRESHOLDS, shadowAllFramesOk: 0.8, pressureLevelInconsistent: 0.3, minConsistencySupport: 10 });
+export const THRESHOLDS_V3 = Object.freeze({ ...THRESHOLDS_V2, rayRequestOk: 0.9 });
 
 const round = (value, digits = 3) => value == null ? null : Math.round(value * 10 ** digits) / 10 ** digits;
 const ratio = (part, total) => total ? round(part / total) : null;
@@ -130,9 +132,55 @@ function pressureLevelConsistency(payloads) {
     pressure_level_lt_10_when_single_ge_50: high.length >= THRESHOLDS_V2.minConsistencySupport ? ratio(high.filter(p => p[0] < 10).length, high.length) : null };
 }
 
+const nearestIndex = (times, target) => {
+  let best = 0;
+  times.forEach((t, i) => { if (Math.abs(Date.parse(t) - target) < Math.abs(Date.parse(times[best]) - target)) best = i; });
+  return best;
+};
+const RAY_PROFILE = /^(temperature|relative_humidity|geopotential_height)_\d+hPa$/;
+
+// V2.5.5.29 report v3: requests C / D of v3 objects (PRD: ref_docs/PRD/V2.5.5.29--光路剖面旁路采集方案.md §5, §7.3).
+// The status comes from the payload (the index CSV keeps its V2.5.5.9 columns). Cloud contrast: ECMWF 0.25° (request C)
+// minus the scoring model's single-level cloud (request B, best_match = ECMWF 9 km in China) at 400 / 550 km, hour nearest sunset.
+function rayStats(items) {
+  const v3 = items.filter(x => x.payload.bypass_schema_version >= 3);
+  const request = id => {
+    const status = v3.map(x => x.payload.requests[id].status);
+    return { status: counts(status), ok_ratio: ratio(status.filter(s => s === 'OK').length, status.length) };
+  };
+  const nulls = {}, totals = {};
+  let profileNullsWhenOk = 0;
+  const pairs = { cloud_cover_low: [], cloud_cover_mid: [], cloud_cover_high: [] };
+  for (const { payload } of v3) {
+    const add = (name, series) => { totals[name] = (totals[name] || 0) + series.length; nulls[name] = (nulls[name] || 0) + series.filter(v => v == null).length; };
+    for (const node of payload.ray_nodes) for (const [name, series] of Object.entries(node.variables)) add(name, series);
+    for (const node of payload.ray_aod) add('aerosol_optical_depth', node.aerosol_optical_depth);
+    if (payload.requests.C.status === 'OK') for (const node of payload.ray_nodes)
+      for (const [name, series] of Object.entries(node.variables)) if (RAY_PROFILE.test(name)) profileNullsWhenOk += series.filter(v => v == null).length;
+    if (payload.requests.B.status !== 'OK' || payload.requests.C.status !== 'OK') continue;
+    const sunset = Date.parse(payload.sunset_time_utc);
+    for (const far of payload.far_nodes) {
+      const ray = payload.ray_nodes.find(n => n.distance_km === far.distance_km);
+      if (!ray || !far.time_utc.length || !ray.time_utc.length) continue;
+      const i = nearestIndex(far.time_utc, sunset), j = ray.time_utc.indexOf(far.time_utc[i]);
+      if (j < 0) continue;
+      for (const name of Object.keys(pairs)) {
+        const a = far.variables[name]?.[i], b = ray.variables[name]?.[j];
+        if (a != null && b != null) pairs[name].push([a, b]);
+      }
+    }
+  }
+  const mean = a => a.length ? round(a.reduce((s, v) => s + v, 0) / a.length, 1) : null;
+  return { objects: v3.length, C: request('C'), D: request('D'), profile_nulls_when_c_ok: profileNullsWhenOk,
+    variable_missing_ratio: Object.fromEntries(Object.keys(totals).sort(compare).map(name => [name, ratio(nulls[name], totals[name])])),
+    cloud_025_vs_9km: Object.fromEntries(Object.entries(pairs).map(([name, p]) => [name, { n: p.length, mean_9km: mean(p.map(x => x[0])),
+      mean_025: mean(p.map(x => x[1])), mean_diff: mean(p.map(x => x[1] - x[0])), mean_abs_diff: mean(p.map(x => Math.abs(x[1] - x[0]))) }])) };
+}
+
 /** rows: index rows; payloads: Map snapshot_id → payload for VALID rows. Output is deterministic. version: report version to build. */
 export function buildQuality(rows, payloads, version = QUALITY_VERSION) {
   if (version === 1) return buildQualityV1(rows, payloads);
+  if (version === 3) return buildQualityV3(rows, payloads);
   if (version !== 2) fail('BYPASS_QUALITY_VERSION_UNSUPPORTED');
   const v1 = buildQualityV1(rows, payloads);
   const expected = rows.filter(r => r.expected === 'EXPECTED'), valid = expected.filter(r => r.object_status === 'VALID');
@@ -155,6 +203,16 @@ export function buildQuality(rows, payloads, version = QUALITY_VERSION) {
   return { quality_version: 2, ...v1, status: warnings.length ? 'WARN' : 'PASS', thresholds: THRESHOLDS_V2, warnings,
     requests: { ...v1.requests, A: requestA, pressure_level_cloud_consistency: consistency },
     satellite_shadow: { ...shadow, frames, nwp_comparison: 'SEE_VALIDATE_RAW_SINGLE_LEVEL' } };
+}
+
+// v3 = v2 plus the ray section; v2 reports stay reproducible because buildQuality(…, 2) is unchanged.
+function buildQualityV3(rows, payloads) {
+  const v2 = buildQuality(rows, payloads, 2);
+  const items = rows.filter(r => r.expected === 'EXPECTED' && r.object_status === 'VALID').map(r => ({ row: r, payload: payloads.get(r.snapshot_id) }));
+  const ray = rayStats(items), warnings = [...v2.warnings];
+  for (const id of ['C', 'D']) if (ray[id].ok_ratio != null && ray[id].ok_ratio < THRESHOLDS_V3.rayRequestOk) warnings.push({ code: `REQUEST_${id}_OK_BELOW_90`, value: ray[id].ok_ratio });
+  if (ray.profile_nulls_when_c_ok > 0) warnings.push({ code: 'RAY_PROFILE_MISSING_WHEN_OK', value: ray.profile_nulls_when_c_ok });
+  return { ...v2, quality_version: 3, status: warnings.length ? 'WARN' : 'PASS', thresholds: THRESHOLDS_V3, warnings, ray };
 }
 
 function buildQualityV1(rows, payloads) {
@@ -247,6 +305,11 @@ export function qualityMarkdown(quality, manifest) {
     ...(q.quality_version >= 2 ? ['## 气压层云量一致性（远点）', '',
       `- 节点 ${q.requests.pressure_level_cloud_consistency.nodes} 个：气压层（500/300/250 hPa 最大值）平均 ${q.requests.pressure_level_cloud_consistency.mean_pressure_level ?? '—'}%，单层中高云平均 ${q.requests.pressure_level_cloud_consistency.mean_single_level ?? '—'}%，秩相关 ${q.requests.pressure_level_cloud_consistency.spearman ?? '—'}`,
       `- 单层中高云 ≥ 50% 的 ${q.requests.pressure_level_cloud_consistency.single_level_ge_50} 个节点中，气压层 < 10% 的比例 ${pct(q.requests.pressure_level_cloud_consistency.pressure_level_lt_10_when_single_ge_50)}。气压层云量不能当作云量使用（V2.5.5.13）`, ''] : []),
+    ...(q.quality_version >= 3 ? ['## 光路剖面与上游 AOD（V2.5.5.29）', '',
+      `- 版本 3 对象 ${q.ray.objects} 个；请求 C（ecmwf_ifs025）OK ${pct(q.ray.C.ok_ratio)}（${Object.entries(q.ray.C.status).map(([k, v]) => `${k}=${v}`).join('，') || '—'}）；请求 D（AOD）OK ${pct(q.ray.D.ok_ratio)}（${Object.entries(q.ray.D.status).map(([k, v]) => `${k}=${v}`).join('，') || '—'}）`,
+      `- 请求 C 为 OK 时 925–200 hPa 温度、湿度、位势高度的缺测值 ${q.ray.profile_nulls_when_c_ok} 个`,
+      `- 缺测率最高的变量：${Object.entries(q.ray.variable_missing_ratio).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k} ${pct(v)}`).join('，') || '—'}`,
+      `- 400 / 550 km 单层云量，0.25° 减 9 km（日落最近时刻，只报告）：${Object.entries(q.ray.cloud_025_vs_9km).map(([k, c]) => `${k} n=${c.n}，9 km ${c.mean_9km ?? '—'}%，0.25° ${c.mean_025 ?? '—'}%，平均差 ${c.mean_diff ?? '—'}，平均绝对差 ${c.mean_abs_diff ?? '—'}`).join('；')}`, ''] : []),
     '## Worldview 目视对照候选', '', '| 类型 | 城市 | 帧时刻 UTC | 卫星 | frac_cloud_v1 | Snapshot |', '| --- | --- | --- | --- | --- | --- |');
   for (const [kind, list] of [['有云', q.satellite_shadow.worldview_candidates.cloudy], ['晴空', q.satellite_shadow.worldview_candidates.clear]]) {
     for (const r of list) lines.push(`| ${kind} | ${r.city} | ${r.frame_time_utc} | ${r.satellite} | ${r.frac_cloud_v1} | ${r.snapshot_id} |`);

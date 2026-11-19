@@ -6,7 +6,7 @@ import { bypassObjectKey, validateBypassPayload, MAX_BYPASS_UNCOMPRESSED_BYTES }
 import { canonicalJson, fail, hash } from '../../dataset/lib/common.mjs';
 
 export const BYPASS_PACKAGE_VERSION = 1;
-export const BYPASS_TOOL_VERSION = '2.5.5.15';
+export const BYPASS_TOOL_VERSION = '2.5.5.29';
 // V2.5.5.7 went live on 2026-10-28; earlier Snapshots never carry a bypass object.
 export const DEFAULT_FROM = '2026-10-28';
 export const FIRST_BYPASS_APP_VERSION = '2.5.5.7';

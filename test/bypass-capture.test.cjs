@@ -17,8 +17,10 @@ const NOW = Date.parse('2026-09-09T04:13:00.000Z');
 // One Open-Meteo location: local times in UTC+8, every requested variable present with its Open-Meteo unit symbol.
 function omLocation(variables, overrides = {}) {
   const time = Array.from({ length: 24 }, (_, h) => `2026-09-09T${String(h).padStart(2, '0')}:00`);
-  const unit = name => name === 'dew_point_2m' ? '°C' : (name === 'boundary_layer_height' || name.startsWith('geopotential_height_')) ? 'm' : '%';
-  const value = name => name === 'dew_point_2m' ? 21.5 : name === 'boundary_layer_height' ? 640 : name.startsWith('geopotential_height_') ? 5800 : 35;
+  const unit = name => name === 'dew_point_2m' || name.startsWith('temperature_') ? '°C' : (name === 'boundary_layer_height' || name.startsWith('geopotential_height_')) ? 'm'
+    : name === 'aerosol_optical_depth' ? '' : '%';
+  const value = name => name === 'dew_point_2m' ? 21.5 : name === 'boundary_layer_height' ? 640 : name.startsWith('geopotential_height_') ? 5800
+    : name.startsWith('temperature_') ? -12.5 : name === 'aerosol_optical_depth' ? 0.31 : 35;
   return { utc_offset_seconds: 28800, timezone: 'Asia/Shanghai', elevation: 12,
     hourly_units: Object.fromEntries([['time', 'iso8601'], ...variables.map(n => [n, overrides.units?.[n] ?? unit(n)])]),
     hourly: Object.fromEntries([['time', time], ...variables.map(n => [n, time.map(() => value(n))])]) };
@@ -36,7 +38,16 @@ function clientRuntime(fetch) {
   return load(createRuntime({ fetch }), [...CORE_FILES, 'js/bypass_capture.js']);
 }
 const plain = value => JSON.parse(JSON.stringify(value));
-const expected = { prediction_time_utc: new Date(NOW).toISOString(), sunset_time_utc: SOLAR.sunset.toISOString(), ...LOCATION };
+// V2.5.5.29: strip the v3 additions from a capture to get the v2 / v1 object of the same request (pages before 2.5.5.29).
+function downgrade(b, version = 2) {
+  b.bypass_schema_version = version; delete b.ray_nodes; delete b.ray_aod; delete b.requests.C; delete b.requests.D;
+  delete b.quality.ray_null_counts; delete b.quality.ray_missing_reason;
+  b.units = Object.fromEntries(b.requests.B.variables.map(n => [n, b.units[n]]));
+  return b;
+}
+const isRay = url => new URL(url).searchParams.get('models') === 'ecmwf_ifs025';
+const isAod = url => new URL(url).hostname === 'air-quality-api.open-meteo.com';
+const expected ={ prediction_time_utc: new Date(NOW).toISOString(), sunset_time_utc: SOLAR.sunset.toISOString(), ...LOCATION };
 
 test('Client request lists equal the server schema, one 33-node request and one far-point request at 400 / 550 km', async () => {
   const schema = await import('../server/bypass-schema.js'), calls = [];
@@ -45,7 +56,7 @@ test('Client request lists equal the server schema, one 33-node request and one 
   assert.deepEqual([...SS.bypassCapture.CONFIG.farVariables], [...schema.BYPASS_FAR_VARIABLES]);
   assert.equal(schema.BYPASS_GRID_VARIABLES.length, 20); assert.equal(schema.BYPASS_FAR_VARIABLES.length, 24);
   const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4, 'A, B, C and D');
   assert.equal(new URL(calls[0]).searchParams.get('latitude').split(',').length, 33);
   assert.equal(new URL(calls[1]).searchParams.get('latitude').split(',').length, 2);
   assert.deepEqual(bypass.far_nodes.map(n => [n.key, n.distance_km, n.bearing_deg]), [['SUNSET_400', 400, 278], ['SUNSET_550', 550, 278]]);
@@ -66,22 +77,119 @@ test('V2.5.5.15 capture sends only the far-point request: request A is NOT_REQUE
   const SS = clientRuntime(openMeteoFetch(calls));
   assert.equal(SS.bypassCapture.CONFIG.gridRequestEnabled, false);
   const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
-  assert.equal(calls.length, 1, 'one Open-Meteo request (far points)');
+  assert.equal(calls.filter(u => !isRay(u) && !isAod(u)).length, 1, 'one default-model Open-Meteo request (far points)');
   assert.equal(new URL(calls[0]).searchParams.get('latitude').split(',').length, 2);
   assert.deepEqual(bypass.requests.A, { status: 'NOT_REQUESTED', reason_code: 'DISABLED', variables: [...schema.BYPASS_GRID_VARIABLES] });
   assert.equal(bypass.requests.B.status, 'OK'); assert.deepEqual(bypass.grid_nodes, []);
   assert.equal(bypass.far_nodes.length, 2); assert.deepEqual(bypass.quality.missing_reason, {});
-  assert.equal(bypass.bypass_schema_version, 2);
+  assert.equal(bypass.bypass_schema_version, 3);
   assert.doesNotThrow(() => schema.validateBypassPayload(bypass, expected));
   const limited = plain(await clientRuntime(openMeteoFetch([], { status: 429 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
   assert.deepEqual([limited.requests.A.status, limited.requests.B.status, limited.quality.missing_reason.dew_point_2m], ['NOT_REQUESTED', 'RATE_LIMITED', 'RATE_LIMITED']);
   assert.doesNotThrow(() => schema.validateBypassPayload(limited, expected));
 });
 
+// V2.5.5.29 requests C (light-path profile, ECMWF 0.25°) and D (upstream AOD): 7 points on the sunset ray, one request each.
+test('V2.5.5.29 capture sends requests C and D once each on 7 ray points and records ray_nodes / ray_aod (v3)', async () => {
+  const schema = await import('../server/bypass-schema.js'), calls = [];
+  const SS = clientRuntime(openMeteoFetch(calls));
+  const C = SS.bypassCapture.CONFIG;
+  assert.deepEqual([...C.rayVariables], [...schema.BYPASS_RAY_VARIABLES]); assert.deepEqual([...C.aodVariables], [...schema.BYPASS_AOD_VARIABLES]);
+  assert.deepEqual([...C.rayDistancesKm], [...schema.BYPASS_RAY_DISTANCES_KM]);
+  assert.equal(schema.BYPASS_RAY_VARIABLES.length, 30);
+  assert.deepEqual(schema.BYPASS_RAY_VARIABLES.slice(0, 3), ['temperature_925hPa', 'relative_humidity_925hPa', 'geopotential_height_925hPa']);
+  assert.deepEqual(schema.BYPASS_RAY_VARIABLES.slice(-4), ['geopotential_height_200hPa', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high']);
+  const bypass = plain(await SS.bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.equal(calls.length, 3, 'B, C and D; no retry');
+  const c = new URL(calls.find(isRay)), d = new URL(calls.find(isAod));
+  assert.equal(c.origin + c.pathname, 'https://api.open-meteo.com/v1/forecast');
+  assert.deepEqual(c.searchParams.get('hourly').split(','), [...schema.BYPASS_RAY_VARIABLES]);
+  assert.deepEqual([c.searchParams.get('forecast_days'), c.searchParams.get('timezone')], ['2', 'auto']);
+  assert.equal(d.origin + d.pathname, 'https://air-quality-api.open-meteo.com/v1/air-quality');
+  assert.equal(d.searchParams.get('hourly'), 'aerosol_optical_depth'); assert.equal(d.searchParams.get('models'), null);
+  assert.equal(c.searchParams.get('latitude'), d.searchParams.get('latitude')); assert.equal(c.searchParams.get('latitude').split(',').length, 7);
+  assert.deepEqual(bypass.ray_nodes.map(n => [n.key, n.distance_km, n.bearing_deg]), [0, 50, 100, 200, 300, 400, 550].map(k => ['RAY_' + k, k, 278]));
+  for (const node of bypass.ray_nodes) {
+    const p = SS.data.destinationPoint(LOCATION.latitude, LOCATION.longitude, 278, node.distance_km);
+    assert.ok(Math.abs(node.latitude - p.latitude) < 1e-9 && Math.abs(node.longitude - p.longitude) < 1e-9);
+  }
+  assert.ok(Math.abs(bypass.ray_nodes[0].latitude - LOCATION.latitude) < 1e-9, 'RAY_0 is the city itself');
+  assert.deepEqual([bypass.ray_nodes[6].latitude, bypass.ray_nodes[6].longitude], [bypass.far_nodes[1].latitude, bypass.far_nodes[1].longitude], 'RAY_550 = SUNSET_550');
+  assert.deepEqual([bypass.requests.C, bypass.requests.D], [{ status: 'OK', reason_code: null, model: 'ecmwf_ifs025', variables: [...schema.BYPASS_RAY_VARIABLES] },
+    { status: 'OK', reason_code: null, model: 'cams', variables: ['aerosol_optical_depth'] }]);
+  const n0 = bypass.ray_nodes[0];
+  assert.ok(n0.time_utc.length > 0 && n0.time_utc.length < 24, 'trimmed to the now-to-sunset window');
+  assert.deepEqual(n0.time_utc, bypass.far_nodes[0].time_utc); assert.deepEqual(bypass.ray_aod[0].time_utc, n0.time_utc);
+  assert.ok(n0.variables.temperature_500hPa.every(v => v === -12.5)); assert.ok(bypass.ray_aod[3].aerosol_optical_depth.every(v => v === 0.31));
+  assert.deepEqual(Object.keys(bypass.ray_aod[0]), ['key', 'distance_km', 'time_utc', 'aerosol_optical_depth']);
+  assert.deepEqual([bypass.units.temperature_200hPa, bypass.units.geopotential_height_600hPa, bypass.units.relative_humidity_400hPa, bypass.units.aerosol_optical_depth],
+    ['celsius', 'meter', 'percent', 'dimensionless']);
+  assert.deepEqual([bypass.quality.ray_missing_reason, bypass.quality.ray_null_counts.temperature_925hPa, bypass.quality.ray_null_counts.aerosol_optical_depth], [{}, 0, 0]);
+  assert.doesNotThrow(() => schema.validateBypassPayload(bypass, expected));
+  assert.ok(new TextEncoder().encode(JSON.stringify(bypass)).byteLength < 150 * 1024);
+
+  // C or D failing leaves B recorded; 429 is RATE_LIMITED, other failures FAILED; a wrong unit is nulled.
+  const routed = (ray, aod) => async url => isRay(url) ? ray(url) : isAod(url) ? aod(url) : openMeteoFetch([])(url);
+  const fail = status => async () => new Response('{}', { status });
+  const partial = plain(await clientRuntime(routed(fail(429), fail(503))).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.deepEqual([partial.requests.B.status, partial.requests.C.status, partial.requests.C.reason_code, partial.requests.D.status, partial.requests.D.reason_code],
+    ['OK', 'RATE_LIMITED', 'HTTP_429', 'FAILED', 'HTTP_503']);
+  assert.deepEqual([partial.quality.ray_missing_reason.temperature_925hPa, partial.quality.ray_missing_reason.aerosol_optical_depth, partial.quality.missing_reason], ['RATE_LIMITED', 'REQUEST_FAILED', {}]);
+  assert.deepEqual([partial.ray_nodes.length, partial.ray_nodes[0].time_utc, partial.ray_aod[0].aerosol_optical_depth], [7, [], []]);
+  assert.ok(partial.far_nodes[0].time_utc.length > 0);
+  assert.doesNotThrow(() => schema.validateBypassPayload(partial, expected));
+  const units = plain(await clientRuntime(routed(openMeteoFetch([], { units: { temperature_850hPa: 'K' } }), openMeteoFetch([], { units: { aerosol_optical_depth: '%' } })))
+    .bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.deepEqual([units.quality.ray_missing_reason.temperature_850hPa, units.quality.ray_missing_reason.aerosol_optical_depth], ['UNIT_MISMATCH', 'UNIT_MISMATCH']);
+  assert.ok(units.ray_nodes[2].variables.temperature_850hPa.every(v => v === null) && units.ray_nodes[2].variables.temperature_700hPa.every(v => v === -12.5));
+  assert.doesNotThrow(() => schema.validateBypassPayload(units, expected));
+  const short = plain(await clientRuntime(routed(async url => { const r = await openMeteoFetch([])(url), body = await r.json(); return new Response(JSON.stringify(body.slice(0, 6)), { status: 200 }); },
+    openMeteoFetch([]))).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  assert.deepEqual([short.requests.C.status, short.requests.C.reason_code, short.requests.D.status], ['FAILED', 'NODE_COUNT_MISMATCH', 'OK']);
+});
+
+test('V2.5.5.29 schema v3: ray points, variables, time axes and models are strict; v1 / v2 objects stay valid', async () => {
+  const schema = await import('../server/bypass-schema.js');
+  const base = plain(await clientRuntime(openMeteoFetch([])).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }));
+  const mutate = fn => { const copy = structuredClone(base); fn(copy); return () => schema.validateBypassPayload(copy, expected); };
+  assert.equal(schema.BYPASS_SCHEMA_VERSION, 3); assert.deepEqual([...schema.BYPASS_SCHEMA_VERSIONS], [1, 2, 3]);
+  assert.doesNotThrow(mutate(b => downgrade(b, 2))); assert.doesNotThrow(mutate(b => downgrade(b, 1)));
+  assert.throws(mutate(b => { b.bypass_schema_version = 2; }), /未知字段：ray_/, 'v2 objects carry no ray fields');
+  assert.throws(mutate(b => { downgrade(b, 3); }), /缺少字段：ray_/);
+  assert.throws(mutate(b => { b.bypass_schema_version = 4; }), /不受支持/);
+  assert.throws(mutate(b => { delete b.requests.D; }), /缺少字段：D/);
+  assert.throws(mutate(b => { b.requests.C.model = 'best_match'; }), /模式非法/);
+  assert.throws(mutate(b => { delete b.requests.C.model; }), /缺少字段：model/);
+  assert.throws(mutate(b => { b.requests.C.variables.reverse(); }), /变量列表不符/);
+  assert.throws(mutate(b => { b.ray_nodes.push(structuredClone(b.ray_nodes[6])); }), /ray_nodes 数量非法/);
+  assert.throws(mutate(b => { b.ray_nodes.pop(); }), /ray_nodes 数量非法/);
+  assert.throws(mutate(b => { [b.ray_nodes[1], b.ray_nodes[2]] = [b.ray_nodes[2], b.ray_nodes[1]]; }), /点位非法/);
+  assert.throws(mutate(b => { b.ray_nodes[3].distance_km = 250; }), /点位非法/);
+  assert.throws(mutate(b => { delete b.ray_nodes[0].variables.cloud_cover_high; }), /缺少字段：cloud_cover_high/);
+  assert.throws(mutate(b => { b.ray_nodes[0].variables.temperature_200hPa.pop(); }), /变量长度与时间轴不一致/);
+  assert.throws(mutate(b => { b.ray_nodes[0].variables.temperature_200hPa[0] = 80; }), /非法/);
+  assert.throws(mutate(b => { b.ray_nodes[0].variables.relative_humidity_300hPa[0] = 'x'; }), /非法/);
+  assert.throws(mutate(b => { b.ray_aod.pop(); }), /ray_aod 数量非法/);
+  assert.throws(mutate(b => { b.ray_aod[2].key = 'RAY_X'; }), /点位非法/);
+  assert.throws(mutate(b => { b.ray_aod[2].aerosol_optical_depth.pop(); }), /时间轴不一致/);
+  assert.throws(mutate(b => { b.ray_aod[2].aerosol_optical_depth[0] = -0.1; }), /非法/);
+  assert.throws(mutate(b => { b.ray_aod[2].elevation_m = 3; }), /未知字段：elevation_m/);
+  assert.throws(mutate(b => { b.units.aerosol_optical_depth = 'percent'; }), /单位非法/);
+  assert.throws(mutate(b => { delete b.units.temperature_925hPa; }), /缺少字段：temperature_925hPa/);
+  assert.throws(mutate(b => { b.quality.ray_null_counts.dew_point_2m = 1; }), /未知变量/);
+  assert.throws(mutate(b => { b.quality.ray_missing_reason.aerosol_optical_depth = 'BROKEN'; }), /missing_reason 非法/);
+  assert.throws(mutate(b => { delete b.quality.ray_null_counts; }), /缺少字段：ray_null_counts/);
+  assert.doesNotThrow(mutate(b => { b.ray_nodes[0].variables.temperature_200hPa[0] = null; b.ray_aod[0].aerosol_optical_depth[0] = null; }));
+  assert.throws(mutate(b => { for (const n of b.ray_nodes) { n.time_utc = Array.from({ length: 96 }, (_, i) => new Date(NOW + i * 3600000).toISOString());
+    for (const k of Object.keys(n.variables)) n.variables[k] = n.time_utc.map(() => 12.345678901234567); }
+    for (const n of b.ray_aod) { n.time_utc = b.ray_nodes[0].time_utc; n.aerosol_optical_depth = n.time_utc.map(() => 0.123456789012345); }
+    b.far_nodes.forEach(n => { n.time_utc = b.ray_nodes[0].time_utc; for (const k of Object.keys(n.variables)) n.variables[k] = n.time_utc.map(() => 12.345678901234567); }); }), /BYPASS_TOO_LARGE/);
+});
+
 test('HTTP 429 is recorded as RATE_LIMITED without any retry; units that differ are nulled as UNIT_MISMATCH', async () => {
   const schema = await import('../server/bypass-schema.js'), calls = [];
   const limited = plain(await clientRuntime(openMeteoFetch(calls, { status: 429 })).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
-  assert.equal(calls.length, 2, 'one attempt per request, no retry');
+  assert.equal(calls.length, 4, 'one attempt per request, no retry');
   assert.deepEqual([limited.requests.A.status, limited.requests.A.reason_code, limited.requests.B.status], ['RATE_LIMITED', 'HTTP_429', 'RATE_LIMITED']);
   assert.equal(limited.quality.missing_reason.cloud_cover_850hPa, 'RATE_LIMITED'); assert.equal(limited.grid_nodes[0].time_utc.length, 0);
   assert.doesNotThrow(() => schema.validateBypassPayload(limited, expected));
@@ -97,8 +205,8 @@ test('Schema keeps satellite_shadow reserved, binds to the Replay and rejects un
   const base = plain(await clientRuntime(openMeteoFetch([])).bypassCapture.capture({ location: LOCATION, solar: SOLAR, nowUtcMs: NOW }, { gridRequest: true }));
   const mutate = fn => { const copy = structuredClone(base); fn(copy); return () => schema.validateBypassPayload(copy, expected); };
   // v1 objects keep satellite_shadow reserved (null only); v2 objects validate it as the V2.5.5.8 shadow object.
-  assert.throws(mutate(b => { b.bypass_schema_version = 1; b.satellite_shadow = { frames: [] }; }), /BYPASS_SATELLITE_SHADOW_NOT_DEFINED/);
-  assert.doesNotThrow(mutate(b => { b.bypass_schema_version = 1; }));
+  assert.throws(mutate(b => { downgrade(b, 1); b.satellite_shadow = { frames: [] }; }), /BYPASS_SATELLITE_SHADOW_NOT_DEFINED/);
+  assert.doesNotThrow(mutate(b => { downgrade(b, 1); }));
   assert.throws(mutate(b => { b.satellite_shadow = { frames: [] }; }), /satellite_shadow 缺少字段/);
   assert.throws(mutate(b => { delete b.satellite_shadow; }), /缺少字段：satellite_shadow/);
   assert.throws(mutate(b => { b.snapshot_id = 'snap_x'; }), /snapshot_id/);
@@ -171,10 +279,10 @@ test('Endpoint stores the bypass object next to a READY Replay; its failures nev
   assert.deepEqual([ok.first.replayStatus, ok.first.bypassStatus, ok.retry.deduplicated, ok.retry.bypassStatus], ['READY', 'SAVED', true, 'EXISTS']);
   assert.equal(R2.objects.size, 2);
   const stored = R2.objects.get(ok.row.replay_object_key.replace(/\.json\.gz$/, '.bypass.json.gz'));
-  assert.equal(stored.customMetadata.snapshot_id, ok.first.id); assert.equal(stored.customMetadata.bypass_schema_version, '2');
+  assert.equal(stored.customMetadata.snapshot_id, ok.first.id); assert.equal(stored.customMetadata.bypass_schema_version, '3');
   const noBypass = await run(await envelope(), bucket());
   assert.deepEqual([noBypass.first.replayStatus, noBypass.first.bypassStatus], ['READY', 'ABSENT']);
-  const reserved = structuredClone(bypass); reserved.bypass_schema_version = 1; reserved.satellite_shadow = { frames: [] };
+  const reserved = downgrade(structuredClone(bypass), 1); reserved.satellite_shadow = { frames: [] };
   const R2b = bucket(), invalid = await run(await envelope(reserved), R2b);
   assert.deepEqual([invalid.first.replayStatus, invalid.first.bypassStatus, R2b.objects.size], ['READY', 'BYPASS_SATELLITE_SHADOW_NOT_DEFINED', 1]);
   const outage = await run(await envelope(structuredClone(bypass)), bucket({ failBypassPut: true }));
@@ -192,7 +300,8 @@ test('Ordinary predictions send no bypass request; capture runs attach it, and s
   const bypassCalls = () => calls.filter(u => u.includes('geopotential_height')).length;
   assert.equal(bypassCalls(), 0); assert.equal(ordinary.bypass_payload, undefined);
   const captured = await SS.prediction.predict('31.23,121.47', { nowUtcMs, captureReplay: true });
-  assert.equal(bypassCalls(), 1, 'V2.5.5.15: far-point request only'); assert.equal(captured.bypass_payload.satellite_shadow, null);
+  assert.equal(bypassCalls(), 2, 'V2.5.5.15: far-point request only; V2.5.5.29: plus request C (D has no geopotential_height)');
+  assert.equal(calls.filter(isAod).length, 1); assert.equal(captured.bypass_payload.satellite_shadow, null);
   assert.equal(captured.score, ordinary.score);
   const env1 = await SS.snapshotService.buildReplayEnvelope(captured, { source: 'github_manual', scheduledSlot: '1613' });
   assert.deepEqual(Object.keys(env1), ['snapshot', 'replay', 'bypass']); assert.equal(env1.bypass, captured.bypass_payload);
@@ -203,7 +312,8 @@ test('Ordinary predictions send no bypass request; capture runs attach it, and s
   const SF = load(failingRuntime, [...SERVICE_FILES, 'js/bypass_capture.js']);
   SF.data.fetchForecastWithRetry = async () => fc; SF.data.fetchAirQuality = async () => null; SF.data.gather = SS.data.gather;
   const limited = await SF.prediction.predict('31.23,121.47', { nowUtcMs, captureReplay: true });
-  assert.equal(limited.score, captured.score); assert.deepEqual([limited.bypass_payload.requests.A.status, limited.bypass_payload.requests.B.status], ['NOT_REQUESTED', 'RATE_LIMITED']);
+  assert.equal(limited.score, captured.score);
+  assert.deepEqual(['A', 'B', 'C', 'D'].map(id => limited.bypass_payload.requests[id].status), ['NOT_REQUESTED', 'RATE_LIMITED', 'RATE_LIMITED', 'RATE_LIMITED']);
   assert.equal(JSON.stringify(limited.replay_payload.nwp), JSON.stringify(captured.replay_payload.nwp));
   assert.equal(limited.replay_payload.identity.config_hash, captured.replay_payload.identity.config_hash);
 });

@@ -14,13 +14,23 @@ const NOW = Date.parse('2026-09-09T04:13:00.000Z');
 const SHADOW_FILES = ['js/config.js', 'js/model_config.js', 'js/network.js', 'js/corridor.js', 'js/satellite_colormap.js', 'js/satellite_shadow.js'];
 const DOMAIN = "<Domains><DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-10-28T01:00:00Z/2026-10-28T02:30:00Z/PT10M,2026-10-28T02:50:00Z/2026-10-28T06:30:00Z/PT10M</Domain><Size>2</Size></DimensionDomain></Domains>";
 const plain = value => JSON.parse(JSON.stringify(value));
+// V2.5.5.29: strip the v3 additions to get the v2 / v1 object of the same capture.
+function downgrade(b, version) {
+  b.bypass_schema_version = version; delete b.ray_nodes; delete b.ray_aod; delete b.requests.C; delete b.requests.D;
+  delete b.quality.ray_null_counts; delete b.quality.ray_missing_reason;
+  b.units = Object.fromEntries(b.requests.B.variables.map(n => [n, b.units[n]]));
+}
 
 function omFetch() {
   return async url => {
     const u = new URL(url), variables = u.searchParams.get('hourly').split(','), count = u.searchParams.get('latitude').split(',').length;
     const time = Array.from({ length: 24 }, (_, h) => `2026-09-09T${String(h).padStart(2, '0')}:00`);
-    const unit = n => n === 'dew_point_2m' ? '°C' : (n === 'boundary_layer_height' || n.startsWith('geopotential_height_')) ? 'm' : '%';
-    const value = n => n === 'dew_point_2m' ? 21.5 : n === 'boundary_layer_height' ? 640 : n.startsWith('geopotential_height_') ? 5800 : 35;
+    const unit = n => n === 'dew_point_2m' || n.startsWith('temperature_') ? '°C' : (n === 'boundary_layer_height' || n.startsWith('geopotential_height_')) ? 'm'
+      : n === 'aerosol_optical_depth' ? '' : '%';
+    // Request C (ECMWF 0.25°) returns 10 points more low cloud than request B, so the 0.25° vs 9 km contrast is visible.
+    const ray = u.searchParams.get('models') === 'ecmwf_ifs025';
+    const value = n => n === 'dew_point_2m' ? 21.5 : n === 'boundary_layer_height' ? 640 : n.startsWith('geopotential_height_') ? 5800
+      : n.startsWith('temperature_') ? -12.5 : n === 'aerosol_optical_depth' ? 0.31 : n === 'cloud_cover_low' && ray ? 45 : 35;
     const one = () => ({ utc_offset_seconds: 28800, timezone: 'Asia/Shanghai', elevation: 12,
       hourly_units: Object.fromEntries([['time', 'iso8601'], ...variables.map(n => [n, unit(n)])]),
       hourly: Object.fromEntries([['time', time], ...variables.map(n => [n, time.map(() => value(n))])]) });
@@ -73,9 +83,9 @@ async function setup(t) {
   ];
   const objects = new Map([
     ['snap_a', stored(rows[0], p => { p.satellite_shadow = f.cold; })],
-    ['snap_b', require('node:zlib').gunzipSync(stored(rows[1], p => { p.satellite_shadow = f.warm; }))],
+    ['snap_b', require('node:zlib').gunzipSync(stored(rows[1], p => { downgrade(p, 2); p.satellite_shadow = f.warm; }))],
     ['snap_d', stored(rows[3], p => { p.latitude += 0.01; })],
-    ['snap_g', stored(rows[6], p => { p.bypass_schema_version = 1; })]
+    ['snap_g', stored(rows[6], p => { downgrade(p, 1); })]
   ].map(([id, bytes]) => [m.core.objectKeyFor(rows.find(r => r.id === id)), bytes]));
   const calls = [];
   const source = {
@@ -136,7 +146,7 @@ test('Export classifies every Snapshot, verifies binding, reports label-free qua
   assert.deepEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(x => by['snap_' + x].object_status),
     ['VALID', 'VALID', 'MISSING', 'INVALID', 'NOT_CHECKED', 'NOT_CHECKED', 'VALID', 'DOWNLOAD_FAILED']);
   assert.equal(by.snap_d.error_code, 'BYPASS_BINDING_MISMATCH');
-  assert.deepEqual([by.snap_a.bypass_schema_version, by.snap_a.shadow_status, by.snap_g.bypass_schema_version, by.snap_g.shadow_status], [2, 'OK', 1, null]);
+  assert.deepEqual([by.snap_a.bypass_schema_version, by.snap_a.shadow_status, by.snap_b.bypass_schema_version, by.snap_g.bypass_schema_version, by.snap_g.shadow_status], [3, 'OK', 2, 1, null]);
   assert.equal(by.snap_a.bypass_object_key, 'replay/v1/2026/10/29/evt/snap_a.bypass.json.gz');
   assert.ok(!calls.some(k => k.includes('snap_e') || k.includes('snap_f')), 'NOT_EXPECTED Snapshots are not downloaded');
   const quality = JSON.parse(await fs.readFile(path.join(result.directory, 'reports/quality.json'), 'utf8'));
@@ -148,12 +158,18 @@ test('Export classifies every Snapshot, verifies binding, reports label-free qua
   assert.deepEqual([quality.satellite_shadow.cold_cloud_cases.length, quality.satellite_shadow.worldview_candidates.cloudy[0].snapshot_id,
     quality.satellite_shadow.worldview_candidates.clear[0].snapshot_id], [1, 'snap_a', 'snap_b']);
   // V2.5.5.15 report v2: the pressure-level rank correlation is dropped (see validate --raw); frame-level statistics added.
-  assert.equal(quality.quality_version, 2);
+  assert.equal(quality.quality_version, 3);
+  // V2.5.5.29 report v3: only snap_a is a v3 object (snap_b is v2, snap_g v1).
+  const ray = quality.ray;
+  assert.deepEqual([ray.objects, ray.C.status, ray.C.ok_ratio, ray.D.ok_ratio, ray.profile_nulls_when_c_ok], [1, { OK: 1 }, 1, 1, 0]);
+  assert.deepEqual([ray.variable_missing_ratio.temperature_200hPa, ray.variable_missing_ratio.aerosol_optical_depth], [0, 0]);
+  assert.deepEqual(ray.cloud_025_vs_9km.cloud_cover_low, { n: 2, mean_9km: 35, mean_025: 45, mean_diff: 10, mean_abs_diff: 10 });
+  assert.equal(ray.cloud_025_vs_9km.cloud_cover_high.mean_diff, 0);
   assert.ok(!('spearman_frac_cloud_vs_nwp_mid_high' in quality.satellite_shadow));
   assert.equal(quality.satellite_shadow.nwp_comparison, 'SEE_VALIDATE_RAW_SINGLE_LEVEL');
   assert.deepEqual([quality.satellite_shadow.frames.all_frames_ok_ratio, quality.satellite_shadow.frames.objects_without_ok_frame], [1, 0]);
   assert.equal(quality.requests.pressure_level_cloud_consistency.pressure_level_lt_10_when_single_ge_50, null, 'no single-level ≥ 50% nodes');
-  assert.match(await fs.readFile(path.join(result.directory, 'reports/quality.md'), 'utf8'), /旁路对象质量周报[\s\S]*Worldview/);
+  assert.match(await fs.readFile(path.join(result.directory, 'reports/quality.md'), 'utf8'), /旁路对象质量周报[\s\S]*光路剖面与上游 AOD[\s\S]*Worldview/);
   const first = calls.length;
   const again = await run();
   assert.deepEqual([again.status, again.bypass_dataset_id, again.cache_hits, again.downloads], ['DEDUPLICATED', result.bypass_dataset_id, 3, 0]);
@@ -241,11 +257,16 @@ test('V2.5.5.15 quality v2: versions are dispatched, frame-level statistics and 
     qualityItem('s3', [frame('TILES_FAILED'), frame('TILES_FAILED'), frame('TILES_FAILED')], '1720')
   ];
   const rows = items.map(x => x.row), payloads = new Map(items.map(x => [x.row.snapshot_id, x.payload]));
-  const v1 = q.buildQuality(rows, payloads, 1), v2 = q.buildQuality(rows, payloads);
+  const v1 = q.buildQuality(rows, payloads, 1), v2 = q.buildQuality(rows, payloads, 2);
   assert.equal(v1.quality_version, undefined); assert.ok('spearman_frac_cloud_vs_nwp_mid_high' in v1.satellite_shadow);
   assert.deepEqual(v1.thresholds, q.THRESHOLDS, 'v1 thresholds never change');
   assert.equal(v2.quality_version, 2); assert.notEqual(JSON.stringify(v1), JSON.stringify(v2));
-  assert.throws(() => q.buildQuality(rows, payloads, 3), /BYPASS_QUALITY_VERSION_UNSUPPORTED/);
+  assert.throws(() => q.buildQuality(rows, payloads, 4), /BYPASS_QUALITY_VERSION_UNSUPPORTED/);
+  // V2.5.5.29: v3 is v2 plus the ray section; with no v3 objects it is empty and adds no warning.
+  const v3 = q.buildQuality(rows, payloads);
+  assert.equal(v3.quality_version, 3); assert.deepEqual(v3.warnings, v2.warnings); assert.equal(v3.ray.objects, 0);
+  assert.deepEqual(Object.keys(v3).filter(k => k !== 'ray').map(k => [k, k === 'quality_version' || k === 'thresholds' ? null : v3[k]]),
+    Object.keys(v2).map(k => [k, k === 'quality_version' || k === 'thresholds' ? null : v2[k]]));
   const f = v2.satellite_shadow.frames;
   assert.deepEqual([f.all_frames_ok_ratio, f.latest_frame_ok_ratio, f.objects_without_ok_frame], [0.333, 0.333, 1]);
   assert.deepEqual(f.status_by_position, { 1: { OK: 2, TILES_FAILED: 1 }, 2: { OK: 1, TILES_FAILED: 2 }, 3: { INSUFFICIENT_SAMPLES: 1, OK: 1, TILES_FAILED: 1 } });
