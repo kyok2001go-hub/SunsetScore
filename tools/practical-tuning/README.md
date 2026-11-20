@@ -1,5 +1,22 @@
 # 轻量 component_weights 调优（V2.5.4.9）
 
+## 云幕与光照组件合并评估（V2.5.5.31，Schema/Policy 19）
+
+```powershell
+npm run tuning:practical -- --search-space canvas-merge
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+非劣性评估，不搜索、不选线、不改默认配置；`js/config.js` 不含 `canvasMerge`。需求见 [V2.5.5.31 PRD](../../../ref_docs/PRD/V2.5.5.31--云幕与光照组件合并方案.md)。
+
+- **数据：** 与 Policy 13–18 相同，按身份读取 DEV、H1、H2 三个冻结包，拒绝 2026-11-16 起的日期。
+- **引擎键：** `canvasMerge = { skyCanvasShare: s, scale: k, twilightFloor: null | f }`。Canvas = k × [s × SkyCanvas + (1 − s) × cloudBankPotential × 数据系数]，权重取 skyCanvas 与 illumination 两项动态权重之和，illumination 权重为 0；`twilightFloor` 为数值时再乘 f + (1 − f) × 昏影饱和比。键缺失时所有数值不变。
+- **成员：** C0 = 2.5.5.19；主候选 M1（s = 1/3，k = 0.885）；只报告 M1L（k = 0.855）、M2（k = 1）、M3（k = 1，twilightFloor 0.53）、M4（s = 0，k = 0.885）。
+- **判定：** 现行线 19 / 49 / 66 / 90 下 M1 对 C0 的 N1–N4（ΔAUC≥2 下限 > −0.01、ΔAUC≥3 下限 > −0.02、损失差点估计 ≤ +0.03 且上限 < +0.05、全体与有云 ≥2 召回不比 C0 低 0.01 以上且 ≥ 0.60 / 0.65），输出 `NON_INFERIOR` / `INFERIOR`。重选线交叉验证、跨时段、分组、等级改变清单、分数分布、昏影按月分布只报告。
+- **核对：** C0 复现 V2.5.5.18 Run 的固定签名；C0 与 M1 各做一次 Trace，逐条核对合并权重等于两项之和（容差 1e-12）、其余权重相同、illumination 分量为 null。
+- **参数登记：** 基础配置含 `canvasMerge` 时 Sensitivity 拒绝运行（`CANVAS_MERGE_UNWIRES_ILLUMINATION`）：`weights.illumination`、`illuminationModel.*` 不再接线。登记文档与其 Hash 不变。
+- **复算：** 发布前新进程完整重算 payload；`verify` 同样重算。
+
 ## 地平线条件化第二版（V2.5.5.18，Schema/Policy 15）
 
 ```powershell

@@ -10,7 +10,7 @@ import { loadReplayCohort, verifyReplayParity } from './replay-cohort.mjs';
 import { cohortProfiles } from './metrics.mjs';
 import { computeGlobalReadiness } from './readiness.mjs';
 import { registryDocument } from '../parameter-registry.mjs';
-import { UNITS, ABLATIONS, REGISTRY_VERSION, validateRegistryShape } from '../parameter-registry.mjs';
+import { UNITS, ABLATIONS, REGISTRY_VERSION, validateRegistryShape, assertNoConditionalUnwiring } from '../parameter-registry.mjs';
 import { canonicalJson, hash } from '../../dataset/lib/common.mjs';
 
 /**
@@ -26,6 +26,7 @@ export async function prepareContext({ model, raw, gt, baseline, progress = sile
   const linkage = await loadEvaluationLinkage(baseline, input.linkage);
   const engineRuntime = await runtimeDocument(root);
   const loaded = await loadFrozenBaseConfig(root);
+  assertNoConditionalUnwiring(loaded.config);   // V2.5.5.31: canvasMerge leaves weights.illumination / illuminationModel.* unwired
   const modelConfig = buildModelConfig(loaded.config);
   const audit = await auditRegistry({
     units: UNITS, config: loaded.config, modelConfig, root, verifyAliasIdentity,

@@ -717,9 +717,9 @@
       { skyCanvas: 1, horizon: 1, illumination: 1, atmosphere: 1, weather: 1 };
     function blendWeight(base, mult) { return base * (1 + (mult - 1) * strength); }
     dynamicWeights = {
-      skyCanvas: blendWeight(cfg.weights.skyCanvas, mults.skyCanvas),
+      skyCanvas: cfg.canvasMerge != null ? blendWeight(cfg.weights.skyCanvas, mults.skyCanvas) + blendWeight(cfg.weights.illumination, mults.illumination) : blendWeight(cfg.weights.skyCanvas, mults.skyCanvas), /* V2.5.5.31 canvasMerge（离线验证用，默认关闭）：W_canvas = 两项动态权重之和，等价于基础权重之和 × 加权平均乘数 m̄ */
       horizon: blendWeight(cfg.weights.horizon, mults.horizon),
-      illumination: blendWeight(cfg.weights.illumination, mults.illumination),
+      illumination: cfg.canvasMerge != null ? 0 : blendWeight(cfg.weights.illumination, mults.illumination),
       atmosphere: blendWeight(cfg.weights.atmosphere, mults.atmosphere),
       weather: Math.max(blendWeight(cfg.weights.weather, mults.weather), regimeConfig.minimumWeatherWeight)
     };
@@ -782,7 +782,7 @@
     if (regime === 'STORM_APPROACHING') hardGates.push('强天气系统正在逼近');
 
     /* ===== 18. 最终公式（V1.7：天气型动态权重） ===== */
-    var P, bonus, accessFactor = canvasAccessFactorOf(cfg, corridorOpening, lv); /* V2.5.5.24 canvasLightAccess / viewOcclusion（离线验证用，默认关闭）：键缺失时为 1 */
+    var P, bonus, accessFactor = canvasAccessFactorOf(cfg, corridorOpening, lv); /* V2.5.5.24 canvasLightAccess / viewOcclusion（离线验证用，默认关闭）：键缺失时为 1 */ var canvasMerge = canvasMergeOf(cfg, skyCanvas, cloudBankPotential, illuminationDataFactor, twilightRatioClamped, mults, input.solar.twilightMinutes); if (canvasMerge) skyCanvas = canvasMerge.value; /* V2.5.5.31：合并后的云幕替代 SkyCanvas，Illumination 权重为 0 */
     P = dynamicWeights.skyCanvas * skyCanvas * accessFactor +
       dynamicWeights.horizon * horizon * potentialFactor +
       dynamicWeights.illumination * illumination * accessFactor +
@@ -799,7 +799,7 @@
     // Explicit offline observer. It receives intermediate values from this execution only;
     // the normal prediction path neither installs it nor stores diagnostic data.
     if (typeof input.offlineTrace === 'function') {
-      var rawComponents = { skyCanvas: skyCanvas, horizon: horizon, illumination: illumination,
+      var rawComponents = { skyCanvas: skyCanvas, horizon: horizon, illumination: canvasMerge ? null : illumination,
         atmosphere: atmosphere, weather: weather };
       var contributions = {};
       Object.keys(rawComponents).forEach(function (key) { contributions[key] = rawComponents[key] * dynamicWeights[key]; }); if (hcp) contributions.horizon *= potentialFactor; contributions.skyCanvas *= accessFactor; contributions.illumination *= accessFactor;
@@ -809,7 +809,7 @@
       if (illuminationTrace) illuminationTrace.contribution = { dynamic_weight: dynamicWeights.illumination,
         value: contributions.illumination, P: P, Q: Q, score_engine: score,
         structure_bonus: structureBonus, transition_bonus: transitionBonusVal, weather_penalty: pWeather };
-      input.offlineTrace({ ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(structureDirectionConfigured(cfg) ? { structure_direction: { corridor_opening: corridorOpening, local_low: valid(lv.low) ? lv.low : null, gradient: gradientVal, access_factor: accessFactor } } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm, total_cloud: clearSky.total_cloud, hint: clearSky.hint } } : {}),
+      input.offlineTrace({ ...(canvasMerge ? { canvas_merge: canvasMerge } : {}), ...(illuminationTrace ? { illumination_internal: illuminationTrace } : {}), ...(structureDirectionConfigured(cfg) ? { structure_direction: { corridor_opening: corridorOpening, local_low: valid(lv.low) ? lv.low : null, gradient: gradientVal, access_factor: accessFactor } } : {}), ...(hcp ? { horizon_cloud_potential: { value: potential.value, factor: potentialFactor, f: hcp.f, k: hcp.k, radius_km: hcp.radiusKm, total_cloud: clearSky.total_cloud, hint: clearSky.hint } } : {}),
         components: rawComponents, dynamic_weights: dynamicWeights, contributions: contributions,
         P: P, Q: Q, horizon_gate: gate, structure_bonus: structureBonus, transition_bonus: transitionBonusVal,
         weather_penalty: pWeather, atmosphere_inputs: { visibility_km: visKm, aod: aod, pm25: pm25,
@@ -1074,6 +1074,20 @@
   /* V2.5.5.24（离线验证用，默认关闭；js/config.js 不含这三个键）。依据：ref_docs/PRD/V2.5.5.24--必要条件结构与方向纠正评估方案.md
      gradientDirection：NEUTRAL 时近远云量差不再参与云结构分、结构加分与天气趋势；REVERSED 时三处方向取反。
      canvasLightAccess.gamma：画布与光照贡献 × (走廊开阔度/100)^gamma；viewOcclusion.alpha：× (1 − alpha × 本地低云/100)。缺测时因子为 1。 */
+  /* V2.5.5.31（离线验证用，默认关闭；js/config.js 不含此键）。依据：ref_docs/PRD/V2.5.5.31--云幕与光照组件合并方案.md
+     canvasMerge = { skyCanvasShare: s, scale: k, twilightFloor: null | f }：Canvas = k × [s × SkyCanvas + (1 − s) × cbp × 数据系数]，
+     twilightFloor 为数值时再乘 f + (1 − f) × 昏影饱和比；结果截断到 0–100。键缺失时返回 null，所有数值与之前相同。 */
+  function canvasMergeOf(cfg, skyCanvasOriginal, cbp, dataFactor, twilightRatio, mults, twilightMinutes) {
+    var m = cfg.canvasMerge;
+    if (m == null) return null;
+    var s = m.skyCanvasShare, k = m.scale, f = m.twilightFloor == null ? null : m.twilightFloor;
+    if (!valid(s) || s < 0 || s > 1 || !valid(k) || k <= 0 || (f != null && (!valid(f) || f < 0 || f > 1))) throw new Error('INVALID_CANVAS_MERGE');
+    var twilightFactor = f == null ? 1 : f + (1 - f) * twilightRatio;
+    var wS = cfg.weights.skyCanvas, wI = cfg.weights.illumination;
+    return { value: clamp(k * (s * skyCanvasOriginal + (1 - s) * cbp * dataFactor) * twilightFactor, 0, 100), sky_canvas_original: skyCanvasOriginal,
+      cloud_bank_potential: cbp, data_factor: dataFactor, sky_canvas_share: s, scale: k, twilight_floor: f, twilight_factor: twilightFactor, twilight_minutes: twilightMinutes,
+      base_weight: wS + wI, merged_multiplier: wS + wI > 0 ? (wS * mults.skyCanvas + wI * mults.illumination) / (wS + wI) : null };
+  }
   function gradientSign(cfg) { return cfg.gradientDirection === 'NEUTRAL' ? 0 : cfg.gradientDirection === 'REVERSED' ? -1 : 1; }
   function structureDirectionConfigured(cfg) { return cfg.canvasLightAccess != null || cfg.viewOcclusion != null || cfg.gradientDirection != null; }
   function canvasAccessFactorOf(cfg, corridorOpening, lv) {

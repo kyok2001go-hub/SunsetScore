@@ -310,6 +310,25 @@ export const ABLATIONS = Object.freeze([
   }
 ]);
 
+/**
+ * V2.5.5.31 canvasMerge (offline validation only; js/config.js does not carry it). When the key is present the illumination weight is
+ * folded into the sky-canvas weight and the twilight score leaves the score, so these registered units are no longer wired. Kept outside
+ * registryDocument() so the registry hash of existing runs is unchanged; a base config carrying the key is rejected before any experiment.
+ */
+export const CONFIG_CONDITIONAL_UNWIRING = Object.freeze([
+  Object.freeze({ config_key: 'canvasMerge', wired_status: 'NOT_WIRED', reason_code: 'CANVAS_MERGE_UNWIRES_ILLUMINATION',
+    canonical_paths: Object.freeze(['weights.illumination', 'illuminationModel.bankShare', 'illuminationModel.twilightSaturationMinutes']),
+    source: 'ref_docs/PRD/V2.5.5.31--云幕与光照组件合并方案.md' })
+]);
+export function conditionalUnwiring(config) {
+  return CONFIG_CONDITIONAL_UNWIRING.filter(rule => config != null && config[rule.config_key] != null);
+}
+export function assertNoConditionalUnwiring(config) {
+  const hit = conditionalUnwiring(config);
+  if (hit.length) throw Object.assign(new Error(hit[0].reason_code), { code: 'TUNING_VALIDATION_FAILED', reason_code: hit[0].reason_code,
+    detail: hit.flatMap(rule => rule.canonical_paths) });
+}
+
 export function registryUnit(id) {
   const unit = UNITS.find(item => item.parameter_id === id);
   if (!unit) throw Object.assign(new Error('UNKNOWN_PARAMETER_ID'), { code: 'TUNING_VALIDATION_FAILED', reason_code: 'UNKNOWN_PARAMETER_ID' });

@@ -31,8 +31,10 @@ import { digest } from './policy.mjs';
 // (app 2.5.5.26 / app25526 only; model and scoring configuration unchanged).
 // V2.5.5.29 changes js/config.js again (app 2.5.5.29 / app25529 only; model and scoring configuration unchanged). js/bypass_capture.js is not a
 // Replay runtime file.
+// V2.5.5.31 changes js/engine.js (canvasMerge, offline validation only); with the key absent every engine value is computed exactly as before,
+// and js/config.js does not carry it.
 const CURRENT_PINS = Object.freeze({
-  "js/engine.js": "c036a0c410f85c143690dcf173d546d04303eca889d11ec119deb4921c8d0edc",
+  "js/engine.js": "aa0b0278a9e34fd4e3674ede5462642d9463949445f8b15879f4c3ecac6e6530",
   "js/config.js": "4a23eb76c7ddab78dd1da22fb542f07b8236b4bec87d6d3c52f301529c1369dd",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
@@ -336,6 +338,20 @@ const ORIGINS = Object.freeze([
     "files": {
       "js/engine.js": "c036a0c410f85c143690dcf173d546d04303eca889d11ec119deb4921c8d0edc",
       "js/config.js": "30866390d408f74f0ce3fc6e31e6a0d685fd7be6c041a5b19f4c36555d90198a",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+      "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+      "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
+    }
+  },
+  // V2.5.5.29 (commit 9cbaf75, app 2.5.5.29 / app25529; deployed); differs from the current pins only in js/engine.js.
+  {
+    "engine": "76752707778eabe6b2fd029f06169bd1dc4257919a8d3395d48f0caf279fdd78",
+    "files": {
+      "js/engine.js": "c036a0c410f85c143690dcf173d546d04303eca889d11ec119deb4921c8d0edc",
+      "js/config.js": "4a23eb76c7ddab78dd1da22fb542f07b8236b4bec87d6d3c52f301529c1369dd",
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
