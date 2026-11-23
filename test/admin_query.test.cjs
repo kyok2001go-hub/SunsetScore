@@ -151,6 +151,55 @@ test('both admin lists default to newest submission first and break timestamp ti
   } finally { sqlite.close(); }
 });
 
+test('both admin lists filter event_date_local by an inclusive, optionally one-sided range', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    sqlite.exec("UPDATE prediction_snapshots SET event_date_local = '2026-09-24' WHERE id = 's3'");
+    sqlite.prepare(`INSERT INTO sunset_observations (
+      id, submission_id, event_id, event_date_local, location_key, city, latitude, longitude,
+      timezone, sunset_time_utc, sunset_time_local, submitted_at_utc, submitted_at_epoch,
+      rating, rating_label, source, dataset_schema_version
+    ) VALUES ('o2', 'sub-o2', 'event-o2', '2026-09-21', 'loc', '深圳', 22, 114,
+      'Asia/Shanghai', '2026-09-21T10:00:00Z', '2026-09-21 18:00',
+      '2026-09-21T11:00:00Z', 900, 'fair', '一般', 'user', 3)`).run();
+    const { onRequest: snapshots } = await import('../functions/api/admin/snapshots.js');
+    const { onRequest: observations } = await import('../functions/api/admin/observations.js');
+    async function ids(handler, path) {
+      const response = await handler(context(db, path));
+      assert.equal(response.status, 200, path);
+      const result = await response.json();
+      assert.equal(result.pagination.total, result.items.length, path + ' total matches filter');
+      return result.items.map(row => row.id);
+    }
+    const base = '/api/admin/snapshots?';
+    assert.deepEqual(await ids(snapshots, base + 'date_from=2026-09-23&date_to=2026-09-23'), ['s4', 's1']);
+    assert.deepEqual(await ids(snapshots, base + 'date_from=2026-09-22&date_to=2026-09-24'), ['s4', 's3', 's2', 's1']);
+    assert.deepEqual(await ids(snapshots, base + 'date_from=2026-09-23'), ['s4', 's3', 's1']);
+    assert.deepEqual(await ids(snapshots, base + 'date_to=2026-09-22'), ['s2']);
+    assert.deepEqual(await ids(snapshots, base + 'date_from=&date_to='), ['s4', 's3', 's2', 's1']);
+    assert.deepEqual(await ids(snapshots, base + 'date_from=2026-09-25'), []);
+    assert.deepEqual(await ids(snapshots, base + 'date_from=2026-09-22&date_to=2026-09-24&city=%E5%B9%BF'), ['s2']);
+    assert.deepEqual(await ids(snapshots, base + 'event_date_local=2026-09-24'), ['s3'], 'legacy single date');
+    const paged = await (await snapshots(context(db, base + 'date_from=2026-09-23&page_size=20&page=1'))).json();
+    assert.equal(paged.pagination.total, 3);
+    assert.equal(paged.pagination.total_pages, 1);
+    const obs = '/api/admin/observations?';
+    assert.deepEqual(await ids(observations, obs + 'date_from=2026-09-22'), ['o1']);
+    assert.deepEqual(await ids(observations, obs + 'date_to=2026-09-22'), ['o2']);
+    assert.deepEqual(await ids(observations, obs + 'date_from=2026-09-21&date_to=2026-09-23'), ['o1', 'o2']);
+    for (const [handler, prefix] of [[snapshots, base], [observations, obs]]) {
+      const reversed = await handler(context(db, prefix + 'date_from=2026-09-24&date_to=2026-09-22'));
+      assert.equal(reversed.status, 400);
+      assert.equal((await reversed.json()).error, '开始日期不能晚于结束日期');
+      for (const query of ['date_from=2026-02-30', 'date_to=20260923', 'date_to=2026-9-23',
+        "date_from=2026-09-23'--", 'date_from=2026-09-22&date_from=2026-09-23']) {
+        assert.equal((await handler(context(db, prefix + query))).status, 400, prefix + query);
+      }
+    }
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM prediction_snapshots').get().n, 4);
+  } finally { sqlite.close(); }
+});
+
 test('admin APIs reject invalid filters, parameters and write methods', async () => {
   const { sqlite, db } = fixture();
   try {

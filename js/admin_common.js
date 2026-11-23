@@ -46,6 +46,7 @@
       var control = form.elements.namedItem(button.getAttribute('data-clear-for'));
       button.hidden = !control || control.value === '';
     });
+    syncDateRangeBounds();
   }
 
   clearButtons.forEach(function (button) {
@@ -169,8 +170,27 @@
     }
   }
 
+  // 日期区间：两端可选、含两端；开始晚于结束时只提示，不发请求。
+  function invalidDateRange() {
+    var from = form.elements.namedItem('date_from');
+    var to = form.elements.namedItem('date_to');
+    return !!(from && to && from.value && to.value && from.value > to.value);
+  }
+
+  function syncDateRangeBounds() {
+    var from = form.elements.namedItem('date_from');
+    var to = form.elements.namedItem('date_to');
+    if (!from || !to) return;
+    to.min = from.value;
+    from.max = to.value;
+  }
+
   form.addEventListener('submit', function (event) {
     event.preventDefault();
+    if (invalidDateRange()) {
+      setStatus('开始日期不能晚于结束日期，请调整后再查询。', true);
+      return;
+    }
     activeFilters = readFilters();
     loadPage(1);
   });

@@ -19,8 +19,15 @@ const SOURCE_LABELS = Object.freeze({
   github_schedule: '定时采集', github_manual: '手动采集', user_feedback: '用户反馈',
   user: '用户反馈', rednote_agent: 'Rednote Agent', rednote_manual: '管理员补录'
 });
+// date_from / date_to 按 event_date_local（Event 当地日落日期）闭区间筛选；
+// event_date_local 单日参数保留兼容旧链接。
+const EVENT_DATE_RANGE = Object.freeze({
+  date_from: { type: 'date', column: 'event_date_local', operator: '>=' },
+  date_to: { type: 'date', column: 'event_date_local', operator: '<=' }
+});
 const SNAPSHOT_FILTERS = Object.freeze({
   event_date_local: { type: 'date' },
+  ...EVENT_DATE_RANGE,
   city: { type: 'city' },
   predicted_level: { type: 'text', max: 30 },
   baseline_level: { type: 'text', max: 30, nullable: true },
@@ -30,6 +37,7 @@ const SNAPSHOT_FILTERS = Object.freeze({
 });
 const OBSERVATION_FILTERS = Object.freeze({
   event_date_local: { type: 'date' },
+  ...EVENT_DATE_RANGE,
   city: { type: 'city' },
   rating: { type: 'enum', values: Object.keys(RATING_LABELS) },
   source: { type: 'enum', values: OBSERVATION_SOURCES }
@@ -73,13 +81,13 @@ export function parsePagination(params) {
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
-export function parseDateFilter(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ValidationError('event_date_local 格式必须为 YYYY-MM-DD');
+export function parseDateFilter(value, name = 'event_date_local') {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ValidationError(name + ' 格式必须为 YYYY-MM-DD');
   const [year, month, day] = value.split('-').map(Number);
   const days = [31, year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
     31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (year < 1 || month < 1 || month > 12 || day < 1 || day > days[month - 1]) {
-    throw new ValidationError('event_date_local 不是有效日期');
+    throw new ValidationError(name + ' 不是有效日期');
   }
   return value;
 }
@@ -103,6 +111,7 @@ export function escapeLikeLiteral(value) {
 export function buildWhereFromWhitelist(params, filters) {
   const clauses = [];
   const bindings = [];
+  const range = {};
   for (const [name, rule] of Object.entries(filters)) {
     if (!params.has(name)) continue;
     const raw = params.get(name);
@@ -112,7 +121,9 @@ export function buildWhereFromWhitelist(params, filters) {
     }
     if (raw === '') continue;
     if (rule.type === 'date') {
-      clauses.push(name + ' = ?'); bindings.push(parseDateFilter(raw));
+      const date = parseDateFilter(raw, name);
+      clauses.push((rule.column || name) + ' ' + (rule.operator || '=') + ' ?'); bindings.push(date);
+      if (rule.operator) range[name] = date;
     } else if (rule.type === 'city') {
       const city = parseTextFilter(raw, name, 100);
       if (city) { clauses.push("city LIKE ? ESCAPE '\\'"); bindings.push('%' + escapeLikeLiteral(city) + '%'); }
@@ -122,6 +133,9 @@ export function buildWhereFromWhitelist(params, filters) {
       const text = parseTextFilter(raw, name, rule.max);
       if (text) { clauses.push(name + ' = ?'); bindings.push(text); }
     }
+  }
+  if (range.date_from && range.date_to && range.date_from > range.date_to) {
+    throw new ValidationError('开始日期不能晚于结束日期');
   }
   return { sql: clauses.length ? ' WHERE ' + clauses.join(' AND ') : '', bindings };
 }

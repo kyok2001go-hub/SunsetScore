@@ -28,8 +28,9 @@
       </header>
       <section class="panel" aria-labelledby="filter-title">
         <h2 id="filter-title">筛选条件</h2>
-        <form id="admin-filter-form" class="admin-filter-grid">
-          <div class="admin-filter-field"><label for="observation-date">日期</label><span class="admin-filter-control"><input id="observation-date" name="event_date_local" type="date"><button type="button" class="admin-clear-filter" data-clear-for="event_date_local" aria-label="清空日期" hidden>×</button></span></div>
+        <form id="admin-filter-form" class="admin-filter-grid" novalidate>
+          <div class="admin-filter-field"><label for="observation-date-from">开始日期</label><span class="admin-filter-control"><input id="observation-date-from" name="date_from" type="date" data-range-start><button type="button" class="admin-clear-filter" data-clear-for="date_from" aria-label="清空开始日期" hidden>×</button></span></div>
+          <div class="admin-filter-field"><label for="observation-date-to">结束日期</label><span class="admin-filter-control"><input id="observation-date-to" name="date_to" type="date" data-range-end><button type="button" class="admin-clear-filter" data-clear-for="date_to" aria-label="清空结束日期" hidden>×</button></span></div>
           <div class="admin-filter-field"><label for="observation-city">城市</label><span class="admin-filter-control"><input id="observation-city" name="city" type="search" maxlength="100" autocomplete="off" placeholder="输入城市名称"><button type="button" class="admin-clear-filter" data-clear-for="city" aria-label="清空城市" hidden>×</button></span></div>
           <div class="admin-filter-field"><label for="observation-rating">反馈等级</label><span class="admin-filter-control"><select id="observation-rating" name="rating" data-options="rating"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="rating" aria-label="清空反馈等级" hidden>×</button></span></div>
           <div class="admin-filter-field"><label for="observation-source">来源</label><span class="admin-filter-control"><select id="observation-source" name="source" data-options="source"><option value="">全部</option></select><button type="button" class="admin-clear-filter" data-clear-for="source" aria-label="清空来源" hidden>×</button></span></div>
@@ -59,6 +60,6 @@
       </section>
     </main>
   </div>
-  <script src="/js/admin_common.js?v=2.5.3.3-admin4"></script>
+  <script src="/js/admin_common.js?v=2.5.3.3-admin5"></script>
 </body>
 </html>
