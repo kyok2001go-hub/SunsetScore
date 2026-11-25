@@ -425,6 +425,9 @@ body {
 .reason-list.warn { margin-top: 10px; }
 .reason-list.warn li { color: var(--warn); }
 .reason-list.warn:empty { margin-top: 0; }
+/* V2.5.5.37：低分时不利项在前 */
+.warn-first > .reason-list.warn { margin-top: 0; margin-bottom: 10px; }
+.warn-first > .reason-list.warn:empty { margin-bottom: 0; }
 
 /* ---------- 详情 ---------- */
 .details-toggle {

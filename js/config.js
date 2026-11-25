@@ -14,7 +14,8 @@
  * 应用 V2.5.5.20（模型仍为 2.5.5.19）：Open-Meteo 直连失败时改走本站 /api/open-meteo 转发，评分配置不变。
  * 应用 V2.5.5.26（模型仍为 2.5.5.19）：置信度只反映数据完整度与提前量（js/engine.js），分数与评分配置不变。
  * 应用 V2.5.5.29（模型仍为 2.5.5.19）：旁路对象升为 v3，增加光路剖面（ECMWF 0.25° 气压层）与上游 AOD（js/bypass_capture.js），只记录、不计分。
- * 依据：ref_docs/PRD/V2.5.5.29--光路剖面旁路采集方案.md、ref_docs/PRD/V2.5.5.26--置信度修正方案.md、ref_docs/PRD/V2.5.5.20--Open-Meteo请求超时修复方案.md、ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md、ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md、ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
+ * 应用 V2.5.5.37（模型仍为 2.5.5.19）：预测解读文案按扣分来源在最终分之后重新生成（js/explain.js），只改文案，分数与评分配置不变。
+ * 依据：ref_docs/PRD/V2.5.5.37--预测解读文案修正方案.md、ref_docs/PRD/V2.5.5.29--光路剖面旁路采集方案.md、ref_docs/PRD/V2.5.5.26--置信度修正方案.md、ref_docs/PRD/V2.5.5.20--Open-Meteo请求超时修复方案.md、ref_docs/PRD/V2.5.5.19--地平线条件化上线与无云日提示方案.md、ref_docs/PRD/V2.5.5.11--等级分数线重新校准方案.md、ref_docs/PRD/V2.5.5.4--地平线中心节点方位修正方案.md、ref_docs/PRD/V2.5.5.7--旁路采集V1方案.md、ref_docs/PRD/V2.5.5.8--卫星影子采集方案.md；V2.5.5.2 依据见 ref_docs/PRD/V2.5.5.2--黄金窗口与等级划线校准方案.md
  * 来源/取舍与发布证据：ref_docs/Dev_version_record/V2.5.5.0发布证据/release_manifest.json
  * ============================================================ */
 (function (root) {
@@ -22,10 +23,10 @@
   root.SunsetScore = root.SunsetScore || {};
 
   root.SunsetScore.version = Object.freeze({
-    app: '2.5.5.29',
+    app: '2.5.5.37',
     model: '2.5.5.19',
     schema: 3,
-    assetRevision: 'app25529',
+    assetRevision: 'app25537',
     cache: 'v237',
     feedbackSchema: 2,
     datasetSchema: 3

@@ -35,9 +35,11 @@ import { digest } from './policy.mjs';
 // and js/config.js does not carry it.
 // V2.5.5.35 changes js/evolution.js (goldenWindow.referenceByLead, offline validation only); with the key absent the golden-window factor and its
 // range are computed exactly as before, and js/config.js does not carry it.
+// V2.5.5.37 changes js/config.js again (app 2.5.5.37 / app25537 only; model and scoring configuration unchanged). js/explain.js only rewrites
+// the displayed reasons / warnings after the final score and is not a Replay runtime file.
 const CURRENT_PINS = Object.freeze({
   "js/engine.js": "aa0b0278a9e34fd4e3674ede5462642d9463949445f8b15879f4c3ecac6e6530",
-  "js/config.js": "4a23eb76c7ddab78dd1da22fb542f07b8236b4bec87d6d3c52f301529c1369dd",
+  "js/config.js": "45ede0b1a9f8c24ebe0561f6669a0e169bd60e1aee1f4a894ec52fdc1f80cfbe",
   "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
   "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
   "js/evolution.js": "817600968f11ed43854ae3346e1b1e1a0655b384cc1f23b315e89703bc281caf",
@@ -371,6 +373,20 @@ const ORIGINS = Object.freeze([
       "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
       "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
       "js/evolution.js": "11a2f42045f4f6e12c3ac2d0ddda37c9db6c1545d4693bb52cd37b76ab8ef258",
+      "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
+      "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
+      "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"
+    }
+  },
+  // V2.5.5.35 (commit cb61b04; not deployed, current until V2.5.5.37); differs from the current pins only in js/config.js.
+  {
+    "engine": "df6535187a38222d76037e6743a06b67d35c3f35d3bc3b30b5a58947323e8b42",
+    "files": {
+      "js/engine.js": "aa0b0278a9e34fd4e3674ede5462642d9463949445f8b15879f4c3ecac6e6530",
+      "js/config.js": "4a23eb76c7ddab78dd1da22fb542f07b8236b4bec87d6d3c52f301529c1369dd",
+      "js/sky_state.js": "7092b64a78cfadf15b7135f10180e5eeb38a97f179f81441f4550c83f7479add",
+      "js/model_config.js": "c28b591d7c90c39e5461a3f1525a7dfa35044b7eb8a629c72c96c806960fea7d",
+      "js/evolution.js": "817600968f11ed43854ae3346e1b1e1a0655b384cc1f23b315e89703bc281caf",
       "js/network.js": "de95a0ff2de10ac7d8c62c95f271c49a7aa6d33d039b7c408c3bfdc7a98c1a77",
       "js/data.js": "b4425de3f2f4ed0347c4832d39c2432c6dc16e76e04e807f37619bcbc255b618",
       "js/nowcast.js": "0166f87b20b3f1747faf77686dc3e99a2f171f80573a79b40f7172a8fc370f07"

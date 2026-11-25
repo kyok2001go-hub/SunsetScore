@@ -200,6 +200,15 @@
     (items || []).forEach(function (text) { var item = root.document.createElement('li'); item.textContent = (warning ? '⚠ ' : '') + text; host.appendChild(item); });
     if (warning && !(items || []).length) hide(host); else show(host);
   }
+  /* V2.5.5.37：分数低于“一般”线时先显示不利项 */
+  function orderReasonLists(result) {
+    var reasons = $('r-reasons'), warnings = $('r-warnings');
+    if (!reasons || !warnings || !reasons.parentNode || reasons.parentNode !== warnings.parentNode) return;
+    var line = SS.explain && SS.explain.lowScoreLine ? SS.explain.lowScoreLine() : 49;
+    var warnFirst = result.score < line;
+    reasons.parentNode.insertBefore(warnFirst ? warnings : reasons, warnFirst ? reasons : warnings);
+    reasons.parentNode.classList.toggle('warn-first', warnFirst);
+  }
   function addDetailGroup(host, title, rows) {
     var group = root.document.createElement('div'); group.className = 'detail-group';
     var heading = root.document.createElement('div'); heading.className = 'detail-group-title'; heading.textContent = title;
@@ -412,7 +421,7 @@
     setText('r-regime', result.regime_label + (result.regime_state && result.regime_state.strength != null ? ' · 强度 ' + Math.round(result.regime_state.strength * 100) + '%' : ''));
     var clearSkyHint = $('r-clear-sky-hint'); if (clearSkyHint) clearSkyHint.hidden = !(result.clear_sky && result.clear_sky.hint === true);
     renderSkyEvolution(result); renderNowcast(result); renderBars(result);
-    renderList('r-reasons', result.reasons, false); renderList('r-warnings', result.warnings, true); renderDetails(result);
+    renderList('r-reasons', result.reasons, false); renderList('r-warnings', result.warnings, true); orderReasonLists(result); renderDetails(result);
     if (SS.radarView) SS.radarView.render(result);
     if (SS.debugView) SS.debugView.render(result);
     if (SS.stickySummary) SS.stickySummary.setData(result, cityTitle);

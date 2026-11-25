@@ -30,7 +30,7 @@ test('Production config carries the released key: f 0.7, k 5, 100 km, hint below
   assert.deepEqual(JSON.parse(JSON.stringify(SS.config.horizonCloudPotential)), { f: 0.7, k: 5, radiusKm: 100, hintTotalCloudBelowPct: 20 });
   assert.equal('canvasZeroFloor' in SS.config, false);
   assert.deepEqual(plain(SS.config.levels.map(l => l.min)), [90, 66, 49, 19, 0]);
-  assert.deepEqual([SS.version.app, SS.version.model, SS.version.assetRevision, SS.version.cache], ['2.5.5.29', '2.5.5.19', 'app25529', 'v237']);
+  assert.deepEqual([SS.version.app, SS.version.model, SS.version.assetRevision, SS.version.cache], ['2.5.5.37', '2.5.5.19', 'app25537', 'v237']);
 });
 
 test('Hint shows only when C < 5% and the sunset-time total cloud is below 20%', () => {

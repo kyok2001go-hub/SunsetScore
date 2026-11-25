@@ -33,7 +33,8 @@ export const RELEASE_VALUES=Object.freeze({'weights.skyCanvas':.2,'weights.horiz
 // V2.5.5.20 changes the app only (Open-Meteo falls back to the /api/open-meteo relay); model and scoring configuration stay 2.5.5.19.
 // V2.5.5.26 changes the app only (confidence reflects data completeness and lead time); model and scoring configuration stay 2.5.5.19.
 // V2.5.5.29 changes the app only (record-only light-path profile and upstream AOD in the bypass object, v3); model and scoring configuration stay 2.5.5.19.
-export const RELEASE_VERSION=Object.freeze({app:'2.5.5.29',model:'2.5.5.19',assetRevision:'app25529'});
+// V2.5.5.37 changes the app only (prediction explanation text regenerated after the final score, js/explain.js); model and scoring configuration stay 2.5.5.19.
+export const RELEASE_VERSION=Object.freeze({app:'2.5.5.37',model:'2.5.5.19',assetRevision:'app25537'});
 // V2.5.5.11, rebuilt from production by removing the V2.5.5.19 key; the rebuilt configuration must hash exactly as the V2.5.5.11 release did.
 export const V25511_VERSION='2.5.5.11';
 export const V25511_SCORING_SHA256='83ceb5acaacc9ffb1fe88c4e8b9813a76e2a3bdabeda6e5f3752afbdf9bf282a';

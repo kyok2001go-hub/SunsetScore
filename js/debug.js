@@ -38,7 +38,10 @@
       regime: result.regime_state,
       skyState: result.all_day_sky_state,
       observation_sources: result.nowcast ? result.nowcast.sourcesStatus : null,
-      evolution: result.sky_evolution
+      evolution: result.sky_evolution,
+      explain: result.explain || null,
+      engine_reasons: result.engine_reasons || null,
+      engine_warnings: result.engine_warnings || null
     }, null, 2);
     panel.appendChild(title);
     panel.appendChild(pre);

@@ -378,10 +378,12 @@
     finally { timing.cache_check_ms = elapsedMs(cacheStartedAt); }
     if (earlyCachedResult && !options.captureReplay) {
       timing.total_ms = elapsedMs(totalStartedAt);
-      return Object.assign({}, earlyCachedResult, {
+      var cachedCopy = Object.assign({}, earlyCachedResult, {
         result_cache_status: 'HIT',
         performance_timing: timing
       });
+      /* V2.5.5.37：命中缓存也重新生成预测解读（幂等，读 engine_reasons / engine_warnings） */
+      return SS.explain ? SS.explain.apply(cachedCopy) : cachedCopy;
     }
 
     progress(options, '正在获取本地天气与时区…');
@@ -544,6 +546,7 @@
     result.longitude = location.longitude;
     addDisplayFields(result, context);
     result = await applySunsetEvolution(result, context, options, timing);
+    if (SS.explain) SS.explain.apply(result); /* V2.5.5.37：按最终分重新生成预测解读，只改 reasons / warnings */
     timing.compute_ms = Math.max(0, elapsedMs(computeStartedAt) - (timing.nowcast_ms || 0));
     SS.domain.assertPredictionResult(result);
     SS.network.throwIfAborted(options.signal);
