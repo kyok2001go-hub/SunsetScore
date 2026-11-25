@@ -47,6 +47,7 @@ function report(spec, pool, search, result, selected, nearest, constants, slices
 }
 export async function practicalRun(options, progress = () => {}) {
   if (options.searchSpace === 'structure-direction') return (await import('./structure-direction-workflow.mjs')).runSd({ output: options.output, resume: options.resume }, progress);
+  if (options.searchSpace === 'gw-lead-reference') return (await import('./gw-lead-reference-workflow.mjs')).runGl({ output: options.output, resume: options.resume }, progress);
   if (options.searchSpace === 'canvas-merge') return (await import('./canvas-merge-workflow.mjs')).runCm({ output: options.output, resume: options.resume }, progress);
   if (options.searchSpace === 'penalty-weights') return (await import('./penalty-weights-workflow.mjs')).runPw({ output: options.output, resume: options.resume }, progress);
   if (options.searchSpace === 'redundancy') return (await import('./redundancy-workflow.mjs')).runRd({ output: options.output, resume: options.resume }, progress);
@@ -172,6 +173,7 @@ export async function practicalRun(options, progress = () => {}) {
 export async function inspectPractical(directory) {
   const root = await safePath(directory), manifest = await json(path.join(root, 'manifest.json'));
   if (manifest.practical_tuning_schema_version === 18 && manifest.practical_tuning_policy_version === 18) return (await import('./structure-direction-workflow.mjs')).inspectSd(root);
+  if (manifest.practical_tuning_schema_version === 20 && manifest.practical_tuning_policy_version === 20) return (await import('./gw-lead-reference-workflow.mjs')).inspectGl(root);
   if (manifest.practical_tuning_schema_version === 19 && manifest.practical_tuning_policy_version === 19) return (await import('./canvas-merge-workflow.mjs')).inspectCm(root);
   if (manifest.practical_tuning_schema_version === 17 && manifest.practical_tuning_policy_version === 17) return (await import('./penalty-weights-workflow.mjs')).inspectPw(root);
   if (manifest.practical_tuning_schema_version === 16 && manifest.practical_tuning_policy_version === 16) return (await import('./redundancy-workflow.mjs')).inspectRd(root);
@@ -216,6 +218,7 @@ export async function inspectPractical(directory) {
 export async function verifyPractical(directory) {
   const inspected = await inspectPractical(directory);
   if (inspected.manifest.practical_tuning_schema_version === 18) return (await import('./structure-direction-workflow.mjs')).verifySd(directory);
+  if (inspected.manifest.practical_tuning_schema_version === 20) return (await import('./gw-lead-reference-workflow.mjs')).verifyGl(directory);
   if (inspected.manifest.practical_tuning_schema_version === 19) return (await import('./canvas-merge-workflow.mjs')).verifyCm(directory);
   if (inspected.manifest.practical_tuning_schema_version === 17) return (await import('./penalty-weights-workflow.mjs')).verifyPw(directory);
   if (inspected.manifest.practical_tuning_schema_version === 16) return (await import('./redundancy-workflow.mjs')).verifyRd(directory);

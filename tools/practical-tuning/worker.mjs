@@ -4,6 +4,7 @@ import { codeIdentity, loadPool, checkInputs } from './data.mjs';
 import { replayCalculator, preflight, evaluateWeights } from './compute.mjs';
 import { digest, installWeights, POLICY, RECOGNITION_POLICY } from './policy.mjs';
 export async function verifyRequest(request, { compatibleV1Tools = false, compatibleTools = false } = {}) {
+  if (request.spec.practical_tuning_schema_version === 20 && request.spec.practical_tuning_policy_version === 20) return (await import('./gw-lead-reference-workflow.mjs')).verifyGlRequest(request);
   if (request.spec.practical_tuning_schema_version === 19 && request.spec.practical_tuning_policy_version === 19) return (await import('./canvas-merge-workflow.mjs')).verifyCmRequest(request);
   if (request.spec.practical_tuning_schema_version === 18 && request.spec.practical_tuning_policy_version === 18) return (await import('./structure-direction-workflow.mjs')).verifySdRequest(request);
   if (request.spec.practical_tuning_schema_version === 17 && request.spec.practical_tuning_policy_version === 17) return (await import('./penalty-weights-workflow.mjs')).verifyPwRequest(request);

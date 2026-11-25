@@ -29,14 +29,14 @@
   }
 
   /* 黄金窗口参考值：缺省或非法时为 1（V2.5.5.1 及更早的未归一行为） */
-  function goldenWindowReference() {
-    var reference = SS.modelConfig.goldenWindow.reference;
+  function goldenWindowReference(minutesToSunset) {
+    var reference = SS.modelConfig.goldenWindow.reference; var byLead = leadReferenceOf(minutesToSunset); if (byLead != null) return byLead; /* V2.5.5.35 referenceByLead（离线验证用，默认关闭），见文件末尾 */
     return valid(reference) && reference > 0 ? reference : 1;
   }
 
   /* 黄金窗口因子的合法区间 [floor, 1] / reference，生产与 Replay 共用 */
-  function goldenWindowFactorRange() {
-    var reference = goldenWindowReference();
+  function goldenWindowFactorRange(minutesToSunset) {
+    var reference = goldenWindowReference(minutesToSunset); var leadRange = leadFactorRangeOf(minutesToSunset); if (leadRange) return leadRange;
     return [SS.modelConfig.goldenWindow.floor / reference, 1 / reference];
   }
 
@@ -309,9 +309,9 @@
       evo.sunsetOpenProbability = pSunset;
       evo.sunsetMinutesAway = Math.round(tSunset);
       var floor = SS.modelConfig.goldenWindow.floor;
-      var gwRange = goldenWindowFactorRange();
-      var gwFactor = (floor + (1 - floor) * pSunset) / goldenWindowReference();
-      evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, gwRange[0], gwRange[1]) * 1000) / 1000;
+      var gwRange = goldenWindowFactorRange(tSunset);
+      var gwFactor = (floor + (1 - floor) * pSunset) / goldenWindowReference(tSunset);
+      evo.gwFactor = Math.round(clamp(valid(gwFactor) ? gwFactor : 1.0, gwRange[0], gwRange[1]) * 1000) / 1000; if (leadReferenceOf(tSunset) != null) evo.gwReference = leadReferenceOf(tSunset);
     }
 
     var degradedSources = [];
@@ -383,10 +383,10 @@
     calculateOpenProbability: corridorOpenProbability,
     calculateRainStopConfidence: rainStopConfidence,
     calculateEvolutionProbability: fuseEvolution,
-    calculateGoldenWindowFactor: function (probability) {
+    calculateGoldenWindowFactor: function (probability, minutesToSunset) {
       var floor = SS.modelConfig.goldenWindow.floor;
-      var range = goldenWindowFactorRange();
-      return clamp((floor + (1 - floor) * safeProbability(probability, 0.5)) / goldenWindowReference(), range[0], range[1]);
+      var range = goldenWindowFactorRange(minutesToSunset);
+      return clamp((floor + (1 - floor) * safeProbability(probability, 0.5)) / goldenWindowReference(minutesToSunset), range[0], range[1]);
     },
     goldenWindowFactorRange: goldenWindowFactorRange,
     fallbackGoldenWindow: fallbackGoldenWindow,
@@ -445,5 +445,35 @@
       out[h + 'm'] = Math.round(clamp(safeProbability(p, 0.5), cfg.probClamp[0], cfg.probClamp[1]) * 100) / 100;
     });
     return out;
+  }
+  /* ---------- V2.5.5.35 按时距分段的黄金窗口 reference（离线验证用，默认关闭；js/config.js 不含此键） ----------
+     goldenWindow.referenceByLead = [{ maxLeadMinutes, reference }, ...]：maxLeadMinutes 严格递增，reference > 0。
+     距日落 t 分钟（日落后的启用段记为 0）取第一个 t ≤ maxLeadMinutes 的段，超过最后一段时取最后一段；
+     因子 = (floor + (1 − floor)·P_open) / r(t)，合法区间 [floor, 1] / r(t)；不传 t 时（外层再截断）返回各段区间的并集。
+     键缺失或非法时返回 null，所有数值与之前逐位一致。依据：ref_docs/PRD/V2.5.5.35--晚间黄金窗口分数水平修正方案.md */
+  function leadReferenceTable() {
+    var t = SS.modelConfig.goldenWindow.referenceByLead;
+    if (!Array.isArray(t) || !t.length) return null;
+    for (var i = 0; i < t.length; i++) {
+      var b = t[i];
+      if (!b || !valid(b.maxLeadMinutes) || !valid(b.reference) || !(b.reference > 0) || (i > 0 && !(b.maxLeadMinutes > t[i - 1].maxLeadMinutes))) return null;
+    }
+    return t;
+  }
+  function leadReferenceOf(minutesToSunset) {
+    var t = leadReferenceTable();
+    if (!t || !valid(minutesToSunset)) return null;
+    var m = Math.max(0, minutesToSunset);
+    for (var i = 0; i < t.length; i++) if (m <= t[i].maxLeadMinutes) return t[i].reference;
+    return t[t.length - 1].reference;
+  }
+  function leadFactorRangeOf(minutesToSunset) {
+    var t = leadReferenceTable(), floor = SS.modelConfig.goldenWindow.floor;
+    if (!t) return null;
+    var r = leadReferenceOf(minutesToSunset);
+    if (r != null) return [floor / r, 1 / r];
+    var lo = Infinity, hi = -Infinity;
+    t.forEach(function (b) { lo = Math.min(lo, b.reference); hi = Math.max(hi, b.reference); });
+    return [floor / hi, 1 / lo];
   }
 })(typeof window !== 'undefined' ? window : globalThis);

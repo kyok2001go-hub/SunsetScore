@@ -1,5 +1,22 @@
 # 轻量 component_weights 调优（V2.5.4.9）
 
+## 晚间黄金窗口分数水平修正（V2.5.5.35，Schema/Policy 20）
+
+```powershell
+npm run tuning:practical -- --search-space gw-lead-reference
+npm run tuning:practical-verify -- --input <本轮Run目录>
+```
+
+开发数据评估，不搜索、不选线、不改默认配置；`js/config.js` 不含 `goldenWindow.referenceByLead`。需求见 [V2.5.5.35 PRD](../../../ref_docs/PRD/V2.5.5.35--晚间黄金窗口分数水平修正方案.md)。
+
+- **数据：** 与 Policy 13–19 相同，按身份读取 DEV、H1、H2 三个冻结包，拒绝 2026-11-16 起的日期。
+- **引擎键：** `goldenWindow.referenceByLead = [{ maxLeadMinutes, reference }, ...]`（`js/evolution.js`）。距日落 t 分钟（日落后记为 0）取第一个 t ≤ maxLeadMinutes 的段，超过最后一段取最后一段；因子 = (floor + (1 − floor)·P_open) / r(t)，合法区间 [floor, 1] / r(t)；不传 t 时返回各段区间的并集。键缺失或非法时所有数值不变。
+- **成员：** C0 = 2.5.5.19；主候选 K1（≤30 / 60 / 90 / 120 / 180 分钟，r = 0.851567 / 0.845156 / 0.828776 / 0.824235 / 0.744737）；只报告 K1P（≤120 / 180，r = 0.838085 / 0.744737）。r 在读标签之前由一次性脚本用全部 2771 条 Snapshot 中 1572 条日落前启用行的未归一因子均值标定（来源行 SHA-256 写在 Policy 中）。
+- **判定：** 现行线 19 / 49 / 66 / 90 下 K1 对 C0 的 N1–N4（ΔAUC≥2 下限 > −0.01、ΔAUC≥3 下限 > −0.02、损失差上限 ≤ +0.02、全体与有云 ≥2 召回不比 C0 低 0.01 以上）与 T1（同时有 16:13 与晚间快照的 Event，晚间 − 16:13 平均分差 ≤ +1.0），输出 `RELEASE_CANDIDATE` / `LEVEL_FIXED_BUT_COSTLY` / `NOT_EFFECTIVE`。按时距、K1P、跨时段、分组只报告。
+- **核对：** C0 复现 V2.5.5.18 Run 的固定签名；C0 与 K1 各做一次 Trace，逐条核对启用行的应用因子等于冻结公式（容差 1e-9）。
+- **参数登记：** `goldenWindow.reference` 不是登记单元，`goldenWindow.floor` 的接线锚点（`js/evolution.js` 第 40、311 行）保持不变；登记文档与其 Hash 不变。
+- **复算：** 发布前新进程完整重算 payload；`verify` 同样重算。
+
 ## 云幕与光照组件合并评估（V2.5.5.31，Schema/Policy 19）
 
 ```powershell
